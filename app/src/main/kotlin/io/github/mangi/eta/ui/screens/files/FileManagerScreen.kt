@@ -454,6 +454,11 @@ internal fun FileManagerScreen(
                 }) {
                     Icon(Icons.Rounded.SwapHoriz, contentDescription = "单/双栏", modifier = Modifier.size(22.dp))
                 }
+                // 「⋯」放在顶栏：窄屏双栏时每栏都放一个会被挤出屏幕，而且点谁就作用于哪栏更明确。
+                // 它作用于**当前活动栏**（点某栏的路径行或文件会把它设为活动栏）。
+                IconButton(onClick = { showPaneMenu = true }) {
+                    Icon(Icons.Rounded.MoreHoriz, contentDescription = "视图与新建", modifier = Modifier.size(22.dp))
+                }
                 if (!pickMode) {
                     IconButton(onClick = {
                         selectMode = !selectMode
@@ -666,10 +671,6 @@ internal fun FileManagerScreen(
                             goToInput = left.path
                             showGoTo = true
                         },
-                        onPaneMenu = {
-                            activeIsLeft = true
-                            showPaneMenu = true
-                        },
                         modifier = Modifier.weight(1f),
                     )
                     if (dualPane) {
@@ -712,10 +713,6 @@ internal fun FileManagerScreen(
                                 activeIsLeft = false
                                 goToInput = right.path
                                 showGoTo = true
-                            },
-                            onPaneMenu = {
-                                activeIsLeft = false
-                                showPaneMenu = true
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -1141,7 +1138,7 @@ internal fun FileManagerScreen(
     }
 }
 
-/** 单栏：路径行（↑ 上级 + 路径 + ＋新建 + ⋯菜单）+ 文件列表。 */
+/** 单栏：路径行（↑ 上级 + 紧凑路径 + 项数）+ 文件列表。 */
 @Composable
 private fun PaneView(
     pane: PaneState,
@@ -1155,7 +1152,6 @@ private fun PaneView(
     onLongPress: (FileManagerOps.Entry) -> Unit,
     onUp: () -> Unit,
     onGoPath: () -> Unit,
-    onPaneMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -1167,7 +1163,12 @@ private fun PaneView(
                 else MiuixTheme.colorScheme.surfaceContainer
             ),
     ) {
-        // 路径行：↑ 返回上一层（用户明确要的）；点中间路径可跳转
+        // 路径行：窄屏双栏下要省空间，所以只用图标 + 单行路径。
+        // 为什么这样摆（原来是「↑」+ 两行文字 +「⋯」挤成一团，右栏的「⋯」还被挤出屏幕）：
+        // - 「⋯」菜单挪到**顶栏**（只对当前活动栏生效），每栏只留一个「↑」和路径文字；
+        // - 路径显示改用「末尾目录名 + 中间省略」的紧凑写法，一栏只有半个屏幕宽，
+        //   从头部截断会永远只看到 /data/local/tmp/… 这种没用的前缀；
+        // - 项数放到路径后面，小一号灰字，不再单独占一行。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1175,47 +1176,45 @@ private fun PaneView(
                     if (isActive) MiuixTheme.colorScheme.surfaceContainerHigh
                     else MiuixTheme.colorScheme.surfaceContainer
                 )
-                .padding(start = 2.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+                .clickable { onGoPath() }
+                .padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onUp, enabled = true) {
+            IconButton(onClick = onUp, minWidth = 28.dp, minHeight = 28.dp) {
                 Icon(
                     Icons.Rounded.ArrowUpward,
                     contentDescription = "返回上一层",
-                    modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.primary,
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onGoPath() },
-            ) {
-                Text(
-                    text = pane.path,
-                    style = MiuixTheme.textStyles.subtitle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = when {
-                        pane.loading -> "加载中…"
-                        pane.listing?.ok == false -> pane.listing?.error.orEmpty()
-                        searchMode -> "搜索结果 ${entries.size} 项"
-                        else -> "${entries.size} 项"
-                    },
-                    style = MiuixTheme.textStyles.subtitle,
-                    color = if (pane.listing?.ok == false) MiuixTheme.colorScheme.error
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isActive) MiuixTheme.colorScheme.primary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onPaneMenu) {
-                Icon(Icons.Rounded.MoreHoriz, contentDescription = "更多", modifier = Modifier.size(20.dp))
-            }
+            Text(
+                text = compactPath(pane.path),
+                style = MiuixTheme.textStyles.body2,
+                color = if (isActive) MiuixTheme.colorScheme.onSurface
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = when {
+                    pane.loading -> "…"
+                    pane.listing?.ok == false -> "无权限"
+                    searchMode -> "${entries.size} 项"
+                    else -> "${entries.size} 项"
+                },
+                style = MiuixTheme.textStyles.subtitle,
+                color = if (pane.listing?.ok == false) MiuixTheme.colorScheme.error
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+            )
         }
 
+        // 列表必须 weight(1f) 占满剩余高度：以前用 fillMaxSize()，路径行从两行改成一行后，
+        // 空目录那条 Text 不占高度，列表又按整屏高排布，路径行下面就会空出一大块。
         if (!pane.loading && pane.listing?.ok == true && entries.isEmpty()) {
             Text(
                 text = if (showHidden) "（空目录）" else "（空目录，或只有隐藏文件）",
@@ -1224,7 +1223,12 @@ private fun PaneView(
                 modifier = Modifier.padding(12.dp),
             )
         } else {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
                 items(entries, key = { it.path }) { entry ->
                     FileRow(
                         entry = entry,
@@ -1346,5 +1350,21 @@ private fun MenuRow(text: String, enabled: Boolean = true, onClick: () -> Unit) 
             color = if (enabled) MiuixTheme.colorScheme.onSurface
             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
+    }
+}
+
+/**
+ * 双栏时一栏只有半屏宽，完整路径几乎必然被截断。
+ * 从**尾部**保留才看得懂：`/data/local/tmp/eta/04-工具-tools` → 显示成 `…/04-工具-tools`；
+ * 若从头部截断，两栏永远只能看到 `/data/...` 这种没信息量的前缀。
+ */
+private fun compactPath(path: String): String {
+    val trimmed = path.trimEnd('/')
+    if (trimmed.isEmpty()) return "/"
+    val segments = trimmed.split('/').filter { it.isNotBlank() }
+    return when {
+        segments.isEmpty() -> "/"
+        segments.size <= 2 -> trimmed
+        else -> "…/" + segments.takeLast(2).joinToString("/")
     }
 }
