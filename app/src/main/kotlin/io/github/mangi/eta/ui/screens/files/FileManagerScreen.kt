@@ -157,6 +157,8 @@ internal fun FileManagerScreen(
     var renameTarget by remember { mutableStateOf<FileManagerOps.Entry?>(null) }
     var renameInput by remember { mutableStateOf("") }
     var infoText by remember { mutableStateOf<Pair<String, String>?>(null) }
+    /** 属性/压缩包弹窗对应的路径，选文件模式里用它做"选中此文件"。 */
+    var infoPath by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<List<String>?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
 
@@ -216,6 +218,25 @@ internal fun FileManagerScreen(
         pane.selected = if (path in pane.selected) pane.selected - path else pane.selected + path
     }
 
+    /** 该路径是否已被勾选（选文件模式用）。 */
+    fun isPicked(path: String): Boolean = path in left.selected || path in right.selected
+
+    /** 勾选一个路径：优先归到"它自己所在的那一栏"，否则归到当前活动栏。 */
+    fun pickPath(path: String) {
+        val parent = path.trimEnd('/').substringBeforeLast('/', "")
+        when {
+            parent == left.path.trimEnd('/') -> left.selected = left.selected + path
+            parent == right.path.trimEnd('/') -> right.selected = right.selected + path
+            activeIsLeft -> left.selected = left.selected + path
+            else -> right.selected = right.selected + path
+        }
+    }
+
+    fun unpickPath(path: String) {
+        left.selected = left.selected - path
+        right.selected = right.selected - path
+    }
+
     /** 找条目：先查当前栏列表，再查搜索结果（搜索结果里的项不在目录列表里）。 */
     fun findEntry(path: String): FileManagerOps.Entry? =
         (if (activeIsLeft) left.listing else right.listing)?.entries?.firstOrNull { it.path == path }
@@ -267,6 +288,7 @@ internal fun FileManagerScreen(
             val md5 = withContext(Dispatchers.IO) {
                 if (entry.isDirectory) "" else FileManagerOps.md5(runShell, entry.path)
             }
+            infoPath = entry.path
             infoText = "属性" to buildString {
                 append(FileManagerOps.describeEntry(entry))
                 if (md5.isNotBlank()) append("\nMD5：").append(md5)
@@ -320,6 +342,7 @@ internal fun FileManagerScreen(
 
             FileManagerOps.looksLikeArchive(entry.name) -> scope.launch {
                 val result = withContext(Dispatchers.IO) { FileManagerOps.listArchive(runShell, entry.path) }
+                infoPath = entry.path
                 infoText = "「${entry.name}」内容" to result.message
             }
 
@@ -483,6 +506,17 @@ internal fun FileManagerScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         EtaTextButton(text = "关闭", onClick = { imageView = null })
+                        if (pickMode) {
+                            EtaTextButton(
+                                text = if (isPicked(path)) "取消选中" else "选中此文件",
+                                onClick = {
+                                    val was = isPicked(path)
+                                    if (was) unpickPath(path) else pickPath(path)
+                                    imageView = null
+                                    notice = if (was) "已取消选中「$name」" else "已选中「$name」"
+                                },
+                            )
+                        }
                         EtaTextButton(
                             text = "用其他应用打开",
                             onClick = {
@@ -531,6 +565,20 @@ internal fun FileManagerScreen(
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EtaTextButton(text = "关闭", onClick = { editorPath = null })
+                    if (pickMode) {
+                        val filePath = editorPath
+                        val fileName = editorName
+                        EtaTextButton(
+                            text = if (filePath != null && isPicked(filePath)) "取消选中" else "选中此文件",
+                            onClick = {
+                                if (filePath == null) return@EtaTextButton
+                                val was = isPicked(filePath)
+                                if (was) unpickPath(filePath) else pickPath(filePath)
+                                editorPath = null
+                                notice = if (was) "已取消选中「$fileName」" else "已选中「$fileName」"
+                            },
+                        )
+                    }
                     EtaTextButton(
                         text = if (editorDirty) "保存*" else "保存",
                         enabled = editorDirty,
@@ -594,7 +642,8 @@ internal fun FileManagerScreen(
                             activeIsLeft = true
                             when {
                                 pickMode && entry.isDirectory -> load(left, entry.path)
-                                pickMode -> toggleSelection(left, entry.path)
+                                // 选文件模式下点文件也先「查看」（编辑/看图/属性），勾选交给长按或查看界面里的按钮
+                                pickMode -> openFile(entry)
                                 selectMode && entry.isDirectory && entry.path !in left.selected -> load(left, entry.path)
                                 selectMode -> toggleSelection(left, entry.path)
                                 entry.isDirectory -> load(left, entry.path)
@@ -641,7 +690,7 @@ internal fun FileManagerScreen(
                                 activeIsLeft = false
                                 when {
                                     pickMode && entry.isDirectory -> load(right, entry.path)
-                                    pickMode -> toggleSelection(right, entry.path)
+                                    pickMode -> openFile(entry)
                                     selectMode && entry.isDirectory && entry.path !in right.selected -> load(right, entry.path)
                                     selectMode -> toggleSelection(right, entry.path)
                                     entry.isDirectory -> load(right, entry.path)
@@ -684,9 +733,16 @@ internal fun FileManagerScreen(
                     ) {
                         val picked = left.selected + right.selected
                         Text(
-                            text = if (picked.isEmpty()) "点文件勾选 · 长按可勾选文件夹 · 点目录进入" else "已选 ${picked.size} 项",
+                            text = if (picked.isEmpty()) "点文件可查看 · 长按勾选 · 点目录进入" else "已选 ${picked.size} 项",
                             style = MiuixTheme.textStyles.subtitle,
                             modifier = Modifier.weight(1f),
+                        )
+                        EtaTextButton(
+                            text = "全选",
+                            onClick = {
+                                val all = displayEntries(activePane()).map { it.path }.toSet()
+                                if (activeIsLeft) left.selected = all else right.selected = all
+                            },
                         )
                         EtaTextButton(
                             text = if (picked.isEmpty()) "取消" else "清空",
@@ -1005,6 +1061,17 @@ internal fun FileManagerScreen(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
+                if (pickMode) {
+                    infoPath?.let { filePath ->
+                        MenuRow(if (isPicked(filePath)) "取消选中此文件" else "选中此文件") {
+                            val was = isPicked(filePath)
+                            if (was) unpickPath(filePath) else pickPath(filePath)
+                            infoText = null
+                            infoPath = null
+                            notice = if (was) "已取消选中" else "已选中"
+                        }
+                    }
+                }
                 MiuixDialogActions(
                     confirmText = "关闭",
                     onCancel = { infoText = null },
