@@ -87,16 +87,9 @@ internal object ScheduledTaskScheduler {
     }
 
     /** 今天该时刻还没到就排在今天，已经过了就排明天。 */
-    fun nextTriggerMillis(task: ScheduledTask, nowMillis: Long = System.currentTimeMillis()): Long {
-        val calendar = Calendar.getInstance()
-        calendar.timeInMillis = nowMillis
-        calendar.set(Calendar.HOUR_OF_DAY, task.hour)
-        calendar.set(Calendar.MINUTE, task.minute)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        if (calendar.timeInMillis <= nowMillis) calendar.add(Calendar.DAY_OF_YEAR, 1)
-        return calendar.timeInMillis
-    }
+    /** 下一次触发时间：委托给 [ScheduledTaskSchedule]（纯逻辑，已有单测覆盖各类周期边界）。 */
+    fun nextTriggerMillis(task: ScheduledTask, nowMillis: Long = System.currentTimeMillis()): Long =
+        ScheduledTaskSchedule.nextTriggerMillis(task, nowMillis)
 
     private fun cancelAll(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return

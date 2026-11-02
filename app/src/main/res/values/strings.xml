@@ -1522,4 +1522,13 @@
     <string name="dangerous_operation_allow">Continue anyway</string>
     <string name="dangerous_operation_deny">Deny</string>
     <string name="dangerous_operation_stat">Dangerous operations blocked today: %1$d</string>
+    <string name="scheduled_tasks_repeat_title">Repeat</string>
+    <string name="scheduled_repeat_daily">Every day</string>
+    <string name="scheduled_repeat_weekly">Every week</string>
+    <string name="scheduled_repeat_monthly">Every month</string>
+    <string name="scheduled_repeat_every_n_days">Every N days</string>
+    <string name="scheduled_repeat_every_n_hours">Every N hours</string>
+    <string name="scheduled_tasks_weekday_title">Day of week</string>
+    <string name="scheduled_tasks_day_of_month_title">Day of month</string>
+    <string name="scheduled_tasks_interval_title">Interval</string>
 </resources>

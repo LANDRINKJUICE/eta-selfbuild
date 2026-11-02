@@ -31,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.schedule.ScheduledActionKind
 import io.github.mangi.eta.agent.schedule.ScheduledRunLog
+import io.github.mangi.eta.agent.schedule.ScheduledRepeat
 import io.github.mangi.eta.agent.schedule.ScheduledTask
+import io.github.mangi.eta.agent.schedule.ScheduledTaskSchedule
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
 import io.github.mangi.eta.agent.schedule.ScheduledTrigger
@@ -179,7 +181,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                     EtaPreferenceGroup {
                         // 一行读全：几点几分 + 做什么；点进去改时间或换动作。
                         EtaArrowPreference(
-                            title = taskTimeText(task),
+                            title = ScheduledTaskSchedule.describe(task),
                             summary = taskSummaryText(task),
                             startAction = {
                                 EtaPreferenceIcon(
@@ -332,6 +334,10 @@ private fun ScheduleEditorDialog(
     var minute by remember(task?.id) { mutableStateOf(task?.minute ?: DefaultMinute) }
     var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.DEVICE_STATUS) }
     var prompt by remember(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
+    var repeat by remember(task?.id) { mutableStateOf(task?.repeat ?: ScheduledRepeat.DAILY) }
+    var dayOfWeek by remember(task?.id) { mutableStateOf(task?.dayOfWeek ?: java.util.Calendar.MONDAY) }
+    var dayOfMonth by remember(task?.id) { mutableStateOf(task?.dayOfMonth ?: 1) }
+    var interval by remember(task?.id) { mutableStateOf(task?.interval ?: 1) }
 
     EtaWindowDialog(
         show = true,
@@ -347,6 +353,69 @@ private fun ScheduleEditorDialog(
                 .heightIn(max = EditorMaxContentHeight)
                 .verticalScroll(rememberScrollState()),
         ) {
+            EditorSectionLabel(stringResource(R.string.scheduled_tasks_repeat_title))
+            ScheduledRepeat.entries.forEach { option ->
+                EtaRadioButtonPreference(
+                    title = repeatLabel(option),
+                    selected = repeat == option,
+                    onClick = { repeat = option },
+                )
+            }
+            // 周期相关的附加参数：周几 / 几号 / N 值。
+            when (repeat) {
+                ScheduledRepeat.WEEKLY -> {
+                    EditorSectionLabel(stringResource(R.string.scheduled_tasks_weekday_title))
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = EtaPreferenceDefaults.SidePadding)) {
+                        listOf(
+                            java.util.Calendar.MONDAY to "一",
+                            java.util.Calendar.TUESDAY to "二",
+                            java.util.Calendar.WEDNESDAY to "三",
+                            java.util.Calendar.THURSDAY to "四",
+                            java.util.Calendar.FRIDAY to "五",
+                            java.util.Calendar.SATURDAY to "六",
+                            java.util.Calendar.SUNDAY to "日",
+                        ).forEach { (value, label) ->
+                            EtaTextButton(
+                                text = label,
+                                onClick = { dayOfWeek = value },
+                                colors = if (dayOfWeek == value) {
+                                    ButtonDefaults.textButtonColorsPrimary()
+                                } else {
+                                    ButtonDefaults.textButtonColors()
+                                },
+                            )
+                        }
+                    }
+                }
+                ScheduledRepeat.MONTHLY -> {
+                    EditorSectionLabel(stringResource(R.string.scheduled_tasks_day_of_month_title))
+                    NumberPicker(
+                        value = dayOfMonth,
+                        onValueChange = { dayOfMonth = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                        range = 1..31,
+                        label = { "$it 日" },
+                        visibleItemCount = 3,
+                        wrapAround = true,
+                    )
+                }
+                ScheduledRepeat.EVERY_N_DAYS, ScheduledRepeat.EVERY_N_HOURS -> {
+                    EditorSectionLabel(stringResource(R.string.scheduled_tasks_interval_title))
+                    NumberPicker(
+                        value = interval,
+                        onValueChange = { interval = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                        range = 1..30,
+                        label = {
+                            if (repeat == ScheduledRepeat.EVERY_N_DAYS) "每 $it 天" else "每 $it 小时"
+                        },
+                        visibleItemCount = 3,
+                        wrapAround = false,
+                    )
+                }
+                else -> Unit
+            }
+
             EditorSectionLabel(stringResource(R.string.scheduled_tasks_time_title))
             Row(
                 modifier = Modifier
@@ -422,6 +491,10 @@ private fun ScheduleEditorDialog(
                             enabled = task?.enabled ?: true,
                             lastRunAtMillis = task?.lastRunAtMillis,
                             prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
+                            repeat = repeat,
+                            dayOfWeek = dayOfWeek,
+                            dayOfMonth = dayOfMonth,
+                            interval = interval,
                         ),
                     )
                 },
@@ -465,8 +538,7 @@ private fun runTimeText(record: ScheduledRunLog.Record): String {
 }
 
 /** HH:mm；不用 String.format，避免跟随系统 Locale 出现阿拉伯数字变体。 */
-private fun taskTimeText(task: ScheduledTask): String =
-    task.hour.toString().padStart(2, '0') + ":" + task.minute.toString().padStart(2, '0')
+private fun taskTimeText(task: ScheduledTask): String = ScheduledTaskSchedule.describe(task)
 
 /** 列表摘要：内置动作显示动作名；自定义指令显示指令内容（截断，太长会把这一行撑爆）。 */
 @Composable
@@ -476,6 +548,15 @@ private fun taskSummaryText(task: ScheduledTask): String = when (task.action) {
         stringResource(R.string.scheduled_tasks_prompt_summary_prefix, text.take(60))
     }
     else -> stringResource(actionLabelRes(task.action))
+}
+
+@Composable
+private fun repeatLabel(repeat: ScheduledRepeat): String = when (repeat) {
+    ScheduledRepeat.DAILY -> stringResource(R.string.scheduled_repeat_daily)
+    ScheduledRepeat.WEEKLY -> stringResource(R.string.scheduled_repeat_weekly)
+    ScheduledRepeat.MONTHLY -> stringResource(R.string.scheduled_repeat_monthly)
+    ScheduledRepeat.EVERY_N_DAYS -> stringResource(R.string.scheduled_repeat_every_n_days)
+    ScheduledRepeat.EVERY_N_HOURS -> stringResource(R.string.scheduled_repeat_every_n_hours)
 }
 
 @StringRes

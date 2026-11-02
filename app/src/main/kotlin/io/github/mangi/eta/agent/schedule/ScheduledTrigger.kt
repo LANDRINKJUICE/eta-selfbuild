@@ -69,6 +69,14 @@ internal data class ScheduledTask(
     val prompt: String = "",
     /** 发起该任务的会话；通知栏「回复」会回到这个会话。本地动作无会话，保持空串。 */
     val conversationId: String = "",
+    /** 重复周期：每天 / 每周 / 每月 / 每 N 天 / 每 N 小时。 */
+    val repeat: ScheduledRepeat = ScheduledRepeat.DAILY,
+    /** 周几（Calendar 常量），仅 WEEKLY 使用。 */
+    val dayOfWeek: Int = java.util.Calendar.MONDAY,
+    /** 每月几号，仅 MONTHLY 使用。 */
+    val dayOfMonth: Int = 1,
+    /** N 的取值，仅 EVERY_N_DAYS / EVERY_N_HOURS 使用。 */
+    val interval: Int = 1,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -82,6 +90,10 @@ internal data class ScheduledTask(
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
         .put("prompt", prompt)
         .put("conversation_id", conversationId)
+        .put("repeat", repeat.id)
+        .put("day_of_week", dayOfWeek)
+        .put("day_of_month", dayOfMonth)
+        .put("interval", interval)
 
     /** 事件是否命中这条任务的条件（不含 enabled 判断，由调用方负责）。 */
     fun matchesEvent(event: ScheduledEvent): Boolean = when (trigger) {
@@ -136,6 +148,10 @@ internal data class ScheduledTask(
                 lastRunAtMillis = lastRun,
                 prompt = json.optString("prompt", ""),
                 conversationId = json.optString("conversation_id", ""),
+                repeat = ScheduledRepeat.fromId(json.optString("repeat")) ?: ScheduledRepeat.DAILY,
+                dayOfWeek = json.optInt("day_of_week", java.util.Calendar.MONDAY),
+                dayOfMonth = json.optInt("day_of_month", 1).coerceIn(1, 31),
+                interval = json.optInt("interval", 1).coerceIn(1, 30),
             )
         }
 

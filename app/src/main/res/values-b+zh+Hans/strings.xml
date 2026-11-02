@@ -1503,4 +1503,13 @@
     <string name="dangerous_operation_allow">仍然继续</string>
     <string name="dangerous_operation_deny">拒绝执行</string>
     <string name="dangerous_operation_stat">今日已拦截高危操作：%1$d 次</string>
+    <string name="scheduled_tasks_repeat_title">重复周期</string>
+    <string name="scheduled_repeat_daily">每天</string>
+    <string name="scheduled_repeat_weekly">每周</string>
+    <string name="scheduled_repeat_monthly">每月</string>
+    <string name="scheduled_repeat_every_n_days">每隔 N 天</string>
+    <string name="scheduled_repeat_every_n_hours">每隔 N 小时</string>
+    <string name="scheduled_tasks_weekday_title">星期几</string>
+    <string name="scheduled_tasks_day_of_month_title">每月几号</string>
+    <string name="scheduled_tasks_interval_title">间隔</string>
 </resources>
