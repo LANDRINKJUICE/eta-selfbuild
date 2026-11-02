@@ -399,7 +399,9 @@ internal fun FileManagerScreen(
     val editing = editorPath != null
     val viewing = imageView != null
     MiuixScaffold(
-        // 不显示大标题：文件管理器靠顶部两栏的路径行定位，再加一行「文件管理」大字既占地方又重复。
+        // 紧凑顶栏 + 空标题：文件管理器靠两栏路径行定位，不需要大标题，
+        // 而大标题栏即使标题为空也会占着高度（会空出一大块）。
+        compact = true,
         title = when {
             editing -> editorName
             viewing -> imageView?.first.orEmpty()
@@ -1389,12 +1391,14 @@ private fun PaneView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // 固定高度：两栏路径行必须一样高，否则并排时看着是斜的。
+                .height(40.dp)
                 .background(
                     if (isActive) MiuixTheme.colorScheme.surfaceContainerHigh
                     else MiuixTheme.colorScheme.surfaceContainer
                 )
                 .clickable { onGoPath() }
-                .padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+                .padding(start = 2.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onUp, minWidth = 28.dp, minHeight = 28.dp) {
@@ -1439,6 +1443,13 @@ private fun PaneView(
                 )
             }
         }
+        // 细分隔线：把路径行和文件列表分开，视觉上更整齐
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MiuixTheme.colorScheme.dividerLine),
+        )
 
         // 列表必须 weight(1f) 占满剩余高度：以前用 fillMaxSize()，路径行从两行改成一行后，
         // 空目录那条 Text 不占高度，列表又按整屏高排布，路径行下面就会空出一大块。
@@ -1496,7 +1507,10 @@ private fun FileRow(
                 if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
                 else androidx.compose.ui.graphics.Color.Transparent
             )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            // 固定行高：内容一两行时行高不跳，滚动起来才顺；
+            // 窄屏双栏下名字常常折行，固定高度能让两侧列表对齐。
+            .height(56.dp)
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selectMode) {

@@ -107,6 +107,14 @@ fun MiuixScaffold(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 紧凑顶栏：用小型标题栏代替大标题栏。
+     *
+     * 为什么需要（踩过）：大标题栏即使 `title` 传空串也**照样占着大标题的高度**，
+     * 于是页面顶栏下面空出一大块 —— 文件管理器就踩了这个坑（两栏路径行本身已能定位，
+     * 不需要大标题）。传 true 后标题区会收成一行小标题的高度。
+     */
+    compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (
         paddingValues: PaddingValues,
@@ -123,13 +131,24 @@ fun MiuixScaffold(
             modifier = modifier.fillMaxSize(),
             topBar = {
                 TopBarBackdrop(backdrop) {
-                    AdaptiveTopAppBar(
-                        title = title,
-                        color = topBarColor,
-                        navigationIcon = { MiuixBackButton(onClick = onBack) },
-                        actions = actions,
-                        scrollBehavior = scrollBehavior,
-                    )
+                    if (compact) {
+                        // 小型标题栏：高度只占一行，标题为空时不会留下大标题的空白。
+                        SmallTopAppBar(
+                            title = title,
+                            color = topBarColor,
+                            navigationIcon = { MiuixBackButton(onClick = onBack) },
+                            actions = actions,
+                            scrollBehavior = scrollBehavior,
+                        )
+                    } else {
+                        AdaptiveTopAppBar(
+                            title = title,
+                            color = topBarColor,
+                            navigationIcon = { MiuixBackButton(onClick = onBack) },
+                            actions = actions,
+                            scrollBehavior = scrollBehavior,
+                        )
+                    }
                 }
             },
         ) { paddingValues ->
