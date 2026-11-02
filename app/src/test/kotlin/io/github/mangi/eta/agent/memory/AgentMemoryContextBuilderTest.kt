@@ -12,7 +12,9 @@ class AgentMemoryContextBuilderTest {
         assertEquals(8_000, AgentMemoryContextBuilder.coreBudgetChars(null))
         assertEquals(8_000, AgentMemoryContextBuilder.coreBudgetChars(128_000))
         assertEquals(16_000, AgentMemoryContextBuilder.coreBudgetChars(256_000))
-        assertEquals(32_000, AgentMemoryContextBuilder.coreBudgetChars(1_000_000))
+        // 1_000_000 窗口按 1/16 取 62_500；更大的窗口由 64_000 上限截断（自签改造 eta5 放宽了上限）。
+        assertEquals(62_500, AgentMemoryContextBuilder.coreBudgetChars(1_000_000))
+        assertEquals(64_000, AgentMemoryContextBuilder.coreBudgetChars(4_000_000))
         assertEquals(4_000, AgentMemoryContextBuilder.coreBudgetChars(16_000))
     }
 
