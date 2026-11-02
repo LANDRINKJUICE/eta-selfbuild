@@ -194,6 +194,9 @@ internal object FileManagerOps {
     /** 文本预览上限：超过就只显示前 256 KiB，避免大文件把界面卡死。 */
     private const val TEXT_PREVIEW_LIMIT = 256 * 1024
 
+    /** 编辑器能打开的上限：再大就不让编辑，避免内存和命令行压力。 */
+    const val EDIT_LIMIT_BYTES = 512 * 1024
+
     /** 判断是不是"能当文本看"的扩展名（白名单，宁可少判也不要乱码）。 */
     fun looksLikeText(name: String): Boolean {
         val ext = name.substringAfterLast('.', "").lowercase()
@@ -201,7 +204,7 @@ internal object FileManagerOps {
             "txt", "md", "markdown", "log", "json", "xml", "yml", "yaml", "ini", "conf", "cfg",
             "prop", "properties", "sh", "bash", "rc", "kt", "kts", "java", "js", "ts", "py",
             "c", "h", "cpp", "hpp", "go", "rs", "html", "htm", "css", "csv", "tsv", "sql",
-            "gradle", "toml", "gitignore", "pro", "mk", "env",
+            "gradle", "toml", "gitignore", "pro", "mk", "env", "uuid", "dat", "list", "lock",
         )
     }
 
@@ -211,20 +214,213 @@ internal object FileManagerOps {
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif",
         )
 
+    /** 音视频扩展名：交给系统播放器。 */
+    fun looksLikeMedia(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in setOf(
+            "mp3", "wav", "flac", "aac", "ogg", "m4a", "opus", "amr",
+            "mp4", "mkv", "avi", "mov", "webm", "3gp", "ts",
+        )
+
+    /** 压缩包扩展名：菜单里给"解压到此处"。 */
+    fun looksLikeArchive(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in setOf("zip", "jar", "apk", "xapk", "kmz")
+
     /**
-     * 读文本内容用于预览。
+     * 用系统 `file` 命令判断是否文本。
      *
-     * 用 `head -c` 截断而不是整文件读入：日志文件动辄几十 MB，整读会让界面卡住甚至 OOM。
-     * 中文靠 UTF-8 解码，遇到二进制会显示成替换字符，所以调用方应先用 [looksLikeText] 过滤。
+     * 为什么需要它（用户真实案例）：`.uuid`、`hosts` 这类**无扩展名**文件，
+     * 靠扩展名白名单判断不出来，点了只能弹属性 —— 用户会觉得"看不到内容"。
+     * `file -b` 会给出 "ASCII text" / "UTF-8 Unicode text" / "Zip archive data" 这类结论，
+     * 比猜扩展名可靠。实测本机 /system/bin/file 可用。
      */
-    fun readTextPreview(shell: (String) -> String, path: String): OpResult {
-        val output = runCatching {
-            shell("head -c $TEXT_PREVIEW_LIMIT ${shellQuote(path)} 2>&1")
+    fun isTextFile(shell: (String) -> String, path: String): Boolean {
+        val out = runCatching { shell("file -b ${shellQuote(path)} 2>/dev/null") }.getOrDefault("")
+        val lower = out.lowercase()
+        if (lower.contains("text") || lower.contains("empty")) return true
+        // 无 file 命令时退回按扩展名判断，避免功能直接失效
+        return out.isBlank() && looksLikeText(path.substringAfterLast('/'))
+    }
+
+    /**
+     * 读**完整**文本用于编辑器（不是预览）。
+     *
+     * 超过 [EDIT_LIMIT_BYTES] 时截断并给出提示，避免把编辑器卡死。
+     */
+    fun readForEdit(shell: (String) -> String, path: String): Pair<OpResult, Boolean> {
+        val out = runCatching {
+            shell("head -c ${EDIT_LIMIT_BYTES + 1} ${shellQuote(path)} 2>&1")
+        }.getOrElse { return OpResult.failure("读取失败：${it.javaClass.simpleName}") to false }
+        if (out.contains("Permission denied")) return OpResult.failure("没有读取权限") to false
+        if (out.contains("No such file")) return OpResult.failure("文件不存在") to false
+        return if (out.length > EDIT_LIMIT_BYTES) {
+            OpResult.success(out.take(EDIT_LIMIT_BYTES)) to true
+        } else {
+            OpResult.success(out) to false
+        }
+    }
+
+    /**
+     * 保存文本（把编辑内容写回文件）。
+     *
+     * 为什么走 base64 而不是直接 `printf '%s' '内容'`：
+     * 内容里可能有单引号、反引号、`$`、换行 —— 直接拼进命令会被 shell 解释，
+     * 轻则内容损坏，重则执行到别的东西（注入）。
+     * base64 字符集只有 A-Za-z0-9+/=，拼进命令**无需转义**；再按块追加，
+     * 避免单条命令超长（内核单个参数上限约 128KB）。
+     */
+    fun writeText(shell: (String) -> String, path: String, content: String): OpResult {
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        val quoted = shellQuote(path)
+        // 先清空，避免"新内容比旧内容短"时尾部残留旧字节
+        val clearFailed = runCatching { shell(": > $quoted 2>&1") }.isFailure
+        if (clearFailed) return OpResult.failure("打开文件失败")
+
+        val chunkRawBytes = 32 * 1024
+        var offset = 0
+        while (offset < bytes.size) {
+            val end = minOf(offset + chunkRawBytes, bytes.size)
+            // java.util.Base64（不是 android.util.Base64）：JVM 单测里也能跑，不依赖 Android 运行时
+            val chunk = java.util.Base64.getEncoder()
+                .encodeToString(bytes.copyOfRange(offset, end))
+            val result = runCatching {
+                shell("printf '%s' '$chunk' | base64 -d >> $quoted 2>&1")
+            }.getOrElse { return OpResult.failure("写入失败：${it.javaClass.simpleName}") }
+            if (result.contains("Permission denied") || result.contains("Read-only")) {
+                return OpResult.failure("没有写入权限")
+            }
+            if (result.contains("No space left")) return OpResult.failure("存储空间不足")
+            offset = end
+        }
+        return OpResult.success("已保存（${formatSize(bytes.size.toLong())}）")
+    }
+
+    /** 读文本用于预览（沿用旧接口，编辑用 [readForEdit]）。 */
+    fun readTextPreview(shell: (String) -> String, path: String): OpResult =
+        readForEdit(shell, path).first
+
+    /** 新建空文件。 */
+    fun createFile(shell: (String) -> String, parent: String, name: String): OpResult {
+        if (name.isBlank() || name.contains('/')) return OpResult.failure("文件名不合法")
+        val target = if (parent.endsWith("/")) "$parent$name" else "$parent/$name"
+        return runCatching {
+            shell(": > ${shellQuote(target)} 2>&1")
+            OpResult.success("已新建「$name」")
+        }.getOrElse { OpResult.failure("创建失败：${it.javaClass.simpleName}") }
+    }
+
+    /** 计算 MD5（属性面板用）。 */
+    fun md5(shell: (String) -> String, path: String): String =
+        runCatching {
+            shell("md5sum ${shellQuote(path)} 2>/dev/null").trim().substringBefore(' ').trim()
+        }.getOrDefault("")
+
+    // ------------------------------------------------------------ 搜索
+
+    internal data class SearchResult(
+        val entries: List<Entry>,
+        val truncated: Boolean,
+        val error: String? = null,
+    )
+
+    /**
+     * 按文件名递归搜索。
+     *
+     * 两个防护（都必要）：
+     * 1. `-maxdepth` 限制层数，否则从 `/` 搜会遍历整个系统，几十秒都没结果。
+     * 2. `head -n` 限制条数，避免一次返回几万行把界面和内存打爆。
+     *
+     * 关键词整体用单引号包住后交给 find，`*` 只是 find 的通配符（不是 shell 展开），
+     * 所以 `$(...)`、`;`、反引号这些都不会被执行。
+     */
+    fun search(
+        shell: (String) -> String,
+        dir: String,
+        keyword: String,
+        maxResults: Int = 300,
+        maxDepth: Int = 6,
+    ): SearchResult {
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return SearchResult(emptyList(), false, "请输入关键词")
+        val pattern = shellQuote("*$kw*")
+        val command = buildString {
+            append("find ").append(shellQuote(dir))
+            append(" -maxdepth ").append(maxDepth)
+            append(" -iname ").append(pattern)
+            append(" 2>/dev/null | head -n ").append(maxResults + 1)
+            append(" | while IFS= read -r p; do stat -c '%A|%s|%Y|%n' \"\$p\" 2>/dev/null; done")
+        }
+        val out = runCatching { shell(command) }.getOrElse {
+            return SearchResult(emptyList(), false, "搜索失败：${it.javaClass.simpleName}")
+        }
+        val all = out.lineSequence().mapNotNull { parseFindLine(it) }.toList()
+        val truncated = all.size > maxResults
+        return SearchResult(all.take(maxResults), truncated)
+    }
+
+    /**
+     * 解析 `find` 结果行。
+     *
+     * 与 [parseStatLine] 的区别：这里 `stat -c '%n'` 拿到的是**完整路径**（find 传的就是全路径），
+     * 所以不能把名字当相对名拼到父目录后面 —— 否则会拼出 `//sdcard/...` 这种错路径，
+     * 而条目名会变成一整条路径（测试就是这么抓到它的）。
+     */
+    private fun parseFindLine(line: String): Entry? {
+        val trimmed = line.trimEnd()
+        if (trimmed.isBlank() || !trimmed.contains('|')) return null
+        val parts = trimmed.split('|', limit = 4)
+        if (parts.size < 4) return null
+        val permissions = parts[0]
+        if (permissions.length < 10) return null
+        val full = parts[3].trim()
+        if (full.isBlank()) return null
+        return Entry(
+            name = full.trimEnd('/').substringAfterLast('/'),
+            path = full,
+            isDirectory = permissions.startsWith('d'),
+            isSymlink = permissions.startsWith('l'),
+            sizeBytes = parts[1].toLongOrNull() ?: 0L,
+            modifiedAtMillis = (parts[2].toLongOrNull() ?: 0L) * 1000L,
+            permissions = permissions,
+        )
+    }
+
+    // ------------------------------------------------------------ 压缩包内容
+
+    private val ARCHIVE_LINE = Regex("""^\s*(\d+)\s+\S+\s+\S+\s+(.+)$""")
+
+    /**
+     * 列出 zip/apk 内部条目（MT 里"查看 APK"能看包内文件，就是这个）。
+     *
+     * 用系统自带的 `unzip -l`（实测本机 /system/bin/unzip 可用），
+     * 不引第三方库，也不把整个包解出来 —— 看 164MB 的 APK 也秒开。
+     */
+    fun listArchive(shell: (String) -> String, path: String, maxEntries: Int = 150): OpResult {
+        val out = runCatching {
+            shell("unzip -l ${shellQuote(path)} 2>&1 | head -n ${maxEntries + 8}")
         }.getOrElse { return OpResult.failure("读取失败：${it.javaClass.simpleName}") }
-        if (output.contains("Permission denied")) return OpResult.failure("没有读取权限")
-        if (output.contains("No such file")) return OpResult.failure("文件不存在")
-        if (output.isBlank()) return OpResult.success("（空文件）")
-        return OpResult.success(output)
+        if (out.contains("Permission denied")) return OpResult.failure("没有读取权限")
+        if (out.contains("not a zip") || out.contains("End-of-central-directory")) {
+            return OpResult.failure("不是有效的压缩包")
+        }
+        val items = out.lineSequence().mapNotNull { line ->
+            ARCHIVE_LINE.find(line)?.let { m ->
+                val size = m.groupValues[1].toLongOrNull() ?: 0L
+                "$size|${m.groupValues[2].trim()}"
+            }
+        }.toList()
+        if (items.isEmpty()) return OpResult.failure("压缩包是空的，或者格式不支持")
+        val shown = items.take(maxEntries)
+        val body = buildString {
+            for (item in shown) {
+                val size = item.substringBefore('|').toLongOrNull() ?: 0L
+                val name = item.substringAfter('|')
+                append(name).append("    ").append(formatSize(size)).append('\n')
+            }
+            if (items.size > maxEntries) {
+                append("…还有 ${items.size - maxEntries} 项未显示")
+            }
+        }
+        return OpResult.success("共 ${items.size} 项\n\n$body")
     }
 
     /** 属性面板内容：大小、时间、权限、属主、完整路径。 */

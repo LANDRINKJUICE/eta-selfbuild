@@ -214,6 +214,121 @@ class FileManagerOpsTest {
         assertFalse(FileManagerOps.looksLikeImage("noext"))
     }
 
+    @Test
+    fun mediaAndArchiveExtensionsAreRecognised() {
+        assertTrue(FileManagerOps.looksLikeMedia("a.mp4"))
+        assertTrue(FileManagerOps.looksLikeMedia("b.MP3"))
+        assertFalse(FileManagerOps.looksLikeMedia("c.txt"))
+        assertTrue(FileManagerOps.looksLikeArchive("d.zip"))
+        assertTrue(FileManagerOps.looksLikeArchive("e.apk"))
+        assertFalse(FileManagerOps.looksLikeArchive("f.txt"))
+    }
+
+    // ---------------------------------------------------------------- 编辑保存
+
+    /**
+     * 保存文本必须走 base64 分块：内容里的引号、反引号、`$`、换行都不能被 shell 解释。
+     * 这里守住三条：① 清空旧内容 ② 用 base64 -d 追加 ③ 大内容分多块。
+     */
+    @Test
+    fun writeTextUsesBase64AndClearsFirst() {
+        val commands = mutableListOf<String>()
+        val result = FileManagerOps.writeText(
+            { cmd -> commands.add(cmd); "" },
+            "/sdcard/中文 名.txt",
+            "hello 'quoted' \$(reboot) `id`\n中文",
+        )
+        assertTrue(result.ok)
+        assertTrue(commands.first().startsWith(": > "))
+        assertTrue(commands.first().contains("'/sdcard/中文 名.txt'"))
+        assertTrue(commands[1].contains("base64 -d"))
+        assertTrue(commands[1].contains(">> '/sdcard/中文 名.txt'"))
+        // 关键：原始危险内容绝不能出现在命令里（否则会被 shell 执行）
+        assertFalse(commands.any { it.contains("reboot") })
+        assertFalse(commands.any { it.contains("`id`") })
+    }
+
+    @Test
+    fun writeTextChunksLargeContent() {
+        val commands = mutableListOf<String>()
+        // 100 KB > 32 KB 分块，应该至少 4 条写命令
+        val big = "x".repeat(100 * 1024)
+        val result = FileManagerOps.writeText({ cmd -> commands.add(cmd); "" }, "/sdcard/big.txt", big)
+        assertTrue(result.ok)
+        val writes = commands.filter { it.contains("base64 -d") }
+        assertTrue("应分块写入，实际 ${writes.size} 条", writes.size >= 4)
+        // 每块 base64 文本不应超过 64 KB，避免单参数超内核上限
+        assertTrue(writes.all { it.length < 64 * 1024 })
+    }
+
+    @Test
+    fun writeTextReportsPermissionDenied() {
+        var call = 0
+        val result = FileManagerOps.writeText({ call++; if (call == 1) "" else "Permission denied" }, "/data/x", "y")
+        assertFalse(result.ok)
+        assertTrue(result.message.contains("权限"))
+    }
+
+    // ---------------------------------------------------------------- 搜索与压缩包
+
+    @Test
+    fun searchQuotesKeywordAndLimitsDepth() {
+        val commands = mutableListOf<String>()
+        val fake = "drwxrws---|3440|1792144837|/sdcard/abc/def dir"
+        val result = FileManagerOps.search({ cmd -> commands.add(cmd); fake }, "/sdcard", "abc")
+        assertTrue(result.error == null)
+        val cmd = commands.single()
+        assertTrue(cmd.contains("-maxdepth"))
+        assertTrue(cmd.contains("-iname '*abc*'"))
+        assertEquals(1, result.entries.size)
+        // find 输出的是完整路径：名字要取最后一段，路径要保留全路径（不能被拼成 //sdcard/...）
+        assertEquals("def dir", result.entries[0].name)
+        assertEquals("/sdcard/abc/def dir", result.entries[0].path)
+        assertTrue(result.entries[0].isDirectory)
+    }
+
+    @Test
+    fun searchRejectsEmptyKeyword() {
+        val result = FileManagerOps.search({ "" }, "/sdcard", "   ")
+        assertTrue(result.entries.isEmpty())
+        assertEquals("请输入关键词", result.error)
+    }
+
+    @Test
+    fun listArchiveParsesUnzipOutput() {
+        val fake = """
+            Archive:  /sdcard/a.apk
+              Length      Date    Time    Name
+            ---------  ---------- -----   ----
+                  512  2020-01-01 00:00   AndroidManifest.xml
+                 1024  2020-01-01 00:00   classes.dex
+            ---------                     -------
+                 1536                     2 files
+        """.trimIndent()
+        val result = FileManagerOps.listArchive({ fake }, "/sdcard/a.apk")
+        assertTrue(result.ok)
+        assertTrue(result.message.contains("AndroidManifest.xml"))
+        assertTrue(result.message.contains("classes.dex"))
+        // 分隔线与表头不能被当成条目
+        assertFalse(result.message.contains("---------"))
+    }
+
+    @Test
+    fun listArchiveRejectsNonZip() {
+        val result = FileManagerOps.listArchive({ "unzip: not a zip archive" }, "/sdcard/a.txt")
+        assertFalse(result.ok)
+    }
+
+    /** 无扩展名文件（如 .uuid）要能判定成文本，否则用户点了只看到属性框。 */
+    @Test
+    fun isTextFileUsesFileCommand() {
+        assertTrue(FileManagerOps.isTextFile({ "ASCII text" }, "/sdcard/x/.uuid"))
+        assertTrue(FileManagerOps.isTextFile({ "UTF-8 Unicode text" }, "/data/hosts"))
+        assertTrue(FileManagerOps.isTextFile({ "empty" }, "/sdcard/empty"))
+        assertFalse(FileManagerOps.isTextFile({ "Zip archive data" }, "/sdcard/a.apk"))
+        assertFalse(FileManagerOps.isTextFile({ "data" }, "/sdcard/bin.dat"))
+    }
+
     /** 文本预览用 head -c 截断，不能被大文件拖死；同时路径必须正确引用。 */
     @Test
     fun readTextPreviewTruncatesAndQuotes() {
