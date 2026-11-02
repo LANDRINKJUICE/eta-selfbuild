@@ -81,6 +81,7 @@ import io.github.mangi.eta.ui.screens.mcp.McpServerDetailScreen
 import io.github.mangi.eta.ui.screens.mcp.McpServersScreen
 import io.github.mangi.eta.ui.screens.memory.AgentMemoryScreen
 import io.github.mangi.eta.ui.screens.permissions.PermissionHealthScreen
+import io.github.mangi.eta.ui.screens.scheduled.ScheduledTasksScreen
 import io.github.mangi.eta.ui.screens.skills.AgentSkillsScreen
 import io.github.mangi.eta.ui.screens.subagent.SubagentSettingsScreen
 import io.github.mangi.eta.ui.screens.terminal.LinuxEnvironmentScreen
@@ -689,6 +690,9 @@ fun AgentAppRoot(
             // 只读说明页：不读工作区、不起 shell，仅展示版本与内置资源。
             entry<AppRoute.EtaBuildNotes>(swipeDismiss = swipeDismiss) {
                 EtaBuildNotesScreen(onBack = ::popRoute)
+            }
+            entry<AppRoute.ScheduledTasks>(swipeDismiss = swipeDismiss) {
+                ScheduledTasksScreen(onBack = ::popRoute)
             }
             entry<AppRoute.DataBackup>(swipeDismiss = swipeDismiss) {
                 DataBackupScreen(

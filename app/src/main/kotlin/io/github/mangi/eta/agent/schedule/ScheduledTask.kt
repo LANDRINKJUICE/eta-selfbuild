@@ -1,0 +1,64 @@
+package io.github.mangi.eta.agent.schedule
+
+import org.json.JSONObject
+
+/**
+ * 定时任务能做的动作。
+ *
+ * 目前只放**纯本地、不调用模型**的动作：无人值守时不会产生意外的额度消耗，
+ * 断网、模型不可用也不影响执行。
+ */
+internal enum class ScheduledActionKind(val id: String) {
+    /** 设备状态摘要：内存 / 存储 / 电量 / 温度 / 运行时长。 */
+    DEVICE_STATUS("device_status"),
+
+    /** 记忆状态：MEMORY.md 体积、核心记忆字符数、是否会被截断。 */
+    MEMORY_STATUS("memory_status"),
+
+    /** 权限体检：通知、悬浮窗、无障碍、使用情况访问、Root 是否仍然可用。 */
+    PERMISSIONS_CHECK("permissions_check"),
+    ;
+
+    companion object {
+        fun fromId(value: String?): ScheduledActionKind? = entries.firstOrNull { it.id == value }
+    }
+}
+
+/** 一条定时任务：每天 [hour]:[minute] 执行一次 [action]。 */
+internal data class ScheduledTask(
+    val id: String,
+    val hour: Int,
+    val minute: Int,
+    val action: ScheduledActionKind,
+    val enabled: Boolean,
+    val lastRunAtMillis: Long? = null,
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("hour", hour)
+        .put("minute", minute)
+        .put("action", action.id)
+        .put("enabled", enabled)
+        .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
+
+    companion object {
+        /** 解析失败返回 null（坏记录直接跳过，不让一条脏数据拖垮整个列表）。 */
+        fun fromJson(json: JSONObject): ScheduledTask? {
+            val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
+            val action = ScheduledActionKind.fromId(json.optString("action")) ?: return null
+            val lastRun = if (json.isNull("last_run_at")) {
+                null
+            } else {
+                json.optLong("last_run_at", 0L).takeIf { it > 0L }
+            }
+            return ScheduledTask(
+                id = id,
+                hour = json.optInt("hour", 0).coerceIn(0, 23),
+                minute = json.optInt("minute", 0).coerceIn(0, 59),
+                action = action,
+                enabled = json.optBoolean("enabled", true),
+                lastRunAtMillis = lastRun,
+            )
+        }
+    }
+}

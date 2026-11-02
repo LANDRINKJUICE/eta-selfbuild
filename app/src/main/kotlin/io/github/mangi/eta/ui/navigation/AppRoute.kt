@@ -58,6 +58,10 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object EtaBuildNotes : AppRoute
 
+    /** 定时任务页：每天到点自动做一件事（查设备状态、记忆状态、权限体检）；入口在设置页「定时任务」组。 */
+    @Serializable
+    data object ScheduledTasks : AppRoute
+
     @Serializable
     data object SpeechSettings : AppRoute
 

@@ -80,9 +80,9 @@ internal object AgentMemoryContextBuilder {
     const val DEFAULT_CONTEXT_WINDOW = 128_000
     private const val CONTEXT_WINDOW_DIVISOR = 16
     private const val MIN_CORE_CHARS = 4_000
-    private const val MAX_CORE_CHARS = 32_000
-    /** 索引本身只占很小一部分上下文，放宽到 8_000 让长记忆的标题目录不至于被腰斩。 */
-    private const val MAX_HEADING_INDEX_CHARS = 8_000
+    private const val MAX_CORE_CHARS = 64_000
+    /** 索引本身只占很小一部分上下文，放宽到 16_000 让长记忆的标题目录不至于被腰斩。 */
+    private const val MAX_HEADING_INDEX_CHARS = 16_000
     private const val EMPTY_SHA256 =
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 }

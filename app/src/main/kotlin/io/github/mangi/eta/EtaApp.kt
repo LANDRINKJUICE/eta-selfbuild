@@ -10,6 +10,7 @@ import io.github.mangi.eta.agent.browser.BrowserSessionRegistry
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.datastore.SettingsDataStore
@@ -61,6 +62,8 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         AgentMemoryRepository.init(this)
         ProviderRepository.init(this)
         McpServerRepository.init(this)
+        // 定时任务：AlarmManager 的闹钟不跨重启存活，进程起来后按当前配置重建。
+        ScheduledTaskScheduler.rescheduleAll(this)
         XposedServiceHelper.registerListener(this)
         applicationScope.launch {
             try {

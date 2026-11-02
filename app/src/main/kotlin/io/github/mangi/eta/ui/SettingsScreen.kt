@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsVoice
@@ -796,6 +797,24 @@ private fun SettingsPageContent(
                             enabled = prefs != null && !accessibilityProtectionPending,
                         )
                     }
+                }
+            }
+
+            // ── 定时任务 ────────────────────────────────────────────────
+            item(key = "section_scheduled_tasks") {
+                EtaPreferenceGroupTitle(stringResource(R.string.settings_scheduled_tasks_title))
+                EtaPreferenceGroup {
+                    EtaArrowPreference(
+                        title = stringResource(R.string.settings_scheduled_tasks_title),
+                        summary = stringResource(R.string.settings_scheduled_tasks_summary),
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Schedule,
+                                tint = EtaPreferenceColors.Blue,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.ScheduledTasks) },
+                    )
                 }
             }
 

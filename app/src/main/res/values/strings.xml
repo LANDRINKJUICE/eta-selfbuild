@@ -1470,4 +1470,20 @@
   <string name="chat_queue_remove">移除排队消息</string>
   <string name="chat_queue_images_only">[%1$d 张图片]</string>
   <string name="chat_queue_files_only">[%1$d 个文件]</string>
+  <!-- 定时任务：每天到点自动做一件事。 -->
+  <string name="route_scheduled_tasks">Scheduled tasks</string>
+  <string name="settings_scheduled_tasks_title">Scheduled tasks</string>
+  <string name="settings_scheduled_tasks_summary">Let Eta do one thing on its own at the same time every day</string>
+  <string name="scheduled_tasks_add">Add</string>
+  <string name="scheduled_tasks_empty">No scheduled tasks yet</string>
+  <string name="scheduled_tasks_delete">Delete</string>
+  <string name="scheduled_tasks_delete_confirm">Delete the task at %1$s? This cannot be undone.</string>
+  <string name="scheduled_tasks_enabled">Enabled</string>
+  <string name="scheduled_tasks_action_device_status">Device status</string>
+  <string name="scheduled_tasks_action_memory_status">Memory status</string>
+  <string name="scheduled_tasks_action_permissions_check">Permission check</string>
+  <string name="scheduled_tasks_time_title">Time</string>
+  <string name="scheduled_tasks_action_title">Action</string>
+  <string name="scheduled_tasks_save">Save</string>
+  <string name="scheduled_tasks_cancel">Cancel</string>
 </resources>

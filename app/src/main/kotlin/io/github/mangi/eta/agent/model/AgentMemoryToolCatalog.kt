@@ -93,7 +93,7 @@ internal object AgentMemoryToolCatalog {
                                     JSONObject()
                                         .put("type", "string")
                                         .put("maxLength", AgentMemoryStore.MAX_WRITE_CONTENT_CHARS)
-                                        .put("description", "Replacement or appended Markdown, at most 3500 characters. Empty content deletes a replace_range."),
+                                        .put("description", "Replacement or appended Markdown, at most ${AgentMemoryStore.MAX_WRITE_CONTENT_CHARS} characters. Empty content deletes a replace_range."),
                                 ),
                         )
                         .put("required", JSONArray().put("mode").put("revision")),

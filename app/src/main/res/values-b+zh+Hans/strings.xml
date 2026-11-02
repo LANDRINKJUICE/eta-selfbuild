@@ -1451,4 +1451,20 @@
   <string name="chat_queue_remove">移除排队消息</string>
   <string name="chat_queue_images_only">[%1$d 张图片]</string>
   <string name="chat_queue_files_only">[%1$d 个文件]</string>
+  <!-- 定时任务：每天到点自动做一件事。 -->
+  <string name="route_scheduled_tasks">定时任务</string>
+  <string name="settings_scheduled_tasks_title">定时任务</string>
+  <string name="settings_scheduled_tasks_summary">每天到点自动做一件事</string>
+  <string name="scheduled_tasks_add">添加</string>
+  <string name="scheduled_tasks_empty">还没有定时任务</string>
+  <string name="scheduled_tasks_delete">删除</string>
+  <string name="scheduled_tasks_delete_confirm">删除 %1$s 的任务？此操作无法撤销。</string>
+  <string name="scheduled_tasks_enabled">启用</string>
+  <string name="scheduled_tasks_action_device_status">设备状态</string>
+  <string name="scheduled_tasks_action_memory_status">记忆状态</string>
+  <string name="scheduled_tasks_action_permissions_check">权限体检</string>
+  <string name="scheduled_tasks_time_title">时间</string>
+  <string name="scheduled_tasks_action_title">动作</string>
+  <string name="scheduled_tasks_save">保存</string>
+  <string name="scheduled_tasks_cancel">取消</string>
 </resources>

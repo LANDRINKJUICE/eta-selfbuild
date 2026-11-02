@@ -290,11 +290,13 @@ internal class AgentMemoryStore(
             }
 
     companion object {
-        const val MAX_FILE_BYTES = 1024 * 1024
-        const val DEFAULT_READ_CHARS = 12_000
-        const val MAX_READ_CHARS = 32_000
+        /** 记忆文件上限：从 1 MiB 放宽到 8 MiB，长期记忆不再因为体积被写满（自签改造 eta5）。 */
+        const val MAX_FILE_BYTES = 8 * 1024 * 1024
+        const val DEFAULT_READ_CHARS = 16_000
+        const val MAX_READ_CHARS = 64_000
         const val MIN_READ_CHARS = 1
-        const val MAX_WRITE_CONTENT_CHARS = 3_500
+        /** 单次写入上限：从 3 500 放宽到 16 000 字符，一次能落更完整的章节（自签改造 eta5）。 */
+        const val MAX_WRITE_CONTENT_CHARS = 16_000
         private const val DIRECTORY_NAME = "memory"
         private const val FILE_NAME = "MEMORY.md"
         private const val DEFAULT_START_LINE = 1
