@@ -78,8 +78,6 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
-import io.github.mangi.eta.data.update.AppLatestRelease
-import io.github.mangi.eta.data.update.AppUpdateChecker
 import io.github.mangi.eta.systemizer.GoogleAppSystemizerInstaller
 import io.github.mangi.eta.systemizer.RootManager
 import io.github.mangi.eta.systemizer.SystemizerInstallResult
@@ -169,8 +167,6 @@ private fun SettingsPageContent(
     val openUrl: (String) -> Unit = { url ->
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
-    var checkingUpdate by remember { mutableStateOf(false) }
-    var availableUpdate by remember { mutableStateOf<AppLatestRelease?>(null) }
     // 用量：只读本地数据库，打开页面读一次；不进网络请求链路。
     var usage by remember { mutableStateOf(TokenUsageSnapshot()) }
     var showUsageDialog by remember { mutableStateOf(false) }
@@ -179,30 +175,6 @@ private fun SettingsPageContent(
         usage = withContext(Dispatchers.IO) {
             runCatching { loadTokenUsageSnapshot(EtaDatabase.get(context.applicationContext)) }
                 .getOrDefault(TokenUsageSnapshot())
-        }
-    }
-    val checkForUpdate: () -> Unit = {
-        if (!checkingUpdate) {
-            checkingUpdate = true
-            coroutineScope.launch {
-                val release = runCatching {
-                    withContext(Dispatchers.IO) { AppUpdateChecker.fetchLatest() }
-                }.getOrNull()
-                checkingUpdate = false
-                when {
-                    release == null -> Toast.makeText(
-                        context.applicationContext,
-                        context.getString(R.string.ui_update_check_failed),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    AppUpdateChecker.isNewer(release.version, appVersionName) -> availableUpdate = release
-                    else -> Toast.makeText(
-                        context.applicationContext,
-                        context.getString(R.string.ui_update_already_latest),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-            }
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -865,63 +837,6 @@ private fun SettingsPageContent(
                     )
 
                     EtaPreferenceDivider()
-                    // 自签改造版标识：装的是哪一版、是不是官方渠道，一眼可见（本版与官方 UI 的差异之一）。
-                    EtaPreference(
-                        title = stringResource(R.string.ui_about_self_build_title),
-                        summary = stringResource(R.string.ui_about_self_build_summary, BuildConfig.VERSION_NAME),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.VerifiedUser,
-                                tint = EtaPreferenceColors.Green,
-                            )
-                        },
-                    )
-
-                    EtaPreferenceDivider()
-                    EtaArrowPreference(
-                        title = stringResource(R.string.ui_about_build_notes_title),
-                        summary = stringResource(R.string.ui_about_build_notes_summary),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Description,
-                                tint = EtaPreferenceColors.Blue,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.EtaBuildNotes) },
-                    )
-
-                    EtaPreferenceDivider()
-                    EtaArrowPreference(
-                        title = stringResource(R.string.ui_about_update_title),
-                        summary = if (checkingUpdate) {
-                            stringResource(R.string.ui_about_update_checking)
-                        } else {
-                            null
-                        },
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.SystemUpdate,
-                                tint = EtaPreferenceColors.Green,
-                                enabled = !checkingUpdate,
-                            )
-                        },
-                        enabled = !checkingUpdate,
-                        onClick = checkForUpdate,
-                    )
-
-                    EtaPreferenceDivider()
-                    EtaArrowPreference(
-                        title = stringResource(R.string.ui_about_feedback_title),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.BugReport,
-                                tint = EtaPreferenceColors.Orange,
-                            )
-                        },
-                        onClick = { openUrl("https://github.com/Mangi-11/Eta/issues") },
-                    )
-
-                    EtaPreferenceDivider()
                     EtaArrowPreference(
                         title = stringResource(R.string.ui_about_github_star_title),
                         summary = stringResource(R.string.ui_about_github_star_hint),
@@ -999,23 +914,7 @@ private fun SettingsPageContent(
             },
         )
 
-        availableUpdate?.let { update ->
-            EtaWindowDialog(
-                show = true,
-                title = stringResource(R.string.ui_update_available_title),
-                summary = stringResource(R.string.ui_update_available_message, update.version, appVersionName),
-                onDismissRequest = { availableUpdate = null },
-            ) {
-                MiuixDialogActions(
-                    confirmText = stringResource(R.string.ui_update_go_download),
-                    onCancel = { availableUpdate = null },
-                    onConfirm = {
-                        availableUpdate = null
-                        openUrl(update.url)
-                    },
-                )
-            }
-        }
+
 }
 
 // ── 系统化确认对话框 ─────────────────────────────────────────────────────────

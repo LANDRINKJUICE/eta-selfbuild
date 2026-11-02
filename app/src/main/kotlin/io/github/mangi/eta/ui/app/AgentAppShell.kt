@@ -343,7 +343,7 @@ private fun TopBarOverflowMenu(
                         },
                     ),
                     DropdownItem(
-                        text = "打开文件夹",
+                        text = "文件管理",
                         icon = { modifier ->
                             Icon(
                                 imageVector = Icons.Rounded.Folder,
@@ -455,7 +455,6 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.SpeechSynthesis -> stringResource(R.string.speech_synthesis_title)
     is AppRoute.SpeechOss -> stringResource(R.string.speech_oss_title)
     is AppRoute.AppearanceSettings -> stringResource(R.string.appearance_title)
-    is AppRoute.EtaBuildNotes -> stringResource(R.string.ui_about_build_notes_title)
     is AppRoute.ScheduledTasks -> stringResource(R.string.route_scheduled_tasks)
     is AppRoute.FileManager -> "文件管理"
     is AppRoute.FilePicker -> "选择文件"

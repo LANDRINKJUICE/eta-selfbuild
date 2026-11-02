@@ -68,7 +68,6 @@ import io.github.mangi.eta.ui.pages.providers.CommunityCatalogProviderScreen
 import io.github.mangi.eta.ui.pages.providers.CommunityCatalogScreen
 import io.github.mangi.eta.ui.pages.providers.ModelProviderDetailScreen
 import io.github.mangi.eta.ui.pages.providers.ModelProviderListScreen
-import io.github.mangi.eta.ui.screens.about.EtaBuildNotesScreen
 import io.github.mangi.eta.ui.screens.backup.DataBackupScreen
 import io.github.mangi.eta.ui.screens.browser.AgentBrowserActivity
 import io.github.mangi.eta.agent.browser.BrowserSessionRegistry
@@ -694,10 +693,6 @@ fun AgentAppRoot(
             }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {
                 AppearanceSettingsScreen(onBack = ::popRoute)
-            }
-            // 只读说明页：不读工作区、不起 shell，仅展示版本与内置资源。
-            entry<AppRoute.EtaBuildNotes>(swipeDismiss = swipeDismiss) {
-                EtaBuildNotesScreen(onBack = ::popRoute)
             }
             entry<AppRoute.ScheduledTasks>(swipeDismiss = swipeDismiss) {
                 ScheduledTasksScreen(onBack = ::popRoute)

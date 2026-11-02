@@ -727,22 +727,17 @@ internal fun FileManagerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MiuixTheme.colorScheme.surfaceContainer)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         val picked = left.selected + right.selected
                         Text(
-                            text = if (picked.isEmpty()) "点文件可查看 · 长按勾选 · 点目录进入" else "已选 ${picked.size} 项",
-                            style = MiuixTheme.textStyles.subtitle,
+                            text = if (picked.isEmpty()) "未选择" else "已选 ${picked.size} 项",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurface,
+                            maxLines = 1,
                             modifier = Modifier.weight(1f),
-                        )
-                        EtaTextButton(
-                            text = "全选",
-                            onClick = {
-                                val all = displayEntries(activePane()).map { it.path }.toSet()
-                                if (activeIsLeft) left.selected = all else right.selected = all
-                            },
                         )
                         EtaTextButton(
                             text = if (picked.isEmpty()) "取消" else "清空",
@@ -756,7 +751,7 @@ internal fun FileManagerScreen(
                             },
                         )
                         EtaTextButton(
-                            text = "确认选择",
+                            text = "确认",
                             enabled = picked.isNotEmpty(),
                             onClick = { onPickPaths?.invoke(picked.toList()) },
                         )
@@ -894,6 +889,14 @@ internal fun FileManagerScreen(
                 MenuRow(if (showHidden) "隐藏文件：显示中（点一下隐藏）" else "隐藏文件：已隐藏（点一下显示）") {
                     showHidden = !showHidden
                     showPaneMenu = false
+                }
+                if (pickMode || selectMode) {
+                    val count = displayEntries(activePane()).size
+                    MenuRow("全选本栏（$count 项）") {
+                        val all = displayEntries(activePane()).map { it.path }.toSet()
+                        if (activeIsLeft) left.selected = all else right.selected = all
+                        showPaneMenu = false
+                    }
                 }
                 MenuRow("新建文件夹") {
                     newNameInput = ""

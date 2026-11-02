@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -36,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -54,13 +51,10 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.layout.DialogDefaults
-import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.window.WindowListPopup
 
 internal val ChatInputPopupMargin = 8.dp
@@ -89,8 +83,6 @@ internal fun AgentAttachmentPickerButton(
 ) {
     val context = LocalContext.current
     var showPopup by remember { mutableStateOf(false) }
-    var showPathDialog by remember { mutableStateOf(false) }
-    var pathInput by remember { mutableStateOf("") }
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
     ) { uris ->
@@ -139,11 +131,10 @@ internal fun AgentAttachmentPickerButton(
         ) {
             val dismiss = LocalDismissState.current
             val options = listOf(
-                "用文件管理选择",     // 内置：能进任意目录，返回真实路径
+                "ETA 文件管理",     // 内置文件管理器：能进任意目录，返回真实路径
                 stringResource(R.string.attachment_image),
                 stringResource(R.string.attachment_file),
                 stringResource(R.string.attachment_folder),
-                stringResource(R.string.attachment_enter_path),
             )
             ListPopupColumn {
                 options.forEachIndexed { index, option ->
@@ -162,10 +153,6 @@ internal fun AgentAttachmentPickerButton(
                                 )
                                 2 -> filePicker.launch(arrayOf("*/*"))
                                 3 -> folderPicker.launch(null)
-                                4 -> {
-                                    pathInput = ""
-                                    showPathDialog = true
-                                }
                             }
                         },
                     )
@@ -174,36 +161,6 @@ internal fun AgentAttachmentPickerButton(
         }
     }
 
-    WindowDialog(
-        show = showPathDialog,
-        cornerRadius = DialogDefaults.CornerRadius,
-        title = stringResource(R.string.ui_input_file_path_36d474),
-        summary = stringResource(R.string.ui_supports_files_and_folders_under_internal_storage_or_520786),
-        onDismissRequest = { showPathDialog = false },
-    ) {
-        Column {
-            TextField(
-                value = pathInput,
-                onValueChange = { pathInput = it },
-                label = stringResource(R.string.ui_absolute_path_9ac6fc),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            MiuixDialogActions(
-                confirmText = stringResource(R.string.attachment_add),
-                confirmEnabled = pathInput.trim().startsWith('/'),
-                onCancel = { showPathDialog = false },
-                onConfirm = {
-                    val path = pathInput.trim()
-                    showPathDialog = false
-                    onAttachFilePath(path)
-                },
-                modifier = Modifier.padding(top = 16.dp),
-            )
-        }
-    }
 }
 
 @Composable

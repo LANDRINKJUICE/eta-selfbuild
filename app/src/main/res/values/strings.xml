@@ -403,14 +403,7 @@
   <string name="ui_about_github_star_title">Source Code</string>
   <string name="ui_about_github_star_hint">If Eta helps you, please star it on GitHub — it means a lot to us</string>
   <string name="ui_about_version_title">Version</string>
-  <string name="ui_about_update_title">Check for updates</string>
-  <string name="ui_about_update_checking">Checking…</string>
-  <string name="ui_about_feedback_title">Feedback</string>
   <!-- 自签改造版标识与新页面文案：装的是哪一版、是不是自签版，一眼可见。 -->
-  <string name="ui_about_self_build_title">Self-signed build</string>
-  <string name="ui_about_self_build_summary">Version %1$s — unofficial channel; keep the same signing key when installing over an existing build</string>
-  <string name="ui_about_build_notes_title">About this build</string>
-  <string name="ui_about_build_notes_summary">What changed in this build</string>
   <string name="eta_build_notes_version_line">Version %1$s · versionCode %2$d</string>
   <string name="eta_build_notes_changes_title">What changed in this build</string>
   <string name="eta_build_notes_paths_title">Where the local files live</string>
@@ -421,11 +414,6 @@
   <string name="eta_build_notes_path_ledger">What was changed on this device</string>
   <string name="eta_build_notes_path_snapshot">Re-run the system snapshot</string>
   <string name="eta_build_notes_load_failed">Built-in changelog could not be read</string>
-  <string name="ui_update_already_latest">Already on the latest version</string>
-  <string name="ui_update_check_failed">Update check failed. Try again later</string>
-  <string name="ui_update_available_title">Update available</string>
-  <string name="ui_update_available_message">Latest version %1$s, current version %2$s</string>
-  <string name="ui_update_go_download">Download</string>
   <string name="ui_click_to_reinstall_dc60de">Click to reinstall</string>
   <string name="ui_environmental_status_5b32a1">Environment status</string>
   <string name="ui_user_skills_748e7f">Installed by you</string>
@@ -673,7 +661,6 @@
   <string name="page_created_set_current_and_synced_a99010">Created, set current and synced</string>
   <string name="page_didn_t_get_root_permissions_23efb3">Didn\'t get root permissions</string>
   <string name="page_document_49deaf">document</string>
-  <string name="page_enter_path_ec5f01">Enter path</string>
   <string name="page_eta_is_executing_032532">Eta is executing…</string>
   <string name="page_folder_46ecac">folder</string>
   <string name="page_google_app_is_already_a_system_priv_app_4f33b0">Google App is already a system priv-app</string>
@@ -1170,7 +1157,6 @@
   <string name="attachment_image">Image</string>
   <string name="attachment_file">File</string>
   <string name="attachment_folder">Folder</string>
-  <string name="attachment_enter_path">Enter path</string>
   <string name="attachment_add">Add</string>
   <string name="suggestion_analyze_screen_prompt">Take a screenshot and describe the current screen</string>
   <string name="suggestion_open_wechat_prompt">Open WeChat</string>
