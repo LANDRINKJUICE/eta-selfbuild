@@ -79,9 +79,10 @@ internal object ExecutionNotificationBuilder {
                     Notification.ProgressStyle()
                         .setProgressIndeterminate(true)
                         .setProgressPoints(
-                            // 用两个进度点表达"开始 → 现在"，SystemUI 会画成一条推进的轨道。
+                            // 进度点的参数是「触发提示的最小进度」，平台要求 >= 1（写 0 会被 lint 拦下）。
+                            // 用 1 与 100 表达"起点 → 完成"，SystemUI 会画成一条推进的轨道。
                             listOf(
-                                Notification.ProgressStyle.Point(0),
+                                Notification.ProgressStyle.Point(1),
                                 Notification.ProgressStyle.Point(100),
                             ),
                         ),
