@@ -1,6 +1,5 @@
 package io.github.mangi.eta.agent.schedule
 
-import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.core.AndroidAgentLogger
 import java.io.File
@@ -57,9 +56,10 @@ internal object ScheduledShell {
         timeoutSeconds: Long,
         asRoot: Boolean,
     ): Outcome {
-        if (asRoot && !RootAccess.isGranted) {
-            return Outcome(error = "ROOT_REQUIRED", stderr = "Root 未授权")
-        }
+        // 这里刻意**不**用 RootAccess 的内存缓存做提前判定：
+        // 定时任务跑在独立的 :schedule 进程，该进程可能还没初始化 RootAccess，
+        // isGranted 会是默认值 false，从而把"其实能拿到 root"误报成"未授权"（已踩）。
+        // su 命令自带 `id -u` 前置检查，退出码 77 就是权威结论，见 Outcome.reason。
         val argv = if (asRoot) {
             // 与 BoundedRootCommandExecutor 同样的做法：先用 id -u 确认拿到了 root，
             // 否则 su 可能静默降级成 app 身份，脚本会以「路径不存在」这种误导性错误失败。

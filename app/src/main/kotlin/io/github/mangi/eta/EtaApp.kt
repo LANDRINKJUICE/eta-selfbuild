@@ -52,6 +52,9 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         // 定时任务的 :schedule 进程只需要最基础的 SharedPreferences（读任务表）；
         // 完整运行时（终端、Root、仓库）在主进程初始化，两者互不干扰。
         if (processName != null && processName.endsWith(":schedule")) {
+            // 定时任务进程只补 RootAccess 这一项：判定"能否执行需要 root 的动作"要用它；
+            // 其余完整运行时（终端、仓库、数据存储）仍然只在主进程初始化。
+            RootAccess.initialize(this)
             return
         }
         if (!AppProcessPolicy.shouldInitializeFullRuntime(processName, packageName)) {
