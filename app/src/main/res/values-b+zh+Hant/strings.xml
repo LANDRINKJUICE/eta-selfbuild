@@ -1378,4 +1378,13 @@
   <string name="scheduled_tasks_action_title">動作</string>
   <string name="scheduled_tasks_save">儲存</string>
   <string name="scheduled_tasks_cancel">取消</string>
+  <string name="scheduled_tasks_kind_custom">自訂指令</string>
+  <string name="scheduled_tasks_prompt_label">指令內容</string>
+  <string name="scheduled_tasks_prompt_placeholder">例如：檢查今天的行事曆，並總結今天要處理的事</string>
+  <string name="scheduled_tasks_prompt_summary_prefix">自訂：%1$s</string>
+  <string name="scheduled_tasks_custom_running">正在執行自訂指令…</string>
+  <string name="scheduled_tasks_custom_done">自訂指令已完成</string>
+  <string name="scheduled_tasks_custom_failed">自訂指令執行失敗：%1$s</string>
+  <string name="tool_scheduled_tasks_title">定時任務</string>
+  <string name="tool_scheduled_tasks_summary">每天固定時間自動執行：裝置狀態、記憶狀態、權限檢查，或你自訂的指令</string>
 </resources>

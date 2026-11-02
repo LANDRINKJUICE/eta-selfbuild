@@ -32,15 +32,17 @@ internal object ScheduledActionRunner {
     private const val NOTIFICATION_ID = 1188
 
     fun run(context: Context, task: ScheduledTask) {
-        val summary = runCatching { describe(context, task.action) }
+        val summary = runCatching { describe(context, task) }
             .getOrElse { failure -> "执行失败（${failure.javaClass.simpleName}）" }
         notify(context, task, summary)
     }
 
-    private fun describe(context: Context, kind: ScheduledActionKind): String = when (kind) {
+    private fun describe(context: Context, task: ScheduledTask): String = when (task.action) {
         ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)
         ScheduledActionKind.MEMORY_STATUS -> memoryStatus()
         ScheduledActionKind.PERMISSIONS_CHECK -> permissionStatus(context)
+        // 自定义指令：交给 Agent 跑一次，结果摘要进通知。
+        ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task)
     }
 
     private fun deviceStatus(context: Context): String {
@@ -139,6 +141,7 @@ internal object ScheduledActionRunner {
             ScheduledActionKind.DEVICE_STATUS -> "定时任务：设备状态"
             ScheduledActionKind.MEMORY_STATUS -> "定时任务：记忆状态"
             ScheduledActionKind.PERMISSIONS_CHECK -> "定时任务：权限体检"
+            ScheduledActionKind.CUSTOM_PROMPT -> "定时任务：自定义指令"
         }
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)

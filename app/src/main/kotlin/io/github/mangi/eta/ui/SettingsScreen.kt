@@ -310,6 +310,19 @@ private fun SettingsPageContent(
 
                     EtaPreferenceDivider()
                     EtaArrowPreference(
+                        title = stringResource(R.string.settings_scheduled_tasks_title),
+                        summary = stringResource(R.string.settings_scheduled_tasks_summary),
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Schedule,
+                                tint = EtaPreferenceColors.Blue,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.ScheduledTasks) },
+                    )
+
+                    EtaPreferenceDivider()
+                    EtaArrowPreference(
                         title = "Subagent",
                         startAction = {
                             EtaPreferenceIcon(
@@ -797,24 +810,6 @@ private fun SettingsPageContent(
                             enabled = prefs != null && !accessibilityProtectionPending,
                         )
                     }
-                }
-            }
-
-            // ── 定时任务 ────────────────────────────────────────────────
-            item(key = "section_scheduled_tasks") {
-                EtaPreferenceGroupTitle(stringResource(R.string.settings_scheduled_tasks_title))
-                EtaPreferenceGroup {
-                    EtaArrowPreference(
-                        title = stringResource(R.string.settings_scheduled_tasks_title),
-                        summary = stringResource(R.string.settings_scheduled_tasks_summary),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Schedule,
-                                tint = EtaPreferenceColors.Blue,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.ScheduledTasks) },
-                    )
                 }
             }
 

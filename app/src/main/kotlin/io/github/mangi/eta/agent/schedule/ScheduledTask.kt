@@ -5,8 +5,8 @@ import org.json.JSONObject
 /**
  * 定时任务能做的动作。
  *
- * 目前只放**纯本地、不调用模型**的动作：无人值守时不会产生意外的额度消耗，
- * 断网、模型不可用也不影响执行。
+ * 三个内置动作相当于「快捷方式」：纯本地、不联网、不消耗模型额度，无人值守也放心；
+ * [CUSTOM_PROMPT] 则完全不限死内容——你写一句话，到点由 Agent 去执行。
  */
 internal enum class ScheduledActionKind(val id: String) {
     /** 设备状态摘要：内存 / 存储 / 电量 / 温度 / 运行时长。 */
@@ -15,8 +15,11 @@ internal enum class ScheduledActionKind(val id: String) {
     /** 记忆状态：MEMORY.md 体积、核心记忆字符数、是否会被截断。 */
     MEMORY_STATUS("memory_status"),
 
-    /** 权限体检：通知、悬浮窗、无障碍、使用情况访问、Root 是否仍然可用。 */
+    /** 权限体检：通知、悬浮窗、无障碍、精确闹钟、电池优化是否仍然可用。 */
     PERMISSIONS_CHECK("permissions_check"),
+
+    /** 自定义指令：把 [ScheduledTask.prompt] 交给 Agent 执行（会消耗模型额度）。 */
+    CUSTOM_PROMPT("custom_prompt"),
     ;
 
     companion object {
@@ -32,6 +35,8 @@ internal data class ScheduledTask(
     val action: ScheduledActionKind,
     val enabled: Boolean,
     val lastRunAtMillis: Long? = null,
+    /** 仅 [ScheduledActionKind.CUSTOM_PROMPT] 使用：到点交给 Agent 执行的指令内容。 */
+    val prompt: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -40,6 +45,7 @@ internal data class ScheduledTask(
         .put("action", action.id)
         .put("enabled", enabled)
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
+        .put("prompt", prompt)
 
     companion object {
         /** 解析失败返回 null（坏记录直接跳过，不让一条脏数据拖垮整个列表）。 */
@@ -58,6 +64,7 @@ internal data class ScheduledTask(
                 action = action,
                 enabled = json.optBoolean("enabled", true),
                 lastRunAtMillis = lastRun,
+                prompt = json.optString("prompt", ""),
             )
         }
     }

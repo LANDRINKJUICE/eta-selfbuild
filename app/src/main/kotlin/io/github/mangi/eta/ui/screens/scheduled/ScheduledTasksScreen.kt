@@ -48,6 +48,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NumberPicker
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 新建任务时的默认时间：09:00，够早也够日常。 */
@@ -93,7 +94,12 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
         reloadTasks()
     }
 
-    LaunchedEffect(context) { reloadTasks() }
+    LaunchedEffect(context) {
+        reloadTasks()
+        // 打开页面就按当前配置重建一次闹钟：改过系统时间、或任务数据来自外部写入时，
+        // 一进页面就是已生效状态，不必再等一次冷启动。
+        ScheduledTaskScheduler.rescheduleAll(context)
+    }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_scheduled_tasks),
@@ -139,7 +145,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         // 一行读全：几点几分 + 做什么；点进去改时间或换动作。
                         EtaArrowPreference(
                             title = taskTimeText(task),
-                            summary = stringResource(actionLabelRes(task.action)),
+                            summary = taskSummaryText(task),
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.Schedule,
@@ -227,6 +233,7 @@ private fun ScheduleEditorDialog(
     var hour by remember(task?.id) { mutableStateOf(task?.hour ?: DefaultHour) }
     var minute by remember(task?.id) { mutableStateOf(task?.minute ?: DefaultMinute) }
     var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.DEVICE_STATUS) }
+    var prompt by remember(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
 
     EtaWindowDialog(
         show = true,
@@ -271,6 +278,28 @@ private fun ScheduleEditorDialog(
                 )
             }
 
+            // 选「自定义指令」时展开输入框：这里写什么，到点就让 Agent 做什么。
+            if (action == ScheduledActionKind.CUSTOM_PROMPT) {
+                EditorSectionLabel(stringResource(R.string.scheduled_tasks_prompt_label))
+                TextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                )
+                Text(
+                    text = stringResource(R.string.scheduled_tasks_prompt_placeholder),
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(
+                        start = EtaPreferenceDefaults.SidePadding,
+                        end = EtaPreferenceDefaults.SidePadding,
+                        top = 4.dp,
+                    ),
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
             MiuixDialogActions(
                 confirmText = stringResource(R.string.scheduled_tasks_save),
@@ -285,6 +314,7 @@ private fun ScheduleEditorDialog(
                             action = action,
                             enabled = task?.enabled ?: true,
                             lastRunAtMillis = task?.lastRunAtMillis,
+                            prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
                         ),
                     )
                 },
@@ -313,9 +343,20 @@ private fun EditorSectionLabel(text: String) {
 private fun taskTimeText(task: ScheduledTask): String =
     task.hour.toString().padStart(2, '0') + ":" + task.minute.toString().padStart(2, '0')
 
+/** 列表摘要：内置动作显示动作名；自定义指令显示指令内容（截断，太长会把这一行撑爆）。 */
+@Composable
+private fun taskSummaryText(task: ScheduledTask): String = when (task.action) {
+    ScheduledActionKind.CUSTOM_PROMPT -> {
+        val text = task.prompt.trim().ifEmpty { stringResource(R.string.scheduled_tasks_kind_custom) }
+        stringResource(R.string.scheduled_tasks_prompt_summary_prefix, text.take(60))
+    }
+    else -> stringResource(actionLabelRes(task.action))
+}
+
 @StringRes
 private fun actionLabelRes(kind: ScheduledActionKind): Int = when (kind) {
     ScheduledActionKind.DEVICE_STATUS -> R.string.scheduled_tasks_action_device_status
     ScheduledActionKind.MEMORY_STATUS -> R.string.scheduled_tasks_action_memory_status
     ScheduledActionKind.PERMISSIONS_CHECK -> R.string.scheduled_tasks_action_permissions_check
+    ScheduledActionKind.CUSTOM_PROMPT -> R.string.scheduled_tasks_kind_custom
 }

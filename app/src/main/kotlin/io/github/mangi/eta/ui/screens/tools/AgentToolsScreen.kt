@@ -12,11 +12,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -26,20 +30,35 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaCard
+import io.github.mangi.eta.ui.components.EtaFeatureCard
+import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
+import io.github.mangi.eta.ui.components.EtaPreferenceIcon
+import io.github.mangi.eta.ui.components.ItemDescriptionDialog
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.AgentToolsAction
 import io.github.mangi.eta.ui.model.AgentToolsUiState
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.projectToolGroups
 import top.yukonga.miuix.kmp.basic.TabRow
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private object ToolsMetrics {
     val GridHorizontalPadding = 16.dp
     val GridGap = 12.dp
 }
+
+/**
+ * 定时任务卡挂在 [ScheduledTasksAnchorGroupId] 这一本地能力分组末尾。
+ *
+ * 它不进入 [ToolItemUi] 目录：目录里的每个 id 都必须是已登记的模型工具，展示与执行能力合同
+ * 一一对应（AgentToolRequirements + 单测 everyRegisteredToolHasExactlyOneRequirement）。
+ * 定时任务是设备自己到点触发的能力，模型调不到，所以这里只做说明。
+ */
+private const val ScheduledTasksAnchorGroupId = "memory"
 
 @Composable
 fun AgentToolsScreen(
@@ -90,7 +109,49 @@ fun AgentToolsScreen(
                     onAction = onAction,
                 )
             }
+            if (group.id == ScheduledTasksAnchorGroupId) {
+                item(key = "capability-scheduled-tasks") {
+                    ScheduledTasksCapabilityCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ToolsMetrics.GridHorizontalPadding)
+                            .padding(bottom = ToolsMetrics.GridGap),
+                    )
+                }
+            }
         }
+    }
+}
+
+/** 与 [ToolCard] 同款外观，但不查工具能力合同（定时任务不向模型开放），点击只看说明。 */
+@Composable
+private fun ScheduledTasksCapabilityCard(modifier: Modifier = Modifier) {
+    var showDescription by remember { mutableStateOf(false) }
+    val title = stringResource(R.string.tool_scheduled_tasks_title)
+    val summary = stringResource(R.string.tool_scheduled_tasks_summary)
+    EtaFeatureCard(
+        title = title,
+        summary = summary,
+        modifier = modifier,
+        onClick = { showDescription = true },
+        icon = { EtaPreferenceIcon(icon = Icons.Rounded.Schedule, tint = EtaPreferenceColors.Green) },
+    ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.ui_view_description),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    if (showDescription) {
+        ItemDescriptionDialog(
+            title = title,
+            description = summary,
+            onDismiss = { showDescription = false },
+        )
     }
 }
 

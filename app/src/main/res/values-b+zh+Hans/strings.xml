@@ -1467,4 +1467,13 @@
   <string name="scheduled_tasks_action_title">动作</string>
   <string name="scheduled_tasks_save">保存</string>
   <string name="scheduled_tasks_cancel">取消</string>
+  <string name="scheduled_tasks_kind_custom">自定义指令</string>
+  <string name="scheduled_tasks_prompt_label">指令内容</string>
+  <string name="scheduled_tasks_prompt_placeholder">例如：检查今天的日程，并总结今天要处理的事</string>
+  <string name="scheduled_tasks_prompt_summary_prefix">自定义：%1$s</string>
+  <string name="scheduled_tasks_custom_running">正在执行自定义指令…</string>
+  <string name="scheduled_tasks_custom_done">自定义指令已完成</string>
+  <string name="scheduled_tasks_custom_failed">自定义指令执行失败：%1$s</string>
+  <string name="tool_scheduled_tasks_title">定时任务</string>
+  <string name="tool_scheduled_tasks_summary">每天固定时间自动执行：设备状态、记忆状态、权限体检，或你自定义的指令</string>
 </resources>

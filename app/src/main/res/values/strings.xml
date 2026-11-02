@@ -1486,4 +1486,13 @@
   <string name="scheduled_tasks_action_title">Action</string>
   <string name="scheduled_tasks_save">Save</string>
   <string name="scheduled_tasks_cancel">Cancel</string>
+  <string name="scheduled_tasks_kind_custom">Custom instruction</string>
+  <string name="scheduled_tasks_prompt_label">Instruction</string>
+  <string name="scheduled_tasks_prompt_placeholder">For example: check today\'s calendar and summarize what needs to be handled today</string>
+  <string name="scheduled_tasks_prompt_summary_prefix">Custom: %1$s</string>
+  <string name="scheduled_tasks_custom_running">Running custom instruction…</string>
+  <string name="scheduled_tasks_custom_done">Custom instruction finished</string>
+  <string name="scheduled_tasks_custom_failed">Custom instruction failed: %1$s</string>
+  <string name="tool_scheduled_tasks_title">Scheduled tasks</string>
+  <string name="tool_scheduled_tasks_summary">Run automatically at a fixed time every day: device status, memory status, permission check, or an instruction you write</string>
 </resources>
