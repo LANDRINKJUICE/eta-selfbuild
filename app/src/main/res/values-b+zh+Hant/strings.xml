@@ -1387,4 +1387,9 @@
   <string name="scheduled_tasks_custom_failed">自訂指令執行失敗：%1$s</string>
   <string name="tool_scheduled_tasks_title">定時任務</string>
   <string name="tool_scheduled_tasks_summary">每天固定時間自動執行：裝置狀態、記憶狀態、權限檢查，或你自訂的指令</string>
+    <string name="scheduled_tasks_history_title">最近執行</string>
+    <string name="scheduled_tasks_history_never">還沒執行過</string>
+    <string name="scheduled_tasks_history_ok">%1$s 執行成功</string>
+    <string name="scheduled_tasks_history_failed">%1$s 執行失敗</string>
+    <string name="scheduled_tasks_history_empty">暫無執行記錄</string>
 </resources>

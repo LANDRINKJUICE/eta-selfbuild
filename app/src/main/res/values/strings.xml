@@ -1495,4 +1495,9 @@
   <string name="scheduled_tasks_custom_failed">Custom instruction failed: %1$s</string>
   <string name="tool_scheduled_tasks_title">Scheduled tasks</string>
   <string name="tool_scheduled_tasks_summary">Run automatically at a fixed time every day: device status, memory status, permission check, or an instruction you write</string>
+    <string name="scheduled_tasks_history_title">Last run</string>
+    <string name="scheduled_tasks_history_never">Never run yet</string>
+    <string name="scheduled_tasks_history_ok">Succeeded at %1$s</string>
+    <string name="scheduled_tasks_history_failed">Failed at %1$s</string>
+    <string name="scheduled_tasks_history_empty">No run history yet</string>
 </resources>

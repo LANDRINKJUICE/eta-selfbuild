@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.schedule.ScheduledActionKind
+import io.github.mangi.eta.agent.schedule.ScheduledRunLog
 import io.github.mangi.eta.agent.schedule.ScheduledTask
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
@@ -73,9 +75,12 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     var showEditor by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ScheduledTask?>(null) }
     var pendingDelete by remember { mutableStateOf<ScheduledTask?>(null) }
+    var runs by remember { mutableStateOf(emptyList<ScheduledRunLog.Record>()) }
+    var expandedTaskId by remember { mutableStateOf<String?>(null) }
 
     val reloadTasks = {
         tasks = ScheduledTaskStore.load(context).sortedWith(TaskOrder)
+        runs = ScheduledRunLog.load(context)
     }
 
     // 增删改统一走这里：先落盘，再按启用状态注册/取消闹钟，最后重新读盘刷新界面。
@@ -164,6 +169,41 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                             checked = task.enabled,
                             onCheckedChange = { checked -> persist(task.copy(enabled = checked)) },
                         )
+
+                        EtaPreferenceDivider()
+                        // 最近一次执行结果：定时任务最怕"静默失败"，这里必须看得见。
+                        val latestRun = runs.firstOrNull { it.taskId == task.id }
+                        EtaArrowPreference(
+                            title = stringResource(R.string.scheduled_tasks_history_title),
+                            summary = runSummaryText(latestRun),
+                            startAction = {
+                                EtaPreferenceIcon(
+                                    icon = Icons.Rounded.History,
+                                    tint = if (latestRun?.ok == false) MiuixTheme.colorScheme.error else EtaPreferenceColors.Green,
+                                )
+                            },
+                            onClick = {
+                                expandedTaskId = if (expandedTaskId == task.id) null else task.id
+                            },
+                        )
+
+                        if (expandedTaskId == task.id) {
+                            val history = runs.filter { it.taskId == task.id }.take(5)
+                            if (history.isEmpty()) {
+                                EtaPreferenceDivider()
+                                EtaPreference(
+                                    title = stringResource(R.string.scheduled_tasks_history_empty),
+                                    summary = "",
+                                )
+                            }
+                            history.forEach { record ->
+                                EtaPreferenceDivider()
+                                EtaPreference(
+                                    title = runTimeText(record),
+                                    summary = record.message.ifBlank { if (record.ok) "成功" else "失败" },
+                                )
+                            }
+                        }
 
                         EtaPreferenceDivider()
                         EtaPreference(
@@ -338,6 +378,24 @@ private fun EditorSectionLabel(text: String) {
             bottom = 4.dp,
         ),
     )
+}
+
+/** 最近一次执行的一句话摘要：从没跑过 / 成功 / 失败。 */
+@Composable
+private fun runSummaryText(record: ScheduledRunLog.Record?): String = when {
+    record == null -> stringResource(R.string.scheduled_tasks_history_never)
+    record.ok -> stringResource(R.string.scheduled_tasks_history_ok, runTimeText(record))
+    else -> stringResource(R.string.scheduled_tasks_history_failed, runTimeText(record))
+}
+
+/** 执行时间：MM-dd HH:mm。 */
+private fun runTimeText(record: ScheduledRunLog.Record): String {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = record.atMillis }
+    val month = (calendar.get(java.util.Calendar.MONTH) + 1).toString().padStart(2, '0')
+    val day = calendar.get(java.util.Calendar.DAY_OF_MONTH).toString().padStart(2, '0')
+    val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
+    val minute = calendar.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
+    return "$month-$day $hour:$minute"
 }
 
 /** HH:mm；不用 String.format，避免跟随系统 Locale 出现阿拉伯数字变体。 */

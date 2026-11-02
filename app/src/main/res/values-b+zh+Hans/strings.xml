@@ -1476,4 +1476,9 @@
   <string name="scheduled_tasks_custom_failed">自定义指令执行失败：%1$s</string>
   <string name="tool_scheduled_tasks_title">定时任务</string>
   <string name="tool_scheduled_tasks_summary">每天固定时间自动执行：设备状态、记忆状态、权限体检，或你自定义的指令</string>
+    <string name="scheduled_tasks_history_title">最近执行</string>
+    <string name="scheduled_tasks_history_never">还没执行过</string>
+    <string name="scheduled_tasks_history_ok">%1$s 执行成功</string>
+    <string name="scheduled_tasks_history_failed">%1$s 执行失败</string>
+    <string name="scheduled_tasks_history_empty">暂无执行记录</string>
 </resources>

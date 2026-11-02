@@ -30,10 +30,32 @@ import java.util.Locale
 internal object ScheduledActionRunner {
     private const val CHANNEL = "eta_scheduled_tasks"
     private const val NOTIFICATION_ID = 1188
+    private const val HISTORY_MESSAGE_CHARS = 200
 
     fun run(context: Context, task: ScheduledTask) {
+        val startedAt = System.currentTimeMillis()
+        var ok = true
         val summary = runCatching { describe(context, task) }
-            .getOrElse { failure -> "执行失败（${failure.javaClass.simpleName}）" }
+            .getOrElse { failure ->
+                ok = false
+                "执行失败（${failure.javaClass.simpleName}）"
+            }
+        // 自定义指令返回的是"执行失败…"文本时，也要按失败记账，否则历史里会看起来一切正常。
+        if (summary.startsWith("执行失败")) ok = false
+        val duration = System.currentTimeMillis() - startedAt
+        // 先落历史再发通知：通知可能被用户关掉，历史不会。
+        runCatching {
+            ScheduledRunLog.record(
+                context,
+                ScheduledRunLog.Record(
+                    taskId = task.id,
+                    atMillis = startedAt,
+                    ok = ok,
+                    message = summary.take(HISTORY_MESSAGE_CHARS),
+                    durationMs = duration,
+                ),
+            )
+        }
         notify(context, task, summary)
     }
 
