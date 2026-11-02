@@ -5,6 +5,7 @@ import java.util.concurrent.RejectedExecutionException
 import android.app.Service
 import android.app.ActivityOptions
 import android.app.PendingIntent
+import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.ui.MainActivity
 import android.os.Build
 import android.content.Context
@@ -296,10 +297,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     ) {
         val run = admitRun(incoming.request, replyTo, incoming) ?: return
         // 记下这次运行属于哪个会话：执行中通知的「回复」要回到它（见 ActiveConversationTracker）。
+        val activeConversationId = incoming.request.handoff
+            ?.takeIf { it.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE }
+            ?.let { AgentUiHandoffPayload.from(it.payload).conversationId }
+        // 连标题一起记：通知要显示"哪个会话在跑"，不能只写"Eta 在运行"。
         ActiveConversationTracker.remember(
-            incoming.request.handoff
-                ?.takeIf { it.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE }
-                ?.let { AgentUiHandoffPayload.from(it.payload).conversationId },
+            conversationId = activeConversationId,
+            title = activeConversationId?.let { id ->
+                runCatching {
+                    runBlocking { EtaDatabase.get(this@AgentRuntimeService).conversationDao().titleOf(id) }
+                }.getOrNull()
+            },
         )
         thread(name = "agent-runtime-image-ingest") {
             val prepared = runCatching {

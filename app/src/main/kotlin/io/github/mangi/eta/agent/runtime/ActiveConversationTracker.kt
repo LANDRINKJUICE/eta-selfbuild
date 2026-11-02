@@ -13,11 +13,21 @@ import java.util.concurrent.atomic.AtomicReference
  */
 internal object ActiveConversationTracker {
     private val latest = AtomicReference<String?>(null)
+    private val latestTitle = AtomicReference<String?>(null)
 
-    /** 运行开始时调用；空值忽略（外部来源的运行没有 Eta 会话）。 */
-    fun remember(conversationId: String?) {
-        if (!conversationId.isNullOrBlank()) latest.set(conversationId)
+    /**
+     * 运行开始时调用；空值忽略（外部来源的运行没有 Eta 会话）。
+     *
+     * @param title 会话标题，用于通知标题（用户要求显示"哪个会话在跑"，而不是笼统的"Eta 在运行"）。
+     */
+    fun remember(conversationId: String?, title: String? = null) {
+        if (!conversationId.isNullOrBlank()) {
+            latest.set(conversationId)
+            latestTitle.set(title?.takeIf { it.isNotBlank() })
+        }
     }
 
     fun latest(): String? = latest.get()
+
+    fun latestTitle(): String? = latestTitle.get()
 }

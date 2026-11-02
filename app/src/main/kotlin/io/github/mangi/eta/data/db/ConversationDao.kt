@@ -26,6 +26,10 @@ internal interface ConversationDao : ChunkedTextDao {
     @Query("SELECT id, title, created_at, updated_at FROM conversations")
     suspend fun conversationIdentities(): List<ConversationIdentity>
 
+    /** 取单个会话标题；通知栏要显示「哪个会话在跑」时用。 */
+    @Query("SELECT title FROM conversations WHERE id = :conversationId LIMIT 1")
+    suspend fun titleOf(conversationId: String): String?
+
     @Query("UPDATE conversations SET title = :title, updated_at = :updatedAt WHERE id = :conversationId")
     suspend fun updateConversationTitle(conversationId: String, title: String, updatedAt: Long)
 

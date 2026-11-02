@@ -41,11 +41,27 @@ internal object ExecutionNotificationBuilder {
         startedAt: Long,
         /** 当前运行所属的会话；非空时通知带「回复」按钮，回复直接回到该会话。 */
         conversationId: String? = null,
+        /**
+         * 会话标题，用作通知标题（用户要求：别只写"Eta 在运行"，要能看出是哪个会话）。
+         * 为空时退回原来的通用标题。
+         */
+        conversationTitle: String? = null,
     ): Notification {
+        // 点正文直接进对应会话。
+        // 为什么不用内联回复按钮：这条通知是流体云（ProgressStyle），实测系统在 ProgressStyle 下
+        // 不渲染 action 按钮（dumpsys 里 actions 齐全，界面上就是不画），这是平台行为。
+        // 所以走「点正文 → 到会话」：流体云保留，少一次自己翻会话列表的操作。
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            val target = conversationId?.takeIf { it.isNotBlank() }
+            if (target != null) {
+                action = MainActivity.ACTION_OPEN_CONVERSATION_ID
+                putExtra(MainActivity.EXTRA_CONVERSATION_ID, target)
+            }
+        }
         val open = PendingIntent.getActivity(
             context,
-            0,
-            Intent(context, MainActivity::class.java),
+            conversationId?.hashCode() ?: 0,
+            openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stop = PendingIntent.getService(
@@ -57,15 +73,25 @@ internal object ExecutionNotificationBuilder {
         )
 
         val summary = context.resources.getQuantityString(R.plurals.execution_summary, taskCount, taskCount)
+        // 详情优先说「正在做什么」，会话信息已经放到标题里了，这里不重复。
         val detail = when {
             status == null -> summary
             taskCount <= 1 -> status.localizedText(context.resources)
             else -> "$summary · ${status.localizedText(context.resources)}"
         }
 
+        // 标题要「会变」：ColorOS 的流体云卡片只渲染标题（实测副标题不显示，
+        // 截图里只有一行"Eta 正在运行"），所以把「会话名 · 当前动作」都放进标题，
+        // 用户一眼能看出是哪个会话、在做什么，而不是干巴巴一行"正在运行"。
+        val stateText = status?.localizedText(context.resources)
+            ?: context.getString(R.string.execution_title)
+        val titleText = conversationTitle?.takeIf { it.isNotBlank() }
+            ?.let { "$it · $stateText" }
+            ?: stateText
+
         val builder = Notification.Builder(context, EtaNotificationChannels.EXECUTION)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.execution_title))
+            .setContentTitle(titleText)
             .setContentText(detail)
             .setContentIntent(open)
             .setOngoing(true)
@@ -77,17 +103,8 @@ internal object ExecutionNotificationBuilder {
             .setUsesChronometer(true)
             .addAction(Notification.Action.Builder(null, context.getString(R.string.execution_stop), stop).build())
 
-        // 回复：跑任务时收到通知可以直接回一句，落到这个会话里（与定时任务通知共用同一套机制）。
-        conversationId?.takeIf { it.isNotBlank() }?.let { id ->
-            builder.addAction(
-                NotificationReply.action(
-                    context = context,
-                    conversationId = id,
-                    notificationId = NOTIFICATION_ID,
-                    requestCode = id.hashCode(),
-                ),
-            )
-        }
+        // 注：这里原本加了「回复」内联按钮，但流体云的 ProgressStyle 不渲染 action，
+        // 加上去只是多构造一个永远不会被点到的 PendingIntent，已移除（改由点正文进会话）。
 
         if (status != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             // 流体云：进度条 + 状态栏胶囊文字 + 请求提升为 ongoing。

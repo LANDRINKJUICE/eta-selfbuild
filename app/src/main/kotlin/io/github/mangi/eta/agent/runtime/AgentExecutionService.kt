@@ -106,6 +106,8 @@ internal class AgentExecutionService : Service() {
             startedAt = foregroundStartedAt,
             // 通知上的「回复」要回到正在跑的那个会话
             conversationId = io.github.mangi.eta.agent.runtime.ActiveConversationTracker.latest(),
+            // 标题显示会话名（用户要求：要看得出是哪个会话在跑）
+            conversationTitle = io.github.mangi.eta.agent.runtime.ActiveConversationTracker.latestTitle(),
         )
     }
 
