@@ -15,10 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.snapshotFlow
-import io.github.mangi.eta.agent.notify.PendingReplyQueue
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -227,35 +223,6 @@ fun AgentAppRoot(
 
     LaunchedEffect(Unit) {
         RuntimeConfigRepository.ensureDefaults(EtaApp.serviceInstance)
-    }
-
-    // 通知栏「回复」的投递：把用户在通知里打的字送进对应会话。
-    //
-    // 为什么在这里消费（而不是在接收器里直接发）：接收器只负责落盘排队，
-    // 真正发送需要"会话已加载"这个前提（submitOrQueueCurrentMessage 有守卫），
-    // 只有 UI 起来之后才具备。没有会话的回复（定时任务的本地动作）新建一个会话安放，保证不丢。
-    LaunchedEffect(Unit) {
-        val pending = PendingReplyQueue.load(context)
-        if (pending.isEmpty()) return@LaunchedEffect
-        PendingReplyQueue.clear(context)
-        pending.forEach { entry ->
-            val target = entry.conversationId.takeIf { it.isNotBlank() }
-            if (target != null) {
-                // 会话列表可能还在异步加载：等它出现，最多 5 秒
-                withTimeoutOrNull(5_000) {
-                    snapshotFlow { agentState.hasConversation(target) }.first { it }
-                }
-                if (agentState.hasConversation(target)) agentState.selectConversation(target)
-                else agentState.createConversation()
-            } else {
-                agentState.createConversation()
-            }
-            // 等会话加载完成再发送，否则会被守卫直接丢弃
-            withTimeoutOrNull(8_000) {
-                snapshotFlow { agentState.homeState.isConversationLoaded }.first { it }
-            }
-            agentState.sendCurrentMessage(entry.text)
-        }
     }
 
     LaunchedEffect(requestedConversationId) {

@@ -185,7 +185,8 @@ internal object ScheduledActionRunner {
             record = record,
             // 原样传：自定义指令有会话，本地动作为空；两种都由通知的回复入口兜住
             // （本地动作的回复由主进程新建会话投递，见 NotificationReplyReceiver 的注释）。
-            conversationId = task.conversationId,
+            // 只有自定义指令这类带会话的任务才给回复入口；本地动作没有对话上下文，不给按钮。
+            conversationId = task.conversationId.takeIf { it.isNotBlank() },
         )
         manager.notify(ScheduledNotificationBuilder.notificationId(task.id), notification)
     }

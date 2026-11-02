@@ -50,17 +50,18 @@ internal object ScheduledNotificationBuilder {
             .setCategory(if (ok) Notification.CATEGORY_STATUS else Notification.CATEGORY_ERROR)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
 
-        // 所有任务都给「回复」入口：本地动作（设备状态、体检等）没有会话，
-        // 回复由消费端新建会话安放，这样用户想问一句随时能问
-        //（以前只在有会话时才给按钮，导致本机 9 个本地动作任务全都看不到回复按钮）。
-        builder.addAction(
-            NotificationReply.action(
-                context = context,
-                conversationId = conversationId.orEmpty(),
-                notificationId = notificationId(task.id),
-                requestCode = task.id.hashCode(),
-            ),
-        )
+        // 只有带会话的任务给「回复」：本地动作（设备状态、体检等）没有对话上下文，
+        // 给了按钮也回复不到任何地方，反而误导用户（用户明确要求这种不显示）。
+        conversationId?.takeIf { it.isNotBlank() }?.let { id ->
+            builder.addAction(
+                NotificationReply.action(
+                    context = context,
+                    conversationId = id,
+                    notificationId = notificationId(task.id),
+                    requestCode = task.id.hashCode(),
+                ),
+            )
+        }
         return builder.build()
     }
 

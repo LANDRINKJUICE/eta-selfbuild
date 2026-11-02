@@ -375,11 +375,12 @@ internal fun FileManagerScreen(
     val editing = editorPath != null
     val viewing = imageView != null
     MiuixScaffold(
+        // 不显示大标题：文件管理器靠顶部两栏的路径行定位，再加一行「文件管理」大字既占地方又重复。
         title = when {
             editing -> editorName
             viewing -> imageView?.first.orEmpty()
             selectMode -> "已选 ${selectedPaths.size} 项"
-            else -> "文件管理"
+            else -> ""
         },
         onBack = {
             when {
@@ -739,15 +740,20 @@ internal fun FileManagerScreen(
                             maxLines = 1,
                             modifier = Modifier.weight(1f),
                         )
+                        // 全选：选文件时最常用，必须常驻在底部（放菜单里不好找）
                         EtaTextButton(
-                            text = if (picked.isEmpty()) "取消" else "清空",
+                            text = "全选",
                             onClick = {
-                                if (picked.isEmpty()) {
-                                    onBack()
-                                } else {
-                                    left.selected = emptySet()
-                                    right.selected = emptySet()
-                                }
+                                val all = displayEntries(activePane()).map { it.path }.toSet()
+                                if (activeIsLeft) left.selected = all else right.selected = all
+                            },
+                        )
+                        EtaTextButton(
+                            text = "清空",
+                            enabled = picked.isNotEmpty(),
+                            onClick = {
+                                left.selected = emptySet()
+                                right.selected = emptySet()
                             },
                         )
                         EtaTextButton(
