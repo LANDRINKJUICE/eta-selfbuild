@@ -67,6 +67,8 @@ internal data class ScheduledTask(
     val lastRunAtMillis: Long? = null,
     /** 仅 [ScheduledActionKind.CUSTOM_PROMPT] 使用：交给 Agent 执行的指令内容。 */
     val prompt: String = "",
+    /** 发起该任务的会话；通知栏「回复」会回到这个会话。本地动作无会话，保持空串。 */
+    val conversationId: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -79,6 +81,7 @@ internal data class ScheduledTask(
         .put("keyword", keyword)
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
         .put("prompt", prompt)
+        .put("conversation_id", conversationId)
 
     /** 事件是否命中这条任务的条件（不含 enabled 判断，由调用方负责）。 */
     fun matchesEvent(event: ScheduledEvent): Boolean = when (trigger) {
@@ -132,6 +135,7 @@ internal data class ScheduledTask(
                 keyword = json.optString("keyword", ""),
                 lastRunAtMillis = lastRun,
                 prompt = json.optString("prompt", ""),
+                conversationId = json.optString("conversation_id", ""),
             )
         }
 

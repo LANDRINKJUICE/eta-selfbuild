@@ -17,6 +17,8 @@ import android.provider.Settings
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.notify.ScheduledNotificationBuilder
+import io.github.mangi.eta.agent.notify.EtaNotificationChannels
 import io.github.mangi.eta.agent.memory.AgentMemoryContextBuilder
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.ui.MainActivity
@@ -44,19 +46,15 @@ internal object ScheduledActionRunner {
         if (summary.startsWith("执行失败")) ok = false
         val duration = System.currentTimeMillis() - startedAt
         // 先落历史再发通知：通知可能被用户关掉，历史不会。
-        runCatching {
-            ScheduledRunLog.record(
-                context,
-                ScheduledRunLog.Record(
-                    taskId = task.id,
-                    atMillis = startedAt,
-                    ok = ok,
-                    message = summary.take(HISTORY_MESSAGE_CHARS),
-                    durationMs = duration,
-                ),
-            )
-        }
-        notify(context, task, summary)
+        val runRecord = ScheduledRunLog.Record(
+            taskId = task.id,
+            atMillis = startedAt,
+            ok = ok,
+            message = summary.take(HISTORY_MESSAGE_CHARS),
+            durationMs = duration,
+        )
+        runCatching { ScheduledRunLog.record(context, runRecord) }
+        notify(context, task, summary, ok, runRecord)
     }
 
     private fun describe(context: Context, task: ScheduledTask): String = when (task.action) {
@@ -168,41 +166,26 @@ internal object ScheduledActionRunner {
         return percent.takeIf { it >= 0 }?.let { it to temperature }
     }
 
-    private fun notify(context: Context, task: ScheduledTask, summary: String) {
+    private fun notify(
+        context: Context,
+        task: ScheduledTask,
+        summary: String,
+        ok: Boolean,
+        record: ScheduledRunLog.Record?,
+    ) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "定时任务", NotificationManager.IMPORTANCE_DEFAULT),
+        // 渠道在 EtaApp 启动时统一建好；这里再 ensure 一次，保证 :schedule 进程也能独立工作。
+        EtaNotificationChannels.ensure(context)
+        if (!manager.areNotificationsEnabled()) return
+        val notification = ScheduledNotificationBuilder.build(
+            context = context,
+            task = task,
+            summary = summary,
+            ok = ok,
+            record = record,
+            // 只有自定义指令有会话可回；本地动作没有会话，不给回复按钮。
+            conversationId = task.conversationId.takeIf { task.action.usesModel && it.isNotBlank() },
         )
-        val open = PendingIntent.getActivity(
-            context,
-            NOTIFICATION_ID,
-            Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val title = when (task.action) {
-            ScheduledActionKind.DEVICE_STATUS -> "定时任务：设备状态"
-            ScheduledActionKind.MEMORY_STATUS -> "定时任务：记忆状态"
-            ScheduledActionKind.PERMISSIONS_CHECK -> "定时任务：权限体检"
-            ScheduledActionKind.SELF_CHECK -> "定时任务：自我体检"
-            ScheduledActionKind.SNAPSHOT -> "定时任务：系统快照"
-            ScheduledActionKind.BRAIN_BACKUP -> "定时任务：大脑备份"
-            ScheduledActionKind.CLEAN_TMP -> "定时任务：清理 tmp"
-            ScheduledActionKind.DRIFT_CHECK -> "定时任务：漂移检测"
-            ScheduledActionKind.CUSTOM_PROMPT -> "定时任务：自定义指令"
-        }
-        val notification = Notification.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(summary)
-            .setStyle(Notification.BigTextStyle().bigText(summary))
-            .setSubText(String.format(Locale.US, "%02d:%02d", task.hour, task.minute))
-            .setVisibility(Notification.VISIBILITY_PRIVATE)
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
-            .build()
-        if (manager.areNotificationsEnabled()) {
-            manager.notify(task.id, NOTIFICATION_ID, notification)
-        }
+        manager.notify(ScheduledNotificationBuilder.notificationId(task.id), notification)
     }
 }

@@ -70,6 +70,8 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         McpServerRepository.init(this)
         // 定时任务：AlarmManager 的闹钟不跨重启存活，进程起来后按当前配置重建。
         ScheduledTaskScheduler.rescheduleAll(this)
+        // 通知渠道：跑完要弹窗提示的渠道必须是 HIGH + 声音，这里统一建好并做版本升级。
+        io.github.mangi.eta.agent.notify.EtaNotificationChannels.ensure(this)
         XposedServiceHelper.registerListener(this)
         applicationScope.launch {
             try {
