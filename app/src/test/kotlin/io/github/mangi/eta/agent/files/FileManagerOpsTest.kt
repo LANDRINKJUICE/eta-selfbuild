@@ -8,12 +8,14 @@ import org.junit.Test
 /**
  * 文件操作层单测。
  *
- * 重点在两处最易出错的地方：
- * 1. **shell 引用**：文件名带空格 / 单引号 / 中文 / 换行时，拼出来的命令不能被拆散，
- *    更不能因为引号未闭合导致后面的命令被当参数执行（那是安全漏洞）。
- * 2. **ls 输出解析**：不同文件的权限、大小、软链接、名字带空格都要解析对。
+ * 重点覆盖三处最容易出错的地方（都踩过或差点踩到）：
+ * 1. **shell 引用**：文件名带空格 / 单引号 / 分号时，拼出的命令不能被拆散。
+ * 2. **stat 输出解析**：这台机器的 busybox 用 `2026-03-25 17:24` 两段日期，
+ *    曾按 `ls -la` 固定列号解析导致名字被截断（"Payload Dumper" → "Dumper"）——
+ *    所以现在解析固定分隔符格式，这里要守住"名字完整"这条线。
+ * 3. **回收站**：删除必须走 mv，不能直接 rm。
  *
- * 所有 shell 调用都用假的 lambda 注入，不碰真实文件系统，因此本机能跑。
+ * 所有 shell 调用都用假 lambda 注入，不碰真实文件系统，因此本机能跑。
  */
 class FileManagerOpsTest {
 
@@ -26,7 +28,6 @@ class FileManagerOpsTest {
 
     @Test
     fun quoteEscapesSingleQuote() {
-        // ' 变成 '\'' ：单引号引用里嵌单引号的标准写法
         assertEquals("'/sdcard/it'\\''s.txt'", FileManagerOps.shellQuote("/sdcard/it's.txt"))
     }
 
@@ -37,20 +38,18 @@ class FileManagerOpsTest {
 
     @Test
     fun quoteNeutralisesShellMetacharacters() {
-        // 分号与反引号在单引号内失去特殊含义，不会变成第二条命令
         assertEquals("'/sdcard/a;rm -rf /'", FileManagerOps.shellQuote("/sdcard/a;rm -rf /"))
         assertEquals("'/sdcard/\$(reboot)'", FileManagerOps.shellQuote("/sdcard/\$(reboot)"))
     }
 
-    // ---------------------------------------------------------------- ls 解析
+    // ---------------------------------------------------------------- 目录列举解析
 
     @Test
-    fun listParsesRegularFileAndDirectory() {
+    fun listParsesStatFormat() {
         val fake = """
-            total 8
-            drwxr-xr-x 2 root root 4096 Nov  2 10:00 sub
-            -rw-r--r-- 1 root root  123 Nov  2 09:30 a.txt
-        """.trimIndent().lines().joinToString("\n")
+            drwxrws---|4096|1792144837|sub
+            -rw-r--r--|123|1792144800|a.txt
+        """.trimIndent()
         val listing = FileManagerOps.list({ fake }, "/sdcard")
         assertTrue(listing.ok)
         assertEquals(2, listing.entries.size)
@@ -60,62 +59,86 @@ class FileManagerOpsTest {
         assertEquals("/sdcard/sub", listing.entries[0].path)
         assertFalse(listing.entries[1].isDirectory)
         assertEquals(123L, listing.entries[1].sizeBytes)
+        // 时间戳按秒转毫秒
+        assertEquals(1792144800000L, listing.entries[1].modifiedAtMillis)
     }
 
+    /** 这是本轮修的核心 bug：名字必须完整保留，不能被空格截断。 */
     @Test
-    fun listSkipsDotEntries() {
-        val fake = """
-            total 8
-            drwxr-xr-x 2 root root 4096 Nov  2 10:00 .
-            drwxr-xr-x 2 root root 4096 Nov  2 10:00 ..
-            -rw-r--r-- 1 root root   10 Nov  2 09:30 keep.txt
-        """.trimIndent()
-        val listing = FileManagerOps.list({ fake }, "/sdcard")
+    fun listKeepsFullNameWithSpaces() {
+        val fake = "drwxrws---|3440|1792144837|Payload Dumper"
+        val listing = FileManagerOps.list({ fake }, "/sdcard/Download")
+        assertTrue(listing.ok)
         assertEquals(1, listing.entries.size)
-        assertEquals("keep.txt", listing.entries[0].name)
+        assertEquals("Payload Dumper", listing.entries[0].name)
+        assertEquals("/sdcard/Download/Payload Dumper", listing.entries[0].path)
     }
 
     @Test
-    fun listHandlesNameWithSpaces() {
-        val fake = """
-            total 4
-            -rw-r--r-- 1 root root  10 Nov  2 09:30 my long name.txt
-        """.trimIndent()
+    fun listKeepsNameContainingPipe() {
+        val fake = "-rw-r--r--|10|1792144837|weird|name.txt"
         val listing = FileManagerOps.list({ fake }, "/sdcard")
-        assertEquals("my long name.txt", listing.entries[0].name)
-        assertEquals("/sdcard/my long name.txt", listing.entries[0].path)
+        assertEquals("weird|name.txt", listing.entries[0].name)
     }
 
     @Test
-    fun listResolvesSymlinkTargetSuffix() {
-        val fake = """
-            total 4
-            lrwxrwxrwx 1 root root  20 Nov  2 09:30 link -> /system/bin/sh
-        """.trimIndent()
+    fun listParsesChineseName() {
+        val fake = "drwxrws---|3440|1792144837|123云盘"
+        val listing = FileManagerOps.list({ fake }, "/sdcard/Download")
+        assertEquals("123云盘", listing.entries[0].name)
+    }
+
+    @Test
+    fun listMarksSymlink() {
+        val fake = "lrwxrwxrwx|20|1792144837|link"
         val listing = FileManagerOps.list({ fake }, "/sdcard")
-        assertEquals("link", listing.entries[0].name)
         assertTrue(listing.entries[0].isSymlink)
+        assertFalse("软链接不应被当成目录", listing.entries[0].isDirectory)
+    }
+
+    @Test
+    fun listSkipsJunkLines() {
+        val fake = """
+            drwxrws---|4096|1792144837|keep
+            some random warning line
+            |||
+            -rw-r--r--|5|1792144837|also-keep
+        """.trimIndent()
+        val listing = FileManagerOps.list({ fake }, "/sdcard")
+        assertEquals("无法解析的行应跳过", 2, listing.entries.size)
     }
 
     @Test
     fun listReportsMissingDirectory() {
-        val listing = FileManagerOps.list({ "ls: /nope: No such file or directory" }, "/nope")
+        val listing = FileManagerOps.list({ "cd /nope: No such file or directory" }, "/nope")
         assertFalse(listing.ok)
         assertEquals("目录不存在", listing.error)
     }
 
     @Test
     fun listReportsPermissionDenied() {
-        val listing = FileManagerOps.list({ "ls: /data/data: Permission denied" }, "/data/data")
+        val listing = FileManagerOps.list({ "cd /data/data: Permission denied" }, "/data/data")
         assertFalse(listing.ok)
         assertTrue(listing.error?.contains("权限") == true)
     }
 
     @Test
     fun emptyDirectoryReturnsNoEntries() {
-        val listing = FileManagerOps.list({ "total 0" }, "/sdcard/empty")
+        val listing = FileManagerOps.list({ "" }, "/sdcard/empty")
         assertTrue(listing.ok)
         assertTrue(listing.entries.isEmpty())
+    }
+
+    @Test
+    fun listSortsDirectoriesFirstThenByName() {
+        val fake = """
+            -rw-r--r--|1|1792144837|zeta.txt
+            drwxrws---|1|1792144837|beta
+            -rw-r--r--|1|1792144837|alpha.txt
+            drwxrws---|1|1792144837|Apple
+        """.trimIndent()
+        val listing = FileManagerOps.list({ fake }, "/sdcard")
+        assertEquals(listOf("Apple", "beta", "alpha.txt", "zeta.txt"), listing.entries.map { it.name })
     }
 
     // ---------------------------------------------------------------- 操作
@@ -142,8 +165,7 @@ class FileManagerOpsTest {
 
     @Test
     fun renameRejectsSlashInName() {
-        val result = FileManagerOps.rename({ "" }, "/sdcard/a.txt", "x/y.txt")
-        assertFalse(result.ok)
+        assertFalse(FileManagerOps.rename({ "" }, "/sdcard/a.txt", "x/y.txt").ok)
     }
 
     @Test

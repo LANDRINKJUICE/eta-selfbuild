@@ -52,15 +52,26 @@ internal object FileManagerOps {
     // ------------------------------------------------------------ 列目录
 
     /**
-     * 列目录：一次 `ls -l` 拿完所有条目。
+     * 列目录：用 `stat` 逐项输出**固定分隔符**，一次 shell 调用拿完。
      *
-     * 用 `-1`（每行一个名字）配合两次调用太重，所以用 `ls -la` 解析列格式；
-     * toybox 与 GNU 的输出列顺序一致（权限 链接数 属主 属组 大小 月 日 时/年 名字）。
+     * 为什么不用 `ls -la` 解析（踩过）：
+     * 不同实现的日期格式不一样 —— GNU/toybox 是 `Mar 25 17:24`（3 段），
+     * 而这台机器的 busybox 是 `2026-03-25 17:24`（2 段）。按固定列号解析在另一种格式下
+     * 会整体错位：条目被丢弃、名字被截断（"Payload Dumper" 变成 "Dumper"）。
+     * `stat -c '%A|%s|%Y|%n'` 用 `|` 分隔且名字在最后，两种实现下都稳定。
+     *
+     * 用 for 循环而不是通配符展开，是为了避开命令行长度上限，并顺带覆盖隐藏文件。
      */
     fun list(shell: (String) -> String, path: String): Listing {
         val quoted = shellQuote(path)
-        // 先确认是目录
-        val output = runCatching { shell("ls -la $quoted 2>&1") }.getOrElse { failure ->
+        val command = buildString {
+            append("cd ").append(quoted).append(" 2>&1 || exit 1; ")
+            append("for f in * .[!.]*; do ")
+            append("[ -e \"\$f\" ] || continue; ")
+            append("stat -c '%A|%s|%Y|%n' \"\$f\" 2>/dev/null; ")
+            append("done")
+        }
+        val output = runCatching { shell(command) }.getOrElse { failure ->
             return Listing(path, emptyList(), "读取失败：${failure.javaClass.simpleName}")
         }
         if (output.contains("No such file or directory")) {
@@ -70,61 +81,33 @@ internal object FileManagerOps {
             return Listing(path, emptyList(), "没有权限（需要 Root）")
         }
         val entries = output.lineSequence()
-            .drop(1) // 第一行是 total
-            .mapNotNull { parseLsLine(it, path) }
-            .filter { it.name != "." && it.name != ".." }
+            .mapNotNull { parseStatLine(it, path) }
+            .sortedWith(compareByDescending<Entry> { it.isDirectory }.thenBy { it.name.lowercase() })
             .toList()
-        // 目录在前，然后按名称排序 —— 和常见文件管理器一致。
-        return Listing(path, entries.sortedWith(compareByDescending<Entry> { it.isDirectory }.thenBy { it.name.lowercase() }))
+        return Listing(path, entries)
     }
 
-    private fun parseLsLine(line: String, parent: String): Entry? {
+    /** 解析一行 `权限|大小|mtime|名字`；名字在最后一段，允许含空格与 `|`。 */
+    private fun parseStatLine(line: String, parent: String): Entry? {
         val trimmed = line.trimEnd()
-        if (trimmed.isBlank()) return null
-        // 权限 链接数 属主 属组 大小 月 日 时间 名字...
-        // 拆成 9 段：前 8 段是固定列，第 9 段是「时间列之后的所有内容」——
-        // 名字本身可能含空格，所以第 9 段要整段保留，不能再去 substringAfter(" ")。
-        val parts = trimmed.split(Regex("\\s+"), limit = 9)
-        if (parts.size < 9) return null
+        if (trimmed.isBlank() || !trimmed.contains('|')) return null
+        val parts = trimmed.split('|', limit = 4)
+        if (parts.size < 4) return null
         val permissions = parts[0]
         if (permissions.length < 10) return null
-        val size = parts[4].toLongOrNull() ?: 0L
-        val name = parts[8].trim()
-        if (name.isBlank()) return null
-        val isDir = permissions.startsWith("d")
+        val name = parts[3].trim()
+        if (name.isBlank() || name == "." || name == "..") return null
         val isLink = permissions.startsWith("l")
-        // 符号链接形如 "name -> target"，取箭头前
-        val displayName = if (isLink) name.substringBefore(" -> ") else name
         return Entry(
-            name = displayName,
-            path = if (parent.endsWith("/")) "$parent$displayName" else "$parent/$displayName",
-            isDirectory = isDir,
+            name = name,
+            path = if (parent.endsWith("/")) "$parent$name" else "$parent/$name",
+            isDirectory = permissions.startsWith("d"),
             isSymlink = isLink,
-            sizeBytes = size,
-            modifiedAtMillis = parseLsTime(parts[5], parts[6], parts[7]),
+            sizeBytes = parts[1].toLongOrNull() ?: 0L,
+            modifiedAtMillis = (parts[2].toLongOrNull() ?: 0L) * 1000L,
             permissions = permissions,
         )
     }
-
-    /** `ls` 的时间列：近半年显示 "月 日 时:分"，更早显示 "月 日 年份"。解析不了就返回 0。 */
-    private fun parseLsTime(month: String, day: String, timeOrYear: String): Long = runCatching {
-        val now = java.util.Calendar.getInstance()
-        val year = if (timeOrYear.contains(":")) now.get(java.util.Calendar.YEAR) else timeOrYear.toInt()
-        val (hour, minute) = if (timeOrYear.contains(":")) {
-            timeOrYear.split(":")[0].toInt() to timeOrYear.split(":")[1].toInt()
-        } else {
-            0 to 0
-        }
-        val monthIndex = listOf(
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ).indexOf(month)
-        if (monthIndex < 0) return 0L
-        java.util.Calendar.getInstance().apply {
-            clear()
-            set(year, monthIndex, day.toIntOrNull() ?: 1, hour, minute)
-        }.timeInMillis
-    }.getOrDefault(0L)
 
     // ------------------------------------------------------------ 删除（进回收站）
 

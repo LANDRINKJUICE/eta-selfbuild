@@ -151,7 +151,7 @@ internal fun FileManagerScreen(
     }
 
     MiuixScaffold(
-        title = "文件",
+        title = "文件管理",
         onBack = onBack,
         actions = {
             IconButton(onClick = { singlePane = !singlePane }) {

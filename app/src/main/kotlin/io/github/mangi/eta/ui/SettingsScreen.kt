@@ -347,8 +347,7 @@ private fun SettingsPageContent(
 
                     EtaPreferenceDivider()
                     EtaArrowPreference(
-                        title = "文件",
-                        summary = "浏览、复制、移动、删除与压缩（内置，可替代 MT 日常用法）",
+                        title = "文件管理",
                         startAction = {
                             EtaPreferenceIcon(
                                 icon = Icons.Rounded.Folder,
