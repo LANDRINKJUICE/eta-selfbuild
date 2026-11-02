@@ -1463,6 +1463,11 @@
   <string name="scheduled_tasks_action_device_status">设备状态</string>
   <string name="scheduled_tasks_action_memory_status">记忆状态</string>
   <string name="scheduled_tasks_action_permissions_check">权限体检</string>
+  <string name="scheduled_tasks_action_self_check">自我体检</string>
+  <string name="scheduled_tasks_action_snapshot">系统快照</string>
+  <string name="scheduled_tasks_action_brain_backup">大脑备份</string>
+  <string name="scheduled_tasks_action_clean_tmp">清理临时文件</string>
+  <string name="scheduled_tasks_action_drift_check">漂移检测</string>
   <string name="scheduled_tasks_time_title">时间</string>
   <string name="scheduled_tasks_action_title">动作</string>
   <string name="scheduled_tasks_save">保存</string>
@@ -1481,4 +1486,21 @@
     <string name="scheduled_tasks_history_ok">%1$s 执行成功</string>
     <string name="scheduled_tasks_history_failed">%1$s 执行失败</string>
     <string name="scheduled_tasks_history_empty">暂无执行记录</string>
+  <string name="token_usage_section_title">用量</string>
+  <string name="token_usage_about_title">累计用量</string>
+  <string name="token_usage_about_summary">输入 %1$s / 输出 %2$s tokens</string>
+  <string name="token_usage_about_summary_empty">暂无用量记录</string>
+  <string name="token_usage_dialog_title">用量统计</string>
+  <string name="token_usage_dialog_total">全部历史：输入 %1$s / 输出 %2$s tokens · %3$d 次回答</string>
+  <string name="token_usage_dialog_recent">最近 %1$d 条回答：输入 %2$s / 输出 %3$s tokens · 其中 %4$d 次有用量</string>
+  <string name="token_usage_dialog_scope">统计自本机保存、且模型回报过用量的回答，不上传任何数据。</string>
+  <string name="token_usage_scheduled_title">近期用量</string>
+  <string name="token_usage_scheduled_summary">最近 %1$d 条回答 · 输入 %2$s / 输出 %3$s · %4$d 次调用</string>
+  <string name="token_usage_scheduled_empty">暂无用量记录</string>
+  <string name="token_usage_close">关闭</string>
+    <string name="dangerous_operation_title">已拦截高危操作</string>
+    <string name="dangerous_operation_summary">工具：%1$s\n原因：%2$s\n\n这个操作可能无法撤销，确定继续吗？</string>
+    <string name="dangerous_operation_allow">仍然继续</string>
+    <string name="dangerous_operation_deny">拒绝执行</string>
+    <string name="dangerous_operation_stat">今日已拦截高危操作：%1$d 次</string>
 </resources>

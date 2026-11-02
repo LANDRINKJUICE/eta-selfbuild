@@ -63,6 +63,17 @@ internal data class ConversationIdentity(
 
 internal data class ConversationMessageContent(val id: String, val content: String)
 
+/**
+ * 用量聚合的投影类。字段名必须与 [ConversationDao.tokenUsageTotal] 的列别名一致
+ * （Room 按列名映射）。SUM() 在 SQLite 里返回 64 位整数，所以用 Long。
+ */
+internal data class TokenUsageTotal(
+    val inputTokens: Long?,
+    val outputTokens: Long?,
+    val cachedTokens: Long?,
+    val calls: Int,
+)
+
 @Serializable
 @Entity(
     tableName = "conversation_context_checkpoints",

@@ -1374,6 +1374,11 @@
   <string name="scheduled_tasks_action_device_status">裝置狀態</string>
   <string name="scheduled_tasks_action_memory_status">記憶狀態</string>
   <string name="scheduled_tasks_action_permissions_check">權限檢查</string>
+  <string name="scheduled_tasks_action_self_check">自我檢查</string>
+  <string name="scheduled_tasks_action_snapshot">系統快照</string>
+  <string name="scheduled_tasks_action_brain_backup">大腦備份</string>
+  <string name="scheduled_tasks_action_clean_tmp">清理暫存檔</string>
+  <string name="scheduled_tasks_action_drift_check">漂移檢測</string>
   <string name="scheduled_tasks_time_title">時間</string>
   <string name="scheduled_tasks_action_title">動作</string>
   <string name="scheduled_tasks_save">儲存</string>
@@ -1392,4 +1397,21 @@
     <string name="scheduled_tasks_history_ok">%1$s 執行成功</string>
     <string name="scheduled_tasks_history_failed">%1$s 執行失敗</string>
     <string name="scheduled_tasks_history_empty">暫無執行記錄</string>
+  <string name="token_usage_section_title">用量</string>
+  <string name="token_usage_about_title">累計用量</string>
+  <string name="token_usage_about_summary">輸入 %1$s / 輸出 %2$s tokens</string>
+  <string name="token_usage_about_summary_empty">暫無用量記錄</string>
+  <string name="token_usage_dialog_title">用量統計</string>
+  <string name="token_usage_dialog_total">全部歷史：輸入 %1$s / 輸出 %2$s tokens · %3$d 次回答</string>
+  <string name="token_usage_dialog_recent">最近 %1$d 條回答：輸入 %2$s / 輸出 %3$s tokens · 其中 %4$d 次有用量</string>
+  <string name="token_usage_dialog_scope">統計自本機儲存、且模型回報過用量的回答，不上傳任何資料。</string>
+  <string name="token_usage_scheduled_title">近期用量</string>
+  <string name="token_usage_scheduled_summary">最近 %1$d 條回答 · 輸入 %2$s / 輸出 %3$s · %4$d 次調用</string>
+  <string name="token_usage_scheduled_empty">暫無用量記錄</string>
+  <string name="token_usage_close">關閉</string>
+    <string name="dangerous_operation_title">已攔截高危操作</string>
+    <string name="dangerous_operation_summary">工具：%1$s\n原因：%2$s\n\n這個操作可能無法復原，確定繼續嗎？</string>
+    <string name="dangerous_operation_allow">仍然繼續</string>
+    <string name="dangerous_operation_deny">拒絕執行</string>
+    <string name="dangerous_operation_stat">今日已攔截高危操作：%1$d 次</string>
 </resources>

@@ -162,6 +162,33 @@ internal interface ConversationDao : ChunkedTextDao {
     @Query("SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = :conversationId")
     suspend fun messageCount(conversationId: String): Int
 
+    /**
+     * 最近 :limit 条有 token 记录的回答的用量小计。
+     *
+     * 为什么不是「近 7 天」：conversation_messages 表没有 created_at 列（时间只在 conversations 表上），
+     * 按天/按时间段聚合需要给这张表加列并升数据库版本做迁移；本次只加 @Query、不动 schema，
+     * 所以用「最近 N 条」作为窗口，语义确定、不依赖不存在的时间列。口径见界面文案。
+     */
+    @Query(
+        "SELECT COALESCE(SUM(input_tokens), 0) AS inputTokens, " +
+            "COALESCE(SUM(output_tokens), 0) AS outputTokens, " +
+            "COALESCE(SUM(cached_tokens), 0) AS cachedTokens, " +
+            "COUNT(*) AS calls FROM (" +
+            "SELECT input_tokens, output_tokens, cached_tokens FROM conversation_messages " +
+            "WHERE type = 'assistant' AND input_tokens IS NOT NULL " +
+            "ORDER BY id DESC LIMIT :limit)"
+    )
+    suspend fun tokenUsageRecent(limit: Int): TokenUsageTotal
+
+    @Query(
+        "SELECT COALESCE(SUM(input_tokens), 0) AS inputTokens, " +
+            "COALESCE(SUM(output_tokens), 0) AS outputTokens, " +
+            "COALESCE(SUM(cached_tokens), 0) AS cachedTokens, " +
+            "COUNT(*) AS calls " +
+            "FROM conversation_messages WHERE type = 'assistant' AND input_tokens IS NOT NULL"
+    )
+    suspend fun tokenUsageTotal(): TokenUsageTotal
+
     @Query("SELECT EXISTS(SELECT 1 FROM conversation_messages WHERE conversation_id = :conversationId AND id = :messageId AND type = 'assistant')")
     suspend fun hasAssistantMessage(conversationId: String, messageId: String): Boolean
 

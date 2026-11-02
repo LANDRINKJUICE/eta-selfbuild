@@ -15,6 +15,25 @@ internal enum class ScheduledActionKind(val id: String) {
     /** 权限体检：通知、悬浮窗、无障碍、精确闹钟、电池优化是否仍然可用。纯本地。 */
     PERMISSIONS_CHECK("permissions_check"),
 
+    /**
+     * 自我检查：技能体检、关键路径、各项权限、定时任务闹钟注册、tmp 体积、负载与温度。
+     *
+     * 与 [PERMISSIONS_CHECK] 的差别：那个只回答「权限还在不在」，这个会跑工作区脚本并逐项给证据。
+     */
+    SELF_CHECK("self_check"),
+
+    /** 系统快照：跑工作区的 `sys-snapshot.sh`，把结果写到 `05-系统分析-sysanalyze/`。**会写工作区文件**。 */
+    SNAPSHOT("snapshot"),
+
+    /** 大脑备份：跑 `eta-brain-backup.sh` 的收集打包部分。**会写工作区 tmp/ 下的 payload**。 */
+    BRAIN_BACKUP("brain_backup"),
+
+    /** 清理 tmp：删掉工作区 `tmp/` 里超过 7 天的文件。会删工作区文件，但只限 `tmp/` 里面。 */
+    CLEAN_TMP("clean_tmp"),
+
+    /** 系统漂移检测：拿当前状态和最新系统快照逐项比对。纯只读。 */
+    DRIFT_CHECK("drift_check"),
+
     /** 自定义指令：把 `ScheduledTask.prompt` 交给 Agent 执行（**会消耗模型额度**）。 */
     CUSTOM_PROMPT("custom_prompt"),
     ;

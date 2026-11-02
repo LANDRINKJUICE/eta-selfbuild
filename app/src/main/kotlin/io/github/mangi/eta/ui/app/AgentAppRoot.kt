@@ -47,10 +47,12 @@ import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.runtime.AgentRuntimeService
 import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.agent.tool.DangerousOperationGuard
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
 import io.github.mangi.eta.ui.components.MiuixDialogActions
+import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.model.AgentHomeAction
 import io.github.mangi.eta.ui.model.AgentMemoryAction
 import io.github.mangi.eta.ui.model.AgentSkillsAction
@@ -906,6 +908,47 @@ fun AgentAppRoot(
                 onConfirm = {
                     agentState.regenerateMessage(target.messageId)
                     messageRegenerateTarget = null
+                },
+            )
+        }
+    }
+
+    // 危险操作确认：工具线程正在阻塞等待，这里必须给出明确结果（超时由工具侧按拒绝处理）。
+    var dangerousPending by remember { mutableStateOf<DangerousOperationGuard.Pending?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val pending = DangerousOperationGuard.pending()
+            if (pending != null && pending.id != dangerousPending?.id) dangerousPending = pending
+            if (pending == null && dangerousPending != null) dangerousPending = null
+            kotlinx.coroutines.delay(200)
+        }
+    }
+    val dangerousTarget = dangerousPending
+    if (dangerousTarget != null) {
+        EtaWindowDialog(
+            show = true,
+            title = stringResource(R.string.dangerous_operation_title),
+            summary = stringResource(
+                R.string.dangerous_operation_summary,
+                dangerousTarget.toolName,
+                dangerousTarget.reason,
+            ),
+            onDismissRequest = {
+                DangerousOperationGuard.deny(dangerousTarget.id)
+                dangerousPending = null
+            },
+        ) {
+            MiuixDialogActions(
+                confirmText = stringResource(R.string.dangerous_operation_allow),
+                cancelText = stringResource(R.string.dangerous_operation_deny),
+                destructive = true,
+                onCancel = {
+                    DangerousOperationGuard.deny(dangerousTarget.id)
+                    dangerousPending = null
+                },
+                onConfirm = {
+                    DangerousOperationGuard.approve(dangerousTarget.id)
+                    dangerousPending = null
                 },
             )
         }

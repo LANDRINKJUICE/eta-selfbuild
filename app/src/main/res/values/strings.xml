@@ -1482,6 +1482,11 @@
   <string name="scheduled_tasks_action_device_status">Device status</string>
   <string name="scheduled_tasks_action_memory_status">Memory status</string>
   <string name="scheduled_tasks_action_permissions_check">Permission check</string>
+  <string name="scheduled_tasks_action_self_check">Self check</string>
+  <string name="scheduled_tasks_action_snapshot">System snapshot</string>
+  <string name="scheduled_tasks_action_brain_backup">Brain backup</string>
+  <string name="scheduled_tasks_action_clean_tmp">Clean temp files</string>
+  <string name="scheduled_tasks_action_drift_check">Drift check</string>
   <string name="scheduled_tasks_time_title">Time</string>
   <string name="scheduled_tasks_action_title">Action</string>
   <string name="scheduled_tasks_save">Save</string>
@@ -1500,4 +1505,21 @@
     <string name="scheduled_tasks_history_ok">Succeeded at %1$s</string>
     <string name="scheduled_tasks_history_failed">Failed at %1$s</string>
     <string name="scheduled_tasks_history_empty">No run history yet</string>
+  <string name="token_usage_section_title">Token usage</string>
+  <string name="token_usage_about_title">Cumulative usage</string>
+  <string name="token_usage_about_summary">Input %1$s / Output %2$s tokens</string>
+  <string name="token_usage_about_summary_empty">No usage recorded yet</string>
+  <string name="token_usage_dialog_title">Token usage</string>
+  <string name="token_usage_dialog_total">All time: input %1$s / output %2$s tokens · %3$d replies</string>
+  <string name="token_usage_dialog_recent">Last %1$d replies: input %2$s / output %3$s tokens · %4$d of them reported usage</string>
+  <string name="token_usage_dialog_scope">Counted from locally stored replies that reported usage. Nothing is uploaded.</string>
+  <string name="token_usage_scheduled_title">Recent token usage</string>
+  <string name="token_usage_scheduled_summary">Last %1$d replies · input %2$s / output %3$s · %4$d calls</string>
+  <string name="token_usage_scheduled_empty">No usage records yet</string>
+  <string name="token_usage_close">Close</string>
+    <string name="dangerous_operation_title">Dangerous operation blocked</string>
+    <string name="dangerous_operation_summary">Tool: %1$s\nReason: %2$s\n\nThis action may be irreversible. Continue?</string>
+    <string name="dangerous_operation_allow">Continue anyway</string>
+    <string name="dangerous_operation_deny">Deny</string>
+    <string name="dangerous_operation_stat">Dangerous operations blocked today: %1$d</string>
 </resources>

@@ -63,9 +63,26 @@ internal object ScheduledActionRunner {
         ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)
         ScheduledActionKind.MEMORY_STATUS -> memoryStatus(context)
         ScheduledActionKind.PERMISSIONS_CHECK -> permissionStatus(context)
+        // 自我体检：跑工作区脚本、看闹钟注册、量 tmp 与负载。不需要模型，但会起 shell。
+        ScheduledActionKind.SELF_CHECK -> ScheduledHealthCheck.report(context, pendingAlarmCount(context))
+        // 下面四个都要跑工作区脚本，统一收在 ScheduledWorkspaceActions 里。
+        ScheduledActionKind.SNAPSHOT -> ScheduledWorkspaceActions.snapshot()
+        ScheduledActionKind.BRAIN_BACKUP -> ScheduledWorkspaceActions.brainBackup()
+        ScheduledActionKind.CLEAN_TMP -> ScheduledWorkspaceActions.cleanTmp()
+        ScheduledActionKind.DRIFT_CHECK -> ScheduledWorkspaceActions.driftCheck()
         // 自定义指令：交给 Agent 跑一次，结果摘要进通知。
         ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task)
     }
+
+    /**
+     * 期望已注册的闹钟数：启用的「每天定时」任务条数。
+     *
+     * 只统计 `trigger.usesAlarm` 的任务 —— 事件型任务（充电、通知、解锁…）本来就不注册闹钟，
+     * 把它们算进去会让体检显示「时钟丢了」这种假异常。
+     */
+    private fun pendingAlarmCount(context: Context): Int = runCatching {
+        ScheduledTaskStore.load(context).count { it.enabled && it.trigger.usesAlarm }
+    }.getOrDefault(0)
 
     private fun deviceStatus(context: Context): String {
         val activityManager = context.getSystemService(android.app.ActivityManager::class.java)
@@ -166,6 +183,11 @@ internal object ScheduledActionRunner {
             ScheduledActionKind.DEVICE_STATUS -> "定时任务：设备状态"
             ScheduledActionKind.MEMORY_STATUS -> "定时任务：记忆状态"
             ScheduledActionKind.PERMISSIONS_CHECK -> "定时任务：权限体检"
+            ScheduledActionKind.SELF_CHECK -> "定时任务：自我体检"
+            ScheduledActionKind.SNAPSHOT -> "定时任务：系统快照"
+            ScheduledActionKind.BRAIN_BACKUP -> "定时任务：大脑备份"
+            ScheduledActionKind.CLEAN_TMP -> "定时任务：清理 tmp"
+            ScheduledActionKind.DRIFT_CHECK -> "定时任务：漂移检测"
             ScheduledActionKind.CUSTOM_PROMPT -> "定时任务：自定义指令"
         }
         val notification = Notification.Builder(context, CHANNEL)

@@ -228,6 +228,20 @@ internal class AgentLocalTools(
                     )
                 }
             }
+            // 危险操作闸门：命中策略就挂起等用户确认；超时或用户取消都按拒绝处理。
+            val dangerous = DangerousOperationPolicy.evaluate(toolCall.name, args)
+            if (dangerous.dangerous) {
+                val approved = DangerousOperationGuard.requestApproval(toolCall.name, dangerous.reason)
+                DangerousOperationGuard.log(context, toolCall.name, dangerous.reason, approved)
+                if (!approved) {
+                    return@runCatching textResult(
+                        errorResult(
+                            code = "DANGEROUS_OPERATION_DENIED",
+                            message = "该操作被判定为高危（${dangerous.reason}），用户未确认，已拒绝执行。如需执行请让用户明确授权后重试。",
+                        ),
+                    )
+                }
+            }
             when (toolCall.name) {
                 "get_current_context" -> textResult(DeviceContextTool.current(context))
                 "search_apps" -> textResult(searchApps(args))

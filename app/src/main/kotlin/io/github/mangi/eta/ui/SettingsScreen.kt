@@ -7,6 +7,9 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccessibilityNew
@@ -15,6 +18,7 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.GppMaybe
@@ -47,15 +51,19 @@ import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -66,6 +74,7 @@ import io.github.mangi.eta.agent.accessibility.AccessibilityProtectionClient
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityService
 import io.github.mangi.eta.config.PowerAssistantTarget
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.data.update.AppLatestRelease
@@ -79,6 +88,7 @@ import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaDropdownPreference
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
+import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
@@ -88,6 +98,10 @@ import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.LanguagePreference
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import io.github.mangi.eta.ui.model.RecentUsageMessageWindow
+import io.github.mangi.eta.ui.model.TokenUsageSnapshot
+import io.github.mangi.eta.ui.model.formatUsageTokenCount
+import io.github.mangi.eta.ui.model.loadTokenUsageSnapshot
 import io.github.mangi.eta.ui.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -156,6 +170,16 @@ private fun SettingsPageContent(
     }
     var checkingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<AppLatestRelease?>(null) }
+    // 用量：只读本地数据库，打开页面读一次；不进网络请求链路。
+    var usage by remember { mutableStateOf(TokenUsageSnapshot()) }
+    var showUsageDialog by remember { mutableStateOf(false) }
+    val usageLocale = LocalConfiguration.current.locales[0]
+    LaunchedEffect(context) {
+        usage = withContext(Dispatchers.IO) {
+            runCatching { loadTokenUsageSnapshot(EtaDatabase.get(context.applicationContext)) }
+                .getOrDefault(TokenUsageSnapshot())
+        }
+    }
     val checkForUpdate: () -> Unit = {
         if (!checkingUpdate) {
             checkingUpdate = true
@@ -896,9 +920,38 @@ private fun SettingsPageContent(
                         },
                         onClick = { openUrl("https://github.com/Mangi-11/Eta") },
                     )
+
+                    EtaPreferenceDivider()
+                    // 累计用量：只读本地库，不联网；点进去看最近窗口与统计口径。
+                    EtaArrowPreference(
+                        title = stringResource(R.string.token_usage_about_title),
+                        summary = if (usage.hasAnyUsage) {
+                            stringResource(
+                                R.string.token_usage_about_summary,
+                                formatUsageTokenCount(usage.totalInputTokens, usageLocale),
+                                formatUsageTokenCount(usage.totalOutputTokens, usageLocale),
+                            )
+                        } else {
+                            stringResource(R.string.token_usage_about_summary_empty)
+                        },
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.DataUsage,
+                                tint = EtaPreferenceColors.Orange,
+                            )
+                        },
+                        onClick = { showUsageDialog = true },
+                    )
                 }
             }
         }
+
+        TokenUsageDialog(
+            show = showUsageDialog,
+            usage = usage,
+            locale = usageLocale,
+            onDismissRequest = { showUsageDialog = false },
+        )
 
         SystemizerConfirmDialog(
             show = showSystemizerDialog,
@@ -1101,3 +1154,82 @@ private fun SystemizerInstallResult.toToastMessage(context: Context): String =
             ?.let { "$message：$it" }
             ?: message
     }
+
+/**
+ * 用量对话框：累计 + 最近窗口，并明确写出统计口径。
+ *
+ * 全部数字来自本地 Room；不联网、不调模型。刻意只展示两个可验证的数字：
+ * 现有 schema 里 conversation_messages 没有时间列，按天列表需要加列做迁移，
+ * 不在本次改动范围内（详见 ConversationDao.tokenUsageRecent 的注释）。
+ */
+@Composable
+private fun TokenUsageDialog(
+    show: Boolean,
+    usage: TokenUsageSnapshot,
+    locale: java.util.Locale,
+    onDismissRequest: () -> Unit,
+) {
+    if (!show) return
+    EtaWindowDialog(
+        show = true,
+        title = stringResource(R.string.token_usage_dialog_title),
+        onDismissRequest = onDismissRequest,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            val lineStyle = MiuixTheme.textStyles.body2
+            val summaryColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            Text(
+                text = if (usage.hasAnyUsage) {
+                    stringResource(
+                        R.string.token_usage_dialog_total,
+                        formatUsageTokenCount(usage.totalInputTokens, locale),
+                        formatUsageTokenCount(usage.totalOutputTokens, locale),
+                        usage.totalCalls,
+                    )
+                } else {
+                    stringResource(R.string.token_usage_about_summary_empty)
+                },
+                style = lineStyle,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(
+                    start = EtaPreferenceDefaults.SidePadding,
+                    end = EtaPreferenceDefaults.SidePadding,
+                    bottom = 8.dp,
+                ),
+            )
+            if (usage.recentCalls > 0) {
+                Text(
+                    text = stringResource(
+                        R.string.token_usage_dialog_recent,
+                        RecentUsageMessageWindow,
+                        formatUsageTokenCount(usage.recentInputTokens, locale),
+                        formatUsageTokenCount(usage.recentOutputTokens, locale),
+                        usage.recentCalls,
+                    ),
+                    style = lineStyle,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(
+                        start = EtaPreferenceDefaults.SidePadding,
+                        end = EtaPreferenceDefaults.SidePadding,
+                        bottom = 8.dp,
+                    ),
+                )
+            }
+            Text(
+                text = stringResource(R.string.token_usage_dialog_scope),
+                style = MiuixTheme.textStyles.subtitle,
+                color = summaryColor,
+                modifier = Modifier.padding(
+                    start = EtaPreferenceDefaults.SidePadding,
+                    end = EtaPreferenceDefaults.SidePadding,
+                    bottom = 12.dp,
+                ),
+            )
+            MiuixDialogActions(
+                confirmText = stringResource(R.string.token_usage_close),
+                onCancel = onDismissRequest,
+                onConfirm = onDismissRequest,
+            )
+        }
+    }
+}
