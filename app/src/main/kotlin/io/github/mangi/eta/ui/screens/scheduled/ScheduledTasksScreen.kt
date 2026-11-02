@@ -137,9 +137,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                 )
             }
         } else {
-            item(key = "section_scheduled_tasks") {
-                EtaPreferenceGroupTitle(stringResource(R.string.settings_scheduled_tasks_title))
-            }
+            // 分组标题与页面大标题重复，这里不再渲染，直接从任务列表开始。
             tasks.forEach { task ->
                 item(key = "scheduled_task_${task.id}") {
                     EtaPreferenceGroup {

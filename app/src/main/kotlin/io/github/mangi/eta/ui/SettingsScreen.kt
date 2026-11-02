@@ -311,7 +311,6 @@ private fun SettingsPageContent(
                     EtaPreferenceDivider()
                     EtaArrowPreference(
                         title = stringResource(R.string.settings_scheduled_tasks_title),
-                        summary = stringResource(R.string.settings_scheduled_tasks_summary),
                         startAction = {
                             EtaPreferenceIcon(
                                 icon = Icons.Rounded.Schedule,
