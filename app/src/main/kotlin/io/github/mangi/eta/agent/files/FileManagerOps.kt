@@ -521,6 +521,122 @@ internal object FileManagerOps {
         }
     }
 
+    // ------------------------------------------------------------ 回收站
+
+    internal data class TrashEntry(
+        val bucket: String,
+        val name: String,
+        val path: String,
+        val sizeBytes: Long,
+        val trashedAtMillis: Long,
+    )
+
+    /**
+     * 列出回收站内容。
+     *
+     * 回收站结构是 `.trash/<yyyyMMdd-HHmmss>/<原文件名>`（见 [moveToTrash]），
+     * 所以恢复时不能只按文件名回原处 —— 那个时间戳目录就是"会话"，恢复靠它回溯。
+     * 这里先只负责"看得见、能删、能清空"，恢复用 [restoreTrash]。
+     */
+    fun listTrash(shell: (String) -> String): List<TrashEntry> {
+        val root = FilePathRisk.TRASH_DIR
+        val command = buildString {
+            append("for b in ").append(shellQuote(root)).append("/*; do ")
+            append("[ -d \"\$b\" ] || continue; ")
+            append("for f in \"\$b\"/*; do ")
+            append("[ -e \"\$f\" ] || continue; ")
+            append("stat -c '%s|%Y|%n' \"\$f\" 2>/dev/null; ")
+            append("done; done")
+        }
+        val out = runCatching { shell(command) }.getOrDefault("")
+        return out.lineSequence().mapNotNull { line ->
+            val parts = line.trim().split('|', limit = 3)
+            if (parts.size < 3) return@mapNotNull null
+            val full = parts[2]
+            val bucket = full.substringBeforeLast('/').substringAfterLast('/')
+            TrashEntry(
+                bucket = bucket,
+                name = full.substringAfterLast('/'),
+                path = full,
+                sizeBytes = parts[0].toLongOrNull() ?: 0L,
+                trashedAtMillis = (parts[1].toLongOrNull() ?: 0L) * 1000L,
+            )
+        }.sortedWith(compareByDescending<TrashEntry> { it.trashedAtMillis }.thenBy { it.name }).toList()
+    }
+
+    /** 清空回收站（全部真删）。 */
+    fun emptyTrash(shell: (String) -> String): OpResult {
+        val out = runCatching {
+            shell("find ${shellQuote(FilePathRisk.TRASH_DIR)} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>&1")
+        }.getOrElse { return OpResult.failure("清空失败：${it.javaClass.simpleName}") }
+        if (out.contains("Permission denied")) return OpResult.failure("没有权限")
+        return OpResult.success("回收站已清空")
+    }
+
+    /**
+     * 从回收站恢复。
+     *
+     * 难点：回收站只存了文件名，**没记原路径**。所以恢复只能放到"回收站所在盘的一个明确目录"，
+     * 而不是假装能还原到原地（那是假的，会误导用户）。
+     * 这里恢复到 `Download/Eta/recovered/`，并在结果里写清路径。
+     */
+    fun restoreTrash(shell: (String) -> String, entries: List<TrashEntry>): OpResult {
+        if (entries.isEmpty()) return OpResult.failure("没有选中任何项")
+        val target = "/sdcard/Download/Eta/recovered"
+        runCatching { shell("mkdir -p ${shellQuote(target)} 2>&1") }
+        val failed = mutableListOf<String>()
+        entries.forEach { entry ->
+            val dest = "$target/${entry.name}"
+            val out = runCatching { shell("mv -n ${shellQuote(entry.path)} ${shellQuote(dest)} 2>&1") }
+                .getOrDefault("")
+            if (out.contains("Permission denied") || out.contains("No such file")) failed.add(entry.name)
+        }
+        return if (failed.isEmpty()) {
+            OpResult.success("已恢复到 $target")
+        } else {
+            OpResult.failure("部分失败：${failed.joinToString("、")}")
+        }
+    }
+
+    // ------------------------------------------------------------ 压缩 / 解压
+
+    /**
+     * 解压到当前目录。
+     *
+     * 设备没有 `zip` 但有 `unzip`（实测 /system/bin/unzip），所以解压能做、打包要用应用内实现。
+     * 解压目录名取压缩包名去掉扩展名，避免一堆文件散落到当前目录里。
+     */
+    fun extractArchive(shell: (String) -> String, path: String): OpResult {
+        val name = path.substringAfterLast('/')
+        val dirName = name.substringBeforeLast('.', name).ifBlank { "extracted" }
+        val parent = path.substringBeforeLast('/', "")
+        val target = "$parent/$dirName"
+        val out = runCatching {
+            shell("mkdir -p ${shellQuote(target)} && unzip -o ${shellQuote(path)} -d ${shellQuote(target)} 2>&1 | tail -3")
+        }.getOrElse { return OpResult.failure("解压失败：${it.javaClass.simpleName}") }
+        if (out.contains("Permission denied")) return OpResult.failure("没有写入权限")
+        if (out.contains("not a zip")) return OpResult.failure("不是有效的压缩包")
+        return OpResult.success("已解压到「$dirName」")
+    }
+
+    // ------------------------------------------------------------ 权限 / 分享
+
+    /** 修改权限（chmod）。文件管理器该有，改了能立刻在权限列看到。 */
+    fun chmod(shell: (String) -> String, paths: List<String>, mode: String): OpResult {
+        if (!mode.matches(Regex("[0-7]{3,4}"))) return OpResult.failure("权限值不合法（如 644 / 755）")
+        val failed = paths.filter { path ->
+            val out = runCatching { shell("chmod $mode ${shellQuote(path)} 2>&1") }.getOrDefault("bad")
+            out.contains("Permission denied") || out.contains("No such file") || out == "bad"
+        }
+        return if (failed.isEmpty()) OpResult.success("已改为 $mode")
+        else OpResult.failure("部分失败：${failed.size} 项")
+    }
+
+    /** 给系统分享用的 file:// 路径（走 am start 时不需要 FileProvider）。 */
+    fun shareIntentCommand(path: String, mime: String): String =
+        "am start -a android.intent.action.SEND -t ${shellQuote(mime)} " +
+            "--eu android.intent.extra.STREAM ${shellQuote("file://$path")} 2>&1"
+
     // ------------------------------------------------------------ 复用工具
 
     private fun runBatch(

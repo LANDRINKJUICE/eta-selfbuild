@@ -426,4 +426,75 @@ class FileManagerOpsTest {
         val result = FileManagerOps.openExternal({ "Error: Activity not started" }, "/sdcard/a.xyz", "*/*")
         assertFalse(result.ok)
     }
+
+    // ---------------------------------------------------------------- 回收站 / 解压 / 权限
+
+    /** 回收站列表要能解析出桶名、文件名、大小、时间。 */
+    @Test
+    fun listTrashParsesBuckets() {
+        val fake = """
+            2048|1792144837|/sdcard/Download/Eta/.trash/20261103-011330/a.txt
+            4096|1792144900|/sdcard/Download/Eta/.trash/20261103-011330/sub dir
+        """.trimIndent()
+        val list = FileManagerOps.listTrash { fake }
+        assertEquals(2, list.size)
+        // 按时间降序：后者更新，排在前
+        assertEquals("sub dir", list[0].name)
+        assertEquals("20261103-011330", list[0].bucket)
+        assertEquals("a.txt", list[1].name)
+        assertEquals(2048L, list[1].sizeBytes)
+    }
+
+    @Test
+    fun emptyTrashUsesFindDelete() {
+        val cmds = mutableListOf<String>()
+        FileManagerOps.emptyTrash { cmd -> cmds.add(cmd); "" }
+        assertTrue(cmds.single().contains("rm -rf"))
+        assertTrue(cmds.single().contains(".trash"))
+    }
+
+    /** 恢复只能放到明确目录（回收站没记原路径，不能假装能还原到原地）。 */
+    @Test
+    fun restoreMovesToRecoveredDir() {
+        val cmds = mutableListOf<String>()
+        val items = listOf(
+            FileManagerOps.TrashEntry("b1", "x.txt", "/sdcard/Download/Eta/.trash/b1/x.txt", 1, 0),
+        )
+        val result = FileManagerOps.restoreTrash({ cmd -> cmds.add(cmd); "" }, items)
+        assertTrue(result.ok)
+        assertTrue(result.message.contains("recovered"))
+        assertTrue(cmds.any { it.contains("mv -n") && it.contains("recovered/x.txt") })
+    }
+
+    /** 解压要建独立目录，不能把一堆文件散到当前目录。 */
+    @Test
+    fun extractCreatesTargetDir() {
+        val cmds = mutableListOf<String>()
+        val result = FileManagerOps.extractArchive({ cmd -> cmds.add(cmd); "  inflating: a" }, "/sdcard/a.zip")
+        assertTrue(result.ok)
+        assertTrue(result.message.contains("a"))
+        val cmd = cmds.single()
+        assertTrue(cmd.contains("mkdir -p '/sdcard/a'"))
+        assertTrue(cmd.contains("unzip -o '/sdcard/a.zip' -d '/sdcard/a'"))
+    }
+
+    @Test
+    fun extractRejectsNonZip() {
+        assertFalse(FileManagerOps.extractArchive({ "unzip: not a zip archive" }, "/sdcard/a.txt").ok)
+    }
+
+    @Test
+    fun chmodValidatesMode() {
+        assertFalse(FileManagerOps.chmod({ "" }, listOf("/sdcard/a"), "999").ok)
+        assertFalse(FileManagerOps.chmod({ "" }, listOf("/sdcard/a"), "abc").ok)
+        val cmds = mutableListOf<String>()
+        assertTrue(FileManagerOps.chmod({ cmd -> cmds.add(cmd); "" }, listOf("/sdcard/a"), "755").ok)
+        assertTrue(cmds.single().contains("chmod 755"))
+    }
+
+    @Test
+    fun chmodReportsPermissionDenied() {
+        val result = FileManagerOps.chmod({ "chmod: Permission denied" }, listOf("/system/x"), "755")
+        assertFalse(result.ok)
+    }
 }

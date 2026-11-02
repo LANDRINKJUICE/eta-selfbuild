@@ -33,10 +33,13 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.runtime.Composable
@@ -156,6 +159,12 @@ internal fun FileManagerScreen(
     var newNameInput by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<FileManagerOps.Entry?>(null) }
     var renameInput by remember { mutableStateOf("") }
+    // 回收站
+    var showTrash by remember { mutableStateOf(false) }
+    var trashEntries by remember { mutableStateOf<List<FileManagerOps.TrashEntry>>(emptyList()) }
+    var trashSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showChmod by remember { mutableStateOf(false) }
+    var chmodInput by remember { mutableStateOf("644") }
     var infoText by remember { mutableStateOf<Pair<String, String>?>(null) }
     /** 属性/压缩包弹窗对应的路径，选文件模式里用它做"选中此文件"。 */
     var infoPath by remember { mutableStateOf<String?>(null) }
@@ -318,6 +327,20 @@ internal fun FileManagerScreen(
                 notice = "读不到这张图（可能不是有效图片、超过 48 MB，或它在应用无权访问的位置）"
                 showInfo(entry)
             }
+        }
+    }
+
+    /** 选中项里是否只有一个且是压缩包（决定「解压」是否可用）。 */
+    fun isArchiveSelected(): Boolean {
+        val path = selectedPaths.firstOrNull() ?: return false
+        return FileManagerOps.looksLikeArchive(path.substringAfterLast('/'))
+    }
+
+    /** 刷新回收站列表。 */
+    fun refreshTrash() {
+        scope.launch {
+            trashEntries = withContext(Dispatchers.IO) { FileManagerOps.listTrash(runShell) }
+            trashSelected = emptySet()
         }
     }
 
@@ -796,6 +819,37 @@ internal fun FileManagerScreen(
                         BarAction("属性", Icons.Rounded.Info, enabled = count == 1) {
                             findEntry(selectedPaths.first())?.let { showInfo(it) }
                         }
+                        BarAction("解压", Icons.Rounded.FolderOpen, enabled = count == 1 && isArchiveSelected()) {
+                            selectedPaths.firstOrNull()?.let { path ->
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        FileManagerOps.extractArchive(runShell, path)
+                                    }
+                                    notice = result.message
+                                    selectMode = false
+                                    left.selected = emptySet()
+                                    right.selected = emptySet()
+                                    refreshBoth()
+                                }
+                            }
+                        }
+                        BarAction("分享", Icons.Rounded.Share, enabled = count == 1) {
+                            selectedPaths.firstOrNull()?.let { path ->
+                                val name = path.trimEnd('/').substringAfterLast('/')
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        FileManagerOps.openExternal(
+                                            runShell, path, FileManagerOps.mimeOf(name),
+                                        )
+                                    }
+                                    if (!result.ok) notice = result.message
+                                }
+                            }
+                        }
+                        BarAction("权限", Icons.Rounded.Lock, enabled = count > 0) {
+                            chmodInput = "644"
+                            showChmod = true
+                        }
                         BarAction("删除", Icons.Rounded.Delete, enabled = count > 0, danger = true) {
                             pendingDelete = selectedPaths.toList()
                         }
@@ -914,6 +968,11 @@ internal fun FileManagerScreen(
                 MenuRow("粘贴到此处", enabled = clipboard != null) {
                     showPaneMenu = false
                     paste()
+                }
+                MenuRow("回收站") {
+                    showPaneMenu = false
+                    refreshTrash()
+                    showTrash = true
                 }
                 Spacer(Modifier.height(8.dp))
                 MiuixDialogActions(
@@ -1042,6 +1101,152 @@ internal fun FileManagerScreen(
                         }
                     },
                 )
+            }
+        }
+    }
+
+    // ---------- 修改权限 ----------
+    if (showChmod) {
+        EtaWindowDialog(
+            show = true,
+            title = "修改权限",
+            summary = "${selectedPaths.size} 项",
+            onDismissRequest = { showChmod = false },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TextField(
+                    value = chmodInput,
+                    onValueChange = { chmodInput = it },
+                    label = "权限（如 644 / 755）",
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                MiuixDialogActions(
+                    confirmText = "应用",
+                    confirmEnabled = chmodInput.matches(Regex("[0-7]{3,4}")),
+                    onCancel = { showChmod = false },
+                    onConfirm = {
+                        val mode = chmodInput
+                        val paths = selectedPaths.toList()
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                FileManagerOps.chmod(runShell, paths, mode)
+                            }
+                            notice = result.message
+                            showChmod = false
+                            selectMode = false
+                            left.selected = emptySet()
+                            right.selected = emptySet()
+                            refreshBoth()
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    // ---------- 回收站 ----------
+    if (showTrash) {
+        EtaWindowDialog(
+            show = true,
+            title = "回收站",
+            summary = if (trashEntries.isEmpty()) "空" else "共 ${trashEntries.size} 项 · ${FileManagerOps.formatSize(trashEntries.sumOf { it.sizeBytes })}",
+            onDismissRequest = { showTrash = false },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                ) {
+                    if (trashEntries.isEmpty()) {
+                        Text(
+                            text = "没有可恢复的文件",
+                            style = MiuixTheme.textStyles.subtitle,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                        )
+                    } else {
+                        LazyColumn {
+                            items(trashEntries, key = { it.path }) { item ->
+                                val checked = item.path in trashSelected
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            trashSelected = if (checked) {
+                                                trashSelected - item.path
+                                            } else {
+                                                trashSelected + item.path
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = if (checked) "✓" else "",
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        modifier = Modifier.width(18.dp),
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.name,
+                                            style = MiuixTheme.textStyles.body2,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = FileManagerOps.formatSize(item.sizeBytes),
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    EtaTextButton(
+                        text = "恢复",
+                        enabled = trashSelected.isNotEmpty(),
+                        onClick = {
+                            val picked = trashEntries.filter { it.path in trashSelected }
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    FileManagerOps.restoreTrash(runShell, picked)
+                                }
+                                notice = result.message
+                                refreshTrash()
+                                refreshBoth()
+                            }
+                        },
+                    )
+                    EtaTextButton(
+                        text = "清空",
+                        enabled = trashEntries.isNotEmpty(),
+                        onClick = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    FileManagerOps.emptyTrash(runShell)
+                                }
+                                notice = result.message
+                                refreshTrash()
+                            }
+                        },
+                    )
+                    EtaTextButton(text = "关闭", onClick = { showTrash = false })
+                }
             }
         }
     }
