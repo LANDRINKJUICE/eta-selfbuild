@@ -1,52 +1,53 @@
 package io.github.mangi.eta.agent.notify
 
+import android.app.NotificationManager
+import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
 import io.github.mangi.eta.core.AndroidAgentLogger
 
 /**
- * 处理通知栏内联回复：把用户打的字原样送进**发起该任务的那个会话**。
+ * 处理通知栏「回复」：把用户打的字投递到对应会话。
  *
- * 为什么要单独一个接收器而不是直接跳 Activity：
- * 通知栏回复的体验核心是「打完就走，不离开当前界面」。跳 Activity 会打断用户正在做的事，
- * 所以这里只把消息投递到一个待发送队列，用户下次回到会话时它已经在那儿了（或由运行时直接续跑）。
+ * 为什么落盘排队、而不是当场把 Agent 拉起来：
+ * 回复发生时用户很可能正在别的 App 里，直接拉起运行会抢走前台、打断他手上的事。
+ * 队列由主界面消费（见 AgentAppRoot），那时会话上下文已就绪，投递最可靠。
+ *
+ * `conversationId` 允许为空（例如定时任务里的本地动作没有会话），
+ * 这种回复由消费端新建一个会话来安放。
  */
-internal class ScheduledReplyReceiver : BroadcastReceiver() {
+internal class NotificationReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ScheduledNotificationBuilder.ACTION_REPLY) return
-        val conversationId = intent.getStringExtra(ScheduledNotificationBuilder.EXTRA_CONVERSATION_ID).orEmpty()
-        val text = ScheduledNotificationBuilder.extractReplyText(
-            android.app.RemoteInput.getResultsFromIntent(intent),
-        )
-        if (conversationId.isBlank() || text.isBlank()) return
+        if (intent.action != NotificationReply.ACTION_REPLY) return
+        val text = NotificationReply.extractText(RemoteInput.getResultsFromIntent(intent))
+        if (text.isBlank()) return
+        val conversationId = intent.getStringExtra(NotificationReply.EXTRA_CONVERSATION_ID).orEmpty()
         val appContext = context.applicationContext
         runCatching {
             PendingReplyQueue.enqueue(appContext, conversationId, text)
         }.onFailure { failure ->
-            AndroidAgentLogger.warn("Scheduled reply enqueue failed: type=${failure.javaClass.simpleName}")
+            AndroidAgentLogger.warn("Notification reply enqueue failed: type=${failure.javaClass.simpleName}")
         }
         // 回复完把这条通知收掉，避免用户以为还没处理。
         runCatching {
-            val taskId = intent.getStringExtra("task_id").orEmpty()
-            if (taskId.isNotBlank()) {
-                val manager = appContext.getSystemService(android.app.NotificationManager::class.java)
-                manager?.cancel(ScheduledNotificationBuilder.notificationId(taskId))
+            val id = intent.getIntExtra(NotificationReply.EXTRA_NOTIFICATION_ID, 0)
+            if (id != 0) {
+                appContext.getSystemService(NotificationManager::class.java)?.cancel(id)
             }
         }
     }
 }
 
 /**
- * 待发送的回复队列（跨进程：:schedule 写入不了主进程内存，所以落盘）。
+ * 待投递的回复队列（落盘，跨进程安全）。
  *
- * 为什么会话不直接开跑：通知栏回复发生在用户可能正在别的 App 里，
- * 直接拉起 Agent 会突然抢走前台。所以先排队，主界面下次可见时再发出去。
+ * `conversationId` 可能为空字符串，语义是"没有既定会话，消费端新建一个"。
  */
 internal object PendingReplyQueue {
     private const val PREFS = "eta_pending_replies"
     private const val KEY = "entries"
+    private const val MAX = 20
 
     internal data class Entry(val conversationId: String, val text: String, val at: Long)
 
@@ -73,10 +74,10 @@ internal object PendingReplyQueue {
             val array = org.json.JSONArray(raw)
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
+                // conversationId 允许为空：表示"没有既定会话"，由消费端新建
                 val id = item.optString("conversation_id")
                 val text = item.optString("text")
-                if (id.isBlank() || text.isBlank()) null
-                else Entry(id, text, item.optLong("at", 0L))
+                if (text.isBlank()) null else Entry(id, text, item.optLong("at", 0L))
             }
         }.getOrDefault(emptyList())
     }
@@ -85,6 +86,4 @@ internal object PendingReplyQueue {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY).apply()
     }
-
-    private const val MAX = 20
 }

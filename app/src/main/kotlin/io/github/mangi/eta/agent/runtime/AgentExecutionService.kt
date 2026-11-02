@@ -104,6 +104,8 @@ internal class AgentExecutionService : Service() {
             status = status,
             taskCount = count,
             startedAt = foregroundStartedAt,
+            // 通知上的「回复」要回到正在跑的那个会话
+            conversationId = io.github.mangi.eta.agent.runtime.ActiveConversationTracker.latest(),
         )
     }
 

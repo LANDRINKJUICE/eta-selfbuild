@@ -213,7 +213,7 @@
 
         <!-- 通知栏内联回复：把用户打的字送回发起任务的会话。必须在主进程（要访问会话存储）。 -->
         <receiver
-            android:name=".agent.notify.ScheduledReplyReceiver"
+            android:name=".agent.notify.NotificationReplyReceiver"
             android:exported="false" />
 
         <receiver

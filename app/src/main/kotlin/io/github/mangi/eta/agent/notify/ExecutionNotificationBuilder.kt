@@ -26,6 +26,9 @@ import io.github.mangi.eta.ui.MainActivity
  * - 展开态：ProgressStyle 进度条 + 已用时间 + 停止按钮。
  */
 internal object ExecutionNotificationBuilder {
+    /** 与 AgentExecutionService 的前台通知位保持一致：回复后要收掉的就是这条。 */
+    private const val NOTIFICATION_ID = 1107
+
     /**
      * @param status 当前状态；null 表示只有终端会话之类的长驻任务（不申请流体云）
      * @param taskCount 进行中的任务数
@@ -36,6 +39,8 @@ internal object ExecutionNotificationBuilder {
         status: AgentOverlayStatus?,
         taskCount: Int,
         startedAt: Long,
+        /** 当前运行所属的会话；非空时通知带「回复」按钮，回复直接回到该会话。 */
+        conversationId: String? = null,
     ): Notification {
         val open = PendingIntent.getActivity(
             context,
@@ -71,6 +76,18 @@ internal object ExecutionNotificationBuilder {
             .setWhen(startedAt)
             .setUsesChronometer(true)
             .addAction(Notification.Action.Builder(null, context.getString(R.string.execution_stop), stop).build())
+
+        // 回复：跑任务时收到通知可以直接回一句，落到这个会话里（与定时任务通知共用同一套机制）。
+        conversationId?.takeIf { it.isNotBlank() }?.let { id ->
+            builder.addAction(
+                NotificationReply.action(
+                    context = context,
+                    conversationId = id,
+                    notificationId = NOTIFICATION_ID,
+                    requestCode = id.hashCode(),
+                ),
+            )
+        }
 
         if (status != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             // 流体云：进度条 + 状态栏胶囊文字 + 请求提升为 ongoing。

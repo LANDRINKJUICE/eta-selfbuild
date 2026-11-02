@@ -785,6 +785,10 @@ internal class AgentAppState(
         }
     }
 
+    /** 该会话是否已存在；通知栏回复投递前用它决定"切过去"还是"新建一个"。 */
+    fun hasConversation(conversationId: String): Boolean =
+        conversationId.isNotBlank() && conversationsById.containsKey(conversationId)
+
     fun selectConversation(conversationId: String) {
         if (homeState.messageEdit != null) cancelMessageEdit()
         val state = conversationsById[conversationId] ?: return

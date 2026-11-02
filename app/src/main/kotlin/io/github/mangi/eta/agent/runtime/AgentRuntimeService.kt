@@ -295,6 +295,12 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         isEtaProcess: Boolean,
     ) {
         val run = admitRun(incoming.request, replyTo, incoming) ?: return
+        // 记下这次运行属于哪个会话：执行中通知的「回复」要回到它（见 ActiveConversationTracker）。
+        ActiveConversationTracker.remember(
+            incoming.request.handoff
+                ?.takeIf { it.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE }
+                ?.let { AgentUiHandoffPayload.from(it.payload).conversationId },
+        )
         thread(name = "agent-runtime-image-ingest") {
             val prepared = runCatching {
                 run.session.controller.throwIfCancelled()

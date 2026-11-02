@@ -2,10 +2,8 @@ package io.github.mangi.eta.agent.notify
 
 import android.app.Notification
 import android.app.PendingIntent
-import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import io.github.mangi.eta.agent.schedule.ScheduledRunLog
 import io.github.mangi.eta.agent.schedule.ScheduledTask
 import java.util.Locale
@@ -20,12 +18,6 @@ import java.util.Locale
  * 3. **结果分成功/失败两种视觉**（标题文案 + 小图标），不用点开就知道成没成。
  */
 internal object ScheduledNotificationBuilder {
-    /** 回复文字回传的 action。 */
-    const val ACTION_REPLY = "io.github.mangi.eta.action.SCHEDULED_REPLY"
-    const val EXTRA_CONVERSATION_ID = "conversation_id"
-    const val EXTRA_REPLY_TEXT = "reply_text"
-    const val KEY_REPLY_INPUT = "scheduled_reply_input"
-
     /** 一条任务最多保留一个通知位：同一任务重复执行只更新同一条，不堆一屏。 */
     fun notificationId(taskId: String): Int = NOTIFICATION_ID_BASE + (taskId.hashCode() and 0xFF)
 
@@ -58,37 +50,19 @@ internal object ScheduledNotificationBuilder {
             .setCategory(if (ok) Notification.CATEGORY_STATUS else Notification.CATEGORY_ERROR)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
 
-        // 只有自定义指令（有会话）才给回复入口；本地动作没会话，给了也没意义。
-        if (!conversationId.isNullOrBlank()) {
-            builder.addAction(replyAction(context, task.id, conversationId))
-        }
+        // 所有任务都给「回复」入口：本地动作（设备状态、体检等）没有会话，
+        // 回复由消费端新建会话安放，这样用户想问一句随时能问
+        //（以前只在有会话时才给按钮，导致本机 9 个本地动作任务全都看不到回复按钮）。
+        builder.addAction(
+            NotificationReply.action(
+                context = context,
+                conversationId = conversationId.orEmpty(),
+                notificationId = notificationId(task.id),
+                requestCode = task.id.hashCode(),
+            ),
+        )
         return builder.build()
     }
-
-    /** 通知栏内联回复：打完字直接回到发起该任务的那个会话。 */
-    private fun replyAction(context: Context, taskId: String, conversationId: String): Notification.Action {
-        val remoteInput = RemoteInput.Builder(KEY_REPLY_INPUT)
-            .setLabel("回复这条任务")
-            .build()
-        val intent = Intent(context, ScheduledReplyReceiver::class.java).apply {
-            action = ACTION_REPLY
-            putExtra(EXTRA_CONVERSATION_ID, conversationId)
-            putExtra("task_id", taskId)
-        }
-        val pending = PendingIntent.getBroadcast(
-            context,
-            taskId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
-        return Notification.Action.Builder(null, "回复", pending)
-            .addRemoteInput(remoteInput)
-            .build()
-    }
-
-    /** 从回复结果里取出用户输入的文字。 */
-    fun extractReplyText(results: Bundle?): String =
-        results?.getCharSequence(KEY_REPLY_INPUT)?.toString()?.trim().orEmpty()
 
     private fun actionTitle(task: ScheduledTask): String = when (task.action) {
         io.github.mangi.eta.agent.schedule.ScheduledActionKind.DEVICE_STATUS -> "设备状态"
