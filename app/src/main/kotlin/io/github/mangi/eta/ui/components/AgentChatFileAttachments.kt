@@ -80,6 +80,8 @@ internal fun AgentAttachmentPickerButton(
     val context = LocalContext.current
     var showPopup by remember { mutableStateOf(false) }
     var showPathDialog by remember { mutableStateOf(false) }
+    // 内置文件选择器：走 root shell 浏览任意目录，返回真实路径（系统选择器进不去 /data）
+    var showInternalPicker by remember { mutableStateOf(false) }
     var pathInput by remember { mutableStateOf("") }
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
@@ -129,6 +131,7 @@ internal fun AgentAttachmentPickerButton(
         ) {
             val dismiss = LocalDismissState.current
             val options = listOf(
+                "用文件管理选择",     // 内置：能进任意目录，返回真实路径
                 stringResource(R.string.attachment_image),
                 stringResource(R.string.attachment_file),
                 stringResource(R.string.attachment_folder),
@@ -144,12 +147,13 @@ internal fun AgentAttachmentPickerButton(
                         onSelectedIndexChange = {
                             dismiss?.invoke()
                             when (index) {
-                                0 -> photoPicker.launch(
+                                0 -> showInternalPicker = true
+                                1 -> photoPicker.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
-                                1 -> filePicker.launch(arrayOf("*/*"))
-                                2 -> folderPicker.launch(null)
-                                3 -> {
+                                2 -> filePicker.launch(arrayOf("*/*"))
+                                3 -> folderPicker.launch(null)
+                                4 -> {
                                     pathInput = ""
                                     showPathDialog = true
                                 }
@@ -159,6 +163,18 @@ internal fun AgentAttachmentPickerButton(
                 }
             }
         }
+    }
+
+    if (showInternalPicker) {
+        InternalFilePickerDialog(
+            initialPath = "/sdcard/Download",
+            onDismiss = { showInternalPicker = false },
+            onConfirm = { paths ->
+                showInternalPicker = false
+                // 逐个作为文件引用挂上；receiver 侧会按路径处理。
+                paths.forEach { onAttachFilePath(it) }
+            },
+        )
     }
 
     WindowDialog(
