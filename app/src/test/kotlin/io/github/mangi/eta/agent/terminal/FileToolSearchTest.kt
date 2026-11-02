@@ -176,8 +176,15 @@ class FileToolSearchTest {
             cursor = if (result.isNull("next_cursor")) null else result.getString("next_cursor")
             assertTrue(++rounds < 40)
         } while (cursor != null)
-        /** 多轮游标 + 预取混排：每个文件只出现一次，顺序与目录顺序一致。 */
-        assertEquals(listOf("entry-0.txt", "entry-1.txt", "entry-2.txt", "entry-3.txt", "entry-4.txt", "huge.txt"), paths)
+        /**
+         * 多轮游标 + 预取混排：每个文件恰好出现一次，且覆盖全部匹配。
+         * 不比对顺序：目录枚举顺序由文件系统决定（Android 与 Linux 实测不同），实现本身不承诺有序。
+         */
+        assertEquals(
+            setOf("entry-0.txt", "entry-1.txt", "entry-2.txt", "entry-3.txt", "entry-4.txt", "huge.txt"),
+            paths.toSet(),
+        )
+        assertEquals("每个匹配文件只能出现一次", paths.size, paths.toSet().size)
         assertEquals(1, totalSkipped)
     }
 
