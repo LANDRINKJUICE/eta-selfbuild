@@ -1,0 +1,114 @@
+package io.github.mangi.eta.ui.navigation
+
+import kotlinx.serialization.Serializable
+import io.github.mangi.eta.agent.browser.BrowserSessionRegistry
+import top.yukonga.miuix.kmp.nav.core.NavKey
+
+@Serializable
+sealed interface AppRoute : NavKey {
+    @Serializable
+    data object Home : AppRoute
+
+    @Serializable
+    data class Browser(val sessionKey: String = BrowserSessionRegistry.MANUAL_SESSION_KEY) : AppRoute
+
+    @Serializable
+    data object Terminal : AppRoute
+
+    @Serializable
+    data object Tools : AppRoute
+
+    @Serializable
+    data object WebToolsSettings : AppRoute
+
+    @Serializable
+    data object Skills : AppRoute
+
+    @Serializable
+    data object Subagents : AppRoute
+
+    @Serializable
+    data object Characters : AppRoute
+
+    @Serializable
+    data class CharacterDetail(val characterId: String) : AppRoute
+
+    @Serializable
+    data class CharacterEditor(val characterId: String? = null) : AppRoute
+
+    @Serializable
+    data object CharacterPersona : AppRoute
+
+    @Serializable
+    data class CharacterMemory(val characterId: String) : AppRoute
+
+    @Serializable
+    data object Permissions : AppRoute
+
+    @Serializable
+    data object SystemEnhance : AppRoute
+
+    @Serializable
+    data object Settings : AppRoute
+
+    @Serializable
+    data object AppearanceSettings : AppRoute
+
+    /** 自编改造版说明页（版本、变更记录、本机档案路径）；入口在设置页「关于」组。 */
+    @Serializable
+    data object EtaBuildNotes : AppRoute
+
+    @Serializable
+    data object SpeechSettings : AppRoute
+
+    @Serializable
+    data object SpeechRecognition : AppRoute
+
+    @Serializable
+    data object SpeechSynthesis : AppRoute
+
+    @Serializable
+    data object SpeechOss : AppRoute
+
+    @Serializable
+    data object DataBackup : AppRoute
+
+    @Serializable
+    data object Memory : AppRoute
+
+    @Serializable
+    data object LinuxEnvironment : AppRoute
+
+    @Serializable
+    data object SharedFolders : AppRoute
+
+    @Serializable
+    data object Workspace : AppRoute
+
+    @Serializable
+    data class LinuxFiles(val distribution: String) : AppRoute
+
+    @Serializable
+    data object ModelProviders : AppRoute
+
+    @Serializable
+    data object CommunityCatalog : AppRoute
+
+    @Serializable
+    data class CommunityCatalogProvider(val catalogId: String) : AppRoute
+
+    @Serializable
+    data object McpServers : AppRoute
+
+    @Serializable
+    data class McpServerDetail(val serverId: String) : AppRoute
+
+    @Serializable
+    data class ModelProviderDetail(val providerId: String) : AppRoute
+
+    @Serializable
+    data class ModelProviderNew(val providerType: NewProviderType) : AppRoute
+}
+
+@Serializable
+enum class NewProviderType { OpenAiCompatible, Anthropic, Gemini }
