@@ -66,6 +66,15 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object FileManager : AppRoute
 
+    /**
+     * 文件选择（附件按钮用）：同一个文件管理器，但底部带「确认选择」。
+     *
+     * 单独做一个路由而不是塞进 FileManager 的构造参数，是因为路由参数会被序列化进返回栈，
+     * 而选择结果回调没法序列化；这里由 AgentAppRoot 在渲染时挂上 pending 回调即可。
+     */
+    @Serializable
+    data class FilePicker(val initialPath: String = "/sdcard/Download") : AppRoute
+
     @Serializable
     data object SpeechSettings : AppRoute
 

@@ -407,6 +407,9 @@ fun AgentAppRoot(
                                 is AgentHomeAction.FilesAttached -> agentState.attachFiles(action.uris)
                                 is AgentHomeAction.FolderAttached -> agentState.attachFolder(action.uri)
                                 is AgentHomeAction.FilePathAttached -> agentState.attachFilePath(action.path)
+                                // 附件按钮的「用文件管理选择」：push 整页文件选择路由。
+                                // 选完由 FilePicker 的 onPickPaths pop 回来并逐条 attachFilePath。
+                                AgentHomeAction.OpenFilePicker -> pushRoute(AppRoute.FilePicker())
                                 is AgentHomeAction.RemoveFileReference ->
                                     agentState.removePendingFileReference(action.id)
                                 is AgentHomeAction.EditMessage -> agentState.beginMessageEdit(action.id)
@@ -706,6 +709,20 @@ fun AgentAppRoot(
                     initialPath = "/sdcard/Download",
                     onBack = ::popRoute,
                     runShell = { command -> FileShellRunner.run(command) },
+                )
+            }
+
+            // 文件选择（附件按钮）：同一个文件管理器 + 底部「确认选择」。
+            // 确认后 pop 回来，并把选中的路径逐条挂到输入框。
+            entry<AppRoute.FilePicker>(swipeDismiss = swipeDismiss) { route ->
+                FileManagerScreen(
+                    initialPath = route.initialPath,
+                    onBack = ::popRoute,
+                    runShell = { command -> FileShellRunner.run(command) },
+                    onPickPaths = { paths ->
+                        paths.forEach { path -> agentState.attachFilePath(path) }
+                        popRoute()
+                    },
                 )
             }
             entry<AppRoute.DataBackup>(swipeDismiss = swipeDismiss) {

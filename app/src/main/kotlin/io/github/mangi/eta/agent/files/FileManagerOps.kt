@@ -189,6 +189,66 @@ internal object FileManagerOps {
         }.getOrElse { OpResult.failure("创建失败：${it.javaClass.simpleName}") }
     }
 
+    // ------------------------------------------------------------ 打开 / 预览
+
+    /** 文本预览上限：超过就只显示前 256 KiB，避免大文件把界面卡死。 */
+    private const val TEXT_PREVIEW_LIMIT = 256 * 1024
+
+    /** 判断是不是"能当文本看"的扩展名（白名单，宁可少判也不要乱码）。 */
+    fun looksLikeText(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in setOf(
+            "txt", "md", "markdown", "log", "json", "xml", "yml", "yaml", "ini", "conf", "cfg",
+            "prop", "properties", "sh", "bash", "rc", "kt", "kts", "java", "js", "ts", "py",
+            "c", "h", "cpp", "hpp", "go", "rs", "html", "htm", "css", "csv", "tsv", "sql",
+            "gradle", "toml", "gitignore", "pro", "mk", "env",
+        )
+    }
+
+    /** 图片扩展名：交给系统图片查看器的受支持类型。 */
+    fun looksLikeImage(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif",
+        )
+
+    /**
+     * 读文本内容用于预览。
+     *
+     * 用 `head -c` 截断而不是整文件读入：日志文件动辄几十 MB，整读会让界面卡住甚至 OOM。
+     * 中文靠 UTF-8 解码，遇到二进制会显示成替换字符，所以调用方应先用 [looksLikeText] 过滤。
+     */
+    fun readTextPreview(shell: (String) -> String, path: String): OpResult {
+        val output = runCatching {
+            shell("head -c $TEXT_PREVIEW_LIMIT ${shellQuote(path)} 2>&1")
+        }.getOrElse { return OpResult.failure("读取失败：${it.javaClass.simpleName}") }
+        if (output.contains("Permission denied")) return OpResult.failure("没有读取权限")
+        if (output.contains("No such file")) return OpResult.failure("文件不存在")
+        if (output.isBlank()) return OpResult.success("（空文件）")
+        return OpResult.success(output)
+    }
+
+    /** 属性面板内容：大小、时间、权限、属主、完整路径。 */
+    fun describeEntry(entry: Entry): String {
+        val time = if (entry.modifiedAtMillis > 0) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(entry.modifiedAtMillis))
+        } else {
+            "未知"
+        }
+        return buildString {
+            append("路径：").append(entry.path).append('\n')
+            append("类型：").append(
+                when {
+                    entry.isSymlink -> "符号链接"
+                    entry.isDirectory -> "目录"
+                    else -> "文件"
+                }
+            ).append('\n')
+            if (!entry.isDirectory) append("大小：").append(formatSize(entry.sizeBytes)).append('\n')
+            append("修改：").append(time).append('\n')
+            append("权限：").append(entry.permissions)
+        }
+    }
+
     // ------------------------------------------------------------ 复用工具
 
     private fun runBatch(

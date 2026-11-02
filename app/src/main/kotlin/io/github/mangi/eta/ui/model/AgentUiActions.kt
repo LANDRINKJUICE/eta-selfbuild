@@ -20,6 +20,9 @@ sealed interface AgentHomeAction {
     data class FilesAttached(val uris: List<String>) : AgentHomeAction
     data class FolderAttached(val uri: String) : AgentHomeAction
     data class FilePathAttached(val path: String) : AgentHomeAction
+
+    /** 打开内置文件选择器（附件按钮「用文件管理选择」）；选完回到 [FilePathAttached]。 */
+    data object OpenFilePicker : AgentHomeAction
     data class RemoveFileReference(val id: String) : AgentHomeAction
     data class EditMessage(val id: String) : AgentHomeAction
     data object CancelMessageEdit : AgentHomeAction

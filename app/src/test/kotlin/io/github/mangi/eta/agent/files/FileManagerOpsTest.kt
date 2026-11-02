@@ -187,4 +187,70 @@ class FileManagerOpsTest {
         assertEquals("1.0 KB", FileManagerOps.formatSize(1024))
         assertEquals("1.0 MB", FileManagerOps.formatSize(1024L * 1024))
     }
+
+    // ---------------------------------------------------------------- 打开文件的分流
+
+    /**
+     * 点文件要能"看见内容"，所以按扩展名分流。
+     * 这里守住三类边界：文本白名单、图片白名单、以及**无扩展名不能被当成文本或图片**。
+     */
+    @Test
+    fun textExtensionsAreRecognised() {
+        assertTrue(FileManagerOps.looksLikeText("README.md"))
+        assertTrue(FileManagerOps.looksLikeText("a.LOG"))
+        assertTrue(FileManagerOps.looksLikeText("config.prop"))
+        assertTrue(FileManagerOps.looksLikeText("build.gradle.kts"))
+        assertFalse(FileManagerOps.looksLikeText("video.mp4"))
+        assertFalse(FileManagerOps.looksLikeText("noext"))
+        assertFalse(FileManagerOps.looksLikeText("archive.zip"))
+    }
+
+    @Test
+    fun imageExtensionsAreRecognised() {
+        assertTrue(FileManagerOps.looksLikeImage("a.jpg"))
+        assertTrue(FileManagerOps.looksLikeImage("B.JPEG"))
+        assertTrue(FileManagerOps.looksLikeImage("c.heic"))
+        assertFalse(FileManagerOps.looksLikeImage("a.apk"))
+        assertFalse(FileManagerOps.looksLikeImage("noext"))
+    }
+
+    /** 文本预览用 head -c 截断，不能被大文件拖死；同时路径必须正确引用。 */
+    @Test
+    fun readTextPreviewTruncatesAndQuotes() {
+        val commands = mutableListOf<String>()
+        val result = FileManagerOps.readTextPreview(
+            { cmd -> commands.add(cmd); "第一行\n第二行" },
+            "/sdcard/中文 名.txt",
+        )
+        assertTrue(result.ok)
+        assertEquals("第一行\n第二行", result.message)
+        assertTrue(commands.single().contains("head -c"))
+        assertTrue(commands.single().contains("'/sdcard/中文 名.txt'"))
+    }
+
+    @Test
+    fun readTextPreviewReportsPermissionDenied() {
+        val result = FileManagerOps.readTextPreview({ "head: Permission denied" }, "/data/x")
+        assertFalse(result.ok)
+        assertTrue(result.message.contains("权限"))
+    }
+
+    /** 属性面板要能看见"它是什么"，至少包含路径、类型、权限三项。 */
+    @Test
+    fun describeEntryShowsPathTypePermissions() {
+        val entry = FileManagerOps.Entry(
+            name = "a.txt",
+            path = "/sdcard/a.txt",
+            isDirectory = false,
+            isSymlink = false,
+            sizeBytes = 2048,
+            modifiedAtMillis = 1792144800000L,
+            permissions = "-rw-r--r--",
+        )
+        val text = FileManagerOps.describeEntry(entry)
+        assertTrue(text.contains("/sdcard/a.txt"))
+        assertTrue(text.contains("文件"))
+        assertTrue(text.contains("-rw-r--r--"))
+        assertTrue(text.contains("2.0 KB"))
+    }
 }

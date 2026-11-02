@@ -67,6 +67,14 @@ internal val ChatInputPopupMargin = 8.dp
 internal val ChatInputActionSize = 40.dp
 internal val ChatInputActionIconSize = 24.dp
 
+/**
+ * 聊天输入框左侧的「+」附件按钮。
+ *
+ * 内置文件管理器（「用文件管理选择」）不再这里自己弹对话框，而是**交给上层路由**打开整页的
+ * 文件管理器（`AppRoute.FilePicker`）。
+ * 理由：老的对话框版选择器功能残缺，和全屏版是两套实现，改一套另一套不跟着变；
+ * 统一走路由后，附件选文件和平时逛文件是**同一个界面**，行为不会分叉。
+ */
 @Composable
 internal fun AgentAttachmentPickerButton(
     popupAnchorTopPx: Int,
@@ -75,13 +83,13 @@ internal fun AgentAttachmentPickerButton(
     onAttachFiles: (List<String>) -> Unit,
     onAttachFolder: (String) -> Unit,
     onAttachFilePath: (String) -> Unit,
+    /** 点「用文件管理选择」时回调，由上层 push 文件选择路由。 */
+    onOpenInternalPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     var showPopup by remember { mutableStateOf(false) }
     var showPathDialog by remember { mutableStateOf(false) }
-    // 内置文件选择器：走 root shell 浏览任意目录，返回真实路径（系统选择器进不去 /data）
-    var showInternalPicker by remember { mutableStateOf(false) }
     var pathInput by remember { mutableStateOf("") }
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
@@ -146,8 +154,9 @@ internal fun AgentAttachmentPickerButton(
                         index = index,
                         onSelectedIndexChange = {
                             dismiss?.invoke()
+                            showPopup = false
                             when (index) {
-                                0 -> showInternalPicker = true
+                                0 -> onOpenInternalPicker()
                                 1 -> photoPicker.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
@@ -163,18 +172,6 @@ internal fun AgentAttachmentPickerButton(
                 }
             }
         }
-    }
-
-    if (showInternalPicker) {
-        InternalFilePickerDialog(
-            initialPath = "/sdcard/Download",
-            onDismiss = { showInternalPicker = false },
-            onConfirm = { paths ->
-                showInternalPicker = false
-                // 逐个作为文件引用挂上；receiver 侧会按路径处理。
-                paths.forEach { onAttachFilePath(it) }
-            },
-        )
     }
 
     WindowDialog(
