@@ -9,27 +9,38 @@ import io.github.mangi.eta.core.AndroidAgentLogger
 import java.util.Calendar
 
 /**
- * 用 AlarmManager 把 [ScheduledTask] 注册成每天一次的闹钟。
+ * 把「每天定时」类型的任务注册成闹钟，并在条件满足时把**事件**转成一次执行。
  *
- * 精确闹钟在 Android 12+ 需要用户在系统设置里授权；没有授权时退回 `setAndAllowWhileIdle`，
- * 触发时间可能被系统推迟几分钟到十几分钟，但**不会丢任务**，比直接不排更符合"定时干活"的预期。
+ * 设计要点：
+ * 1. 只有 [ScheduledTrigger.DAILY_TIME] 需要闹钟；事件型任务靠系统广播唤醒，不占闹钟资源。
+ * 2. 精确闹钟在 Android 12+ 需授权；没授权时退回 `setAndAllowWhileIdle`，触发可能推迟几分钟但不丢。
+ * 3. 事件型任务在**独立进程**（@code :schedule）里处理，所以调度逻辑必须能脱离 UI 独立跑，
+ *    这里不持有任何 Activity/Compose 依赖。
  */
 internal object ScheduledTaskScheduler {
     const val ACTION_RUN = "io.github.mangi.eta.action.RUN_SCHEDULED_TASK"
+    const val ACTION_EVENT = "io.github.mangi.eta.action.SCHEDULED_EVENT"
     const val EXTRA_TASK_ID = "task_id"
+    const val EXTRA_EVENT = "event_json"
 
     /** 固定基址 + id 哈希，保证同一任务始终复用同一个 PendingIntent（重复注册即覆盖，不会堆积）。 */
     private const val REQUEST_CODE_BASE = 0x5C4E0000
 
     fun rescheduleAll(context: Context) {
         val appContext = context.applicationContext
-        val enabled = ScheduledTaskStore.load(appContext).filter { it.enabled }
         runCatching { cancelAll(appContext) }
-        enabled.forEach { schedule(appContext, it) }
-        AndroidAgentLogger.warn("Scheduled tasks rescheduled: count=${enabled.size}")
+        val timeTasks = ScheduledTaskStore.load(appContext)
+            .filter { it.enabled && it.trigger.usesAlarm }
+        timeTasks.forEach { schedule(appContext, it) }
+        AndroidAgentLogger.warn("Scheduled tasks rescheduled: count=${timeTasks.size}")
     }
 
     fun schedule(context: Context, task: ScheduledTask) {
+        // 事件型任务不需要闹钟；以前排过的话要顺手取消，避免改类型后旧闹钟残留。
+        if (!task.trigger.usesAlarm) {
+            cancel(context, task.id)
+            return
+        }
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val triggerAt = nextTriggerMillis(task)
         val pending = pendingIntent(context, task.id)
@@ -47,6 +58,32 @@ internal object ScheduledTaskScheduler {
     fun cancel(context: Context, id: String) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         runCatching { manager.cancel(pendingIntent(context, id)) }
+    }
+
+    /**
+     * 处理一个设备事件：找出所有命中的启用任务，逐个交给接收器执行。
+     *
+     * @return 命中的任务数（便于日志与测试核对）。
+     */
+    fun dispatchEvent(context: Context?, event: ScheduledEvent): Int {
+        if (context == null) return 0
+        val appContext = context.applicationContext
+        val hits = ScheduledTaskStore.load(appContext).filter { it.enabled && it.matchesEvent(event) }
+        if (hits.isEmpty()) return 0
+        hits.forEach { task ->
+            runCatching {
+                appContext.startService(
+                    Intent(appContext, ScheduledTaskReceiver::class.java)
+                        .setAction(ACTION_EVENT)
+                        .putExtra(EXTRA_TASK_ID, task.id)
+                        .putExtra(EXTRA_EVENT, ScheduledEvent.encode(event)),
+                )
+            }.onFailure { failure ->
+                AndroidAgentLogger.warn("Scheduled event dispatch failed: type=${failure.javaClass.simpleName}")
+            }
+            Unit
+        }
+        return hits.size
     }
 
     /** 今天该时刻还没到就排在今天，已经过了就排明天。 */
@@ -75,7 +112,7 @@ internal object ScheduledTaskScheduler {
         val intent = Intent(context, ScheduledTaskReceiver::class.java)
             .setAction(ACTION_RUN)
             .putExtra(EXTRA_TASK_ID, taskId)
-        return PendingIntent.getBroadcast(
+        return PendingIntent.getService(
             context,
             REQUEST_CODE_BASE + taskId.hashCode(),
             intent,

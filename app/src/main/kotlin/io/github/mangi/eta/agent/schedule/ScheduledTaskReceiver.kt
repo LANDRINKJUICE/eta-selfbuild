@@ -1,22 +1,31 @@
 package io.github.mangi.eta.agent.schedule
 
-import android.content.BroadcastReceiver
-import android.content.Context
+import android.app.Service
 import android.content.Intent
+import android.os.IBinder
 import io.github.mangi.eta.core.AndroidAgentLogger
 
 /**
- * 闹钟到点的入口。
+ * 定时任务的执行入口（运行在独立进程 `:schedule`）。
  *
- * 只做三件事：取任务 → 执行动作 → 排下一天。放在独立线程里跑（`goAsync`），
- * 不阻塞广播主线程；任何异常都只记类型，保证接收器本身不会崩。
+ * 为什么用 Service 而不是 BroadcastReceiver：
+ * - 事件型任务（通知、充电、电量、Wi-Fi、解锁）要在**独立进程**里处理，避免系统广播把主进程唤醒，
+ *   用户正在用手机时不会因为一次定时任务而卡顿；主进程只有真正需要 Agent 能力时才被拉起。
+ * - `onStartCommand` 天然有约 10 秒的启动窗口，足够完成"取任务 → 执行 → 续排下一次"，
+ *   不需要 goAsync 那套广播技巧。
+ *
+ * 自身不持有任何 UI 依赖；执行与通知都在 [ScheduledActionRunner]。
  */
-internal class ScheduledTaskReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ScheduledTaskScheduler.ACTION_RUN) return
-        val taskId = intent.getStringExtra(ScheduledTaskScheduler.EXTRA_TASK_ID) ?: return
-        val appContext = context.applicationContext
-        val pendingResult = goAsync()
+internal class ScheduledTaskReceiver : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val taskId = intent?.getStringExtra(ScheduledTaskScheduler.EXTRA_TASK_ID)
+        if (taskId == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val appContext = applicationContext
         Thread {
             try {
                 val task = ScheduledTaskStore.load(appContext).firstOrNull { it.id == taskId }
@@ -29,15 +38,16 @@ internal class ScheduledTaskReceiver : BroadcastReceiver() {
             } catch (failure: Exception) {
                 AndroidAgentLogger.warn("Scheduled task failed: type=${failure.javaClass.simpleName}")
             } finally {
-                // 无论成功失败都续排下一天：一次失败不应该让整条任务链断掉。
+                // 只有按时间触发的任务需要续排下一天；事件型任务不排。
                 runCatching {
                     ScheduledTaskStore.load(appContext)
                         .firstOrNull { it.id == taskId }
-                        ?.takeIf { it.enabled }
+                        ?.takeIf { it.enabled && it.trigger.usesAlarm }
                         ?.let { ScheduledTaskScheduler.schedule(appContext, it) }
                 }
-                pendingResult.finish()
+                stopSelf(startId)
             }
         }.start()
+        return START_NOT_STICKY
     }
 }

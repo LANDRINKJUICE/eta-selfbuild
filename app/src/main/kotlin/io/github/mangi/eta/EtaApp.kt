@@ -48,7 +48,13 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
         Prefs.initLocal(this)
-        if (!AppProcessPolicy.shouldInitializeFullRuntime(Application.getProcessName(), packageName)) {
+        val processName = Application.getProcessName()
+        // 定时任务的 :schedule 进程只需要最基础的 SharedPreferences（读任务表）；
+        // 完整运行时（终端、Root、仓库）在主进程初始化，两者互不干扰。
+        if (processName != null && processName.endsWith(":schedule")) {
+            return
+        }
+        if (!AppProcessPolicy.shouldInitializeFullRuntime(processName, packageName)) {
             return
         }
         TerminalRuntime.initialize(this)

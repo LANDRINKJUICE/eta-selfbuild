@@ -12,6 +12,8 @@ class AgentNotificationHistoryService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         record(sbn)
+        // 转发给定时任务系统：命中的任务在 :schedule 进程里执行，不阻塞这里。
+        NotificationEventBridge.forward(this, sbn)
     }
 
     override fun onListenerConnected() {

@@ -186,14 +186,35 @@
             android:grantUriPermissions="false"
             android:permission="android.permission.MANAGE_ACCESSIBILITY" />
 
-        <!-- 定时任务：闹钟到点执行动作；重启 / 改时间 / 覆盖安装后重建闹钟。 -->
-        <receiver
+        <!--
+            定时任务执行进程：独立 :schedule 进程。
+            原因：事件型任务（充电 / 电量 / Wi-Fi / 解锁 / 通知）由系统广播唤醒，
+            放主进程会把你正在用的 Eta 一起唤醒；独立进程既省电，也不干扰前台。
+            主进程只在真正需要 Agent 能力（自定义指令）时才被拉起。
+        -->
+        <service
             android:name=".agent.schedule.ScheduledTaskReceiver"
-            android:exported="false" />
+            android:exported="false"
+            android:process=":schedule" />
+
+        <!-- 设备事件入口：纯广播接收，不联网、不读界面。 -->
+        <receiver
+            android:name=".agent.schedule.DeviceEventReceiver"
+            android:exported="false"
+            android:process=":schedule">
+            <intent-filter>
+                <action android:name="android.intent.action.POWER_CONNECTED" />
+                <action android:name="android.intent.action.POWER_DISCONNECTED" />
+                <action android:name="android.intent.action.BATTERY_CHANGED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+                <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".agent.schedule.ScheduledTaskBootReceiver"
-            android:exported="false">
+            android:exported="false"
+            android:process=":schedule">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

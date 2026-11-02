@@ -27,6 +27,7 @@ import io.github.mangi.eta.agent.schedule.ScheduledActionKind
 import io.github.mangi.eta.agent.schedule.ScheduledTask
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
+import io.github.mangi.eta.agent.schedule.ScheduledTrigger
 import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
@@ -309,6 +310,8 @@ private fun ScheduleEditorDialog(
                     onSave(
                         ScheduledTask(
                             id = task?.id ?: ScheduledTaskStore.newId(),
+                            // 当前界面只做「每天定时」；事件型任务的编辑入口下一版补 UI。
+                            trigger = task?.trigger ?: ScheduledTrigger.DAILY_TIME,
                             hour = hour,
                             minute = minute,
                             action = action,

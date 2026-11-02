@@ -39,7 +39,7 @@ internal object ScheduledActionRunner {
 
     private fun describe(context: Context, task: ScheduledTask): String = when (task.action) {
         ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)
-        ScheduledActionKind.MEMORY_STATUS -> memoryStatus()
+        ScheduledActionKind.MEMORY_STATUS -> memoryStatus(context)
         ScheduledActionKind.PERMISSIONS_CHECK -> permissionStatus(context)
         // 自定义指令：交给 Agent 跑一次，结果摘要进通知。
         ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task)
@@ -68,7 +68,10 @@ internal object ScheduledActionRunner {
         }
     }
 
-    private fun memoryStatus(): String {
+    private fun memoryStatus(context: Context): String {
+        // 本进程是 :schedule，完整运行时（含记忆仓库）只在主进程初始化，
+        // 所以这里按需初始化一次；Repository 内部对重复 init 有幂等保护。
+        AgentMemoryRepository.init(context)
         val snapshot = AgentMemoryRepository.snapshot()
         val memoryContext = AgentMemoryContextBuilder.build(snapshot = snapshot, contextWindow = null)
         val coreChars = memoryContext.coreContent.length
