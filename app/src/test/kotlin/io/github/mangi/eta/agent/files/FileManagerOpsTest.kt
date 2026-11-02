@@ -453,17 +453,56 @@ class FileManagerOpsTest {
         assertTrue(cmds.single().contains(".trash"))
     }
 
-    /** 恢复只能放到明确目录（回收站没记原路径，不能假装能还原到原地）。 */
+    /** 有 .origin 记录时，恢复必须回到原路径（用户要求"从哪删的回哪去"）。 */
     @Test
-    fun restoreMovesToRecoveredDir() {
+    fun restoreGoesBackToOriginWhenRecorded() {
         val cmds = mutableListOf<String>()
+        val origin = "/sdcard/Download/旧目录/x.txt"
         val items = listOf(
             FileManagerOps.TrashEntry("b1", "x.txt", "/sdcard/Download/Eta/.trash/b1/x.txt", 1, 0),
+        )
+        val result = FileManagerOps.restoreTrash({ cmd ->
+            cmds.add(cmd)
+            if (cmd.startsWith("cat ")) "x.txt\t$origin" else ""
+        }, items)
+        assertTrue(result.ok)
+        assertTrue(result.message.contains("原位置"))
+        // 必须先建原目录，再把文件搬回去
+        assertTrue(cmds.any { it.contains("mkdir -p '/sdcard/Download/旧目录'") })
+        assertTrue(cmds.any { it.contains("mv -n") && it.contains("'/sdcard/Download/旧目录/x.txt'") })
+    }
+
+    /** 老条目没有 .origin：退回 recovered，并且提示里要说明，不能假装回了原地。 */
+    @Test
+    fun restoreFallsBackWhenNoOrigin() {
+        val cmds = mutableListOf<String>()
+        val items = listOf(
+            FileManagerOps.TrashEntry("b1", "y.txt", "/sdcard/Download/Eta/.trash/b1/y.txt", 1, 0),
         )
         val result = FileManagerOps.restoreTrash({ cmd -> cmds.add(cmd); "" }, items)
         assertTrue(result.ok)
         assertTrue(result.message.contains("recovered"))
-        assertTrue(cmds.any { it.contains("mv -n") && it.contains("recovered/x.txt") })
+        assertTrue(result.message.contains("没记原路径"))
+        assertTrue(cmds.any { it.contains("mv -n") && it.contains("recovered/y.txt") })
+    }
+
+    /** 删除时必须把原路径记进 .origin，否则恢复无从回溯。 */
+    @Test
+    fun moveToTrashRecordsOrigin() {
+        val cmds = mutableListOf<String>()
+        FileManagerOps.moveToTrash({ cmd -> cmds.add(cmd); "" }, listOf("/sdcard/Download/a b.txt"))
+        assertTrue(cmds.any { it.contains(".origin") })
+        val record = cmds.first { it.contains(".origin") }
+        assertTrue(record.contains("a b.txt"))
+        assertTrue(record.contains("/sdcard/Download/a b.txt"))
+    }
+
+    @Test
+    fun trashOriginMapParsesTabSeparated() {
+        val map = FileManagerOps.trashOriginMap({ "a.txt\t/sdcard/x/a.txt\nb.txt\t/sdcard/y/b.txt" }, "/t")
+        assertEquals("/sdcard/x/a.txt", map["a.txt"])
+        assertEquals("/sdcard/y/b.txt", map["b.txt"])
+        assertEquals(2, map.size)
     }
 
     /** 解压要建独立目录，不能把一堆文件散到当前目录。 */

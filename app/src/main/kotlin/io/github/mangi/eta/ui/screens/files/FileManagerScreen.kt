@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -694,6 +695,11 @@ internal fun FileManagerScreen(
                             goToInput = left.path
                             showGoTo = true
                         },
+                        onNew = {
+                            activeIsLeft = true
+                            newNameInput = ""
+                            showNewFolder = true
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     if (dualPane) {
@@ -736,6 +742,11 @@ internal fun FileManagerScreen(
                                 activeIsLeft = false
                                 goToInput = right.path
                                 showGoTo = true
+                            },
+                            onNew = {
+                                activeIsLeft = false
+                                newNameInput = ""
+                                showNewFolder = true
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -1357,6 +1368,7 @@ private fun PaneView(
     onLongPress: (FileManagerOps.Entry) -> Unit,
     onUp: () -> Unit,
     onGoPath: () -> Unit,
+    onNew: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -1416,6 +1428,16 @@ private fun PaneView(
                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1,
             )
+            // 新建：这里放「＋」比藏进菜单顺手得多（用户反馈菜单里不好找）。
+            IconButton(onClick = onNew, minWidth = 28.dp, minHeight = 28.dp) {
+                Icon(
+                    Icons.Rounded.Add,
+                    contentDescription = "新建",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isActive) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
         }
 
         // 列表必须 weight(1f) 占满剩余高度：以前用 fillMaxSize()，路径行从两行改成一行后，

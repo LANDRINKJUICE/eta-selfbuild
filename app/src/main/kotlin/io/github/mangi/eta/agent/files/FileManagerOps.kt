@@ -130,10 +130,19 @@ internal object FileManagerOps {
                 failures.add("$path（${result.exceptionOrNull()?.javaClass?.simpleName}）")
                 return@forEach
             }
-            if (result.getOrDefault("").contains("Permission denied") ||
-                result.getOrDefault("").contains("Read-only")
-            ) {
+            val output = result.getOrDefault("")
+            if (output.contains("Permission denied") || output.contains("Read-only")) {
                 failures.add("$path（权限不足）")
+                return@forEach
+            }
+            // 记下原路径：恢复要"从哪删的还回哪去"。
+            // 用追加写（不是覆盖），同一桶里多个文件的映射互不干扰；
+            // 内容格式是「原文件名<TAB>原完整路径」，一层目录对应一个。
+            runCatching {
+                shell(
+                    "printf '%s\\t%s\\n' ${shellQuote(path.trimEnd('/').substringAfterLast('/'))} " +
+                        "${shellQuote(path)} >> ${shellQuote("$bucket/.origin")} 2>&1",
+                )
             }
         }
         return if (failures.isEmpty()) {
@@ -141,6 +150,25 @@ internal object FileManagerOps {
         } else {
             OpResult.failure("部分失败：${failures.joinToString("、")}")
         }
+    }
+
+    /**
+     * 读取回收站里记录的原始路径映射（`<文件名>\t<原完整路径>`）。
+     *
+     * 老条目没有 `.origin` 文件（当时还没记原路径），这种恢复只能放到 recovered 目录，
+     * 由调用方在提示里说清楚 —— 不能让用户以为"还原到了原地"却其实是另一处。
+     */
+    fun trashOriginMap(shell: (String) -> String, bucketDir: String): Map<String, String> {
+        val out = runCatching {
+            shell("cat ${shellQuote("$bucketDir/.origin")} 2>/dev/null")
+        }.getOrDefault("")
+        return out.lineSequence().mapNotNull { line ->
+            val tab = line.indexOf('\t')
+            if (tab <= 0) return@mapNotNull null
+            val name = line.substring(0, tab)
+            val origin = line.substring(tab + 1).trim()
+            if (name.isBlank() || origin.isBlank()) null else name to origin
+        }.toMap()
     }
 
     /** 清空超过保留期的回收站内容。 */
@@ -574,27 +602,45 @@ internal object FileManagerOps {
     }
 
     /**
-     * 从回收站恢复。
-     *
-     * 难点：回收站只存了文件名，**没记原路径**。所以恢复只能放到"回收站所在盘的一个明确目录"，
-     * 而不是假装能还原到原地（那是假的，会误导用户）。
-     * 这里恢复到 `Download/Eta/recovered/`，并在结果里写清路径。
+     * 从回收站恢复：**优先回原路径**（删除时记下的 `.origin`），
+     * 原路径所在目录已不存在或没有 `.origin` 的老条目，退回 recovered 目录。
      */
     fun restoreTrash(shell: (String) -> String, entries: List<TrashEntry>): OpResult {
         if (entries.isEmpty()) return OpResult.failure("没有选中任何项")
-        val target = "/sdcard/Download/Eta/recovered"
-        runCatching { shell("mkdir -p ${shellQuote(target)} 2>&1") }
-        val failed = mutableListOf<String>()
+        var restoredToOrigin = 0
+        var fallback = 0
+        var failed = 0
         entries.forEach { entry ->
-            val dest = "$target/${entry.name}"
-            val out = runCatching { shell("mv -n ${shellQuote(entry.path)} ${shellQuote(dest)} 2>&1") }
-                .getOrDefault("")
-            if (out.contains("Permission denied") || out.contains("No such file")) failed.add(entry.name)
+            val bucketDir = entry.path.substringBeforeLast('/')
+            val origin = trashOriginMap(shell, bucketDir)[entry.name]
+            val dest = if (origin != null) {
+                // 原目录可能已经被删掉，先确保它在
+                runCatching { shell("mkdir -p ${shellQuote(origin.substringBeforeLast('/'))} 2>&1") }
+                origin
+            } else {
+                null
+            }
+            if (dest != null) {
+                val out = runCatching { shell("mv -n ${shellQuote(entry.path)} ${shellQuote(dest)} 2>&1") }
+                    .getOrDefault("bad")
+                if (out.contains("Permission denied") || out.contains("No such file") || out == "bad") failed++
+                else restoredToOrigin++
+            } else {
+                // 老条目没有原路径记录：退回到 recovered，并在结果里说明
+                val target = "/sdcard/Download/Eta/recovered"
+                runCatching { shell("mkdir -p ${shellQuote(target)} 2>&1") }
+                val out = runCatching {
+                    shell("mv -n ${shellQuote(entry.path)} ${shellQuote("$target/${entry.name}")} 2>&1")
+                }.getOrDefault("bad")
+                if (out.contains("Permission denied") || out == "bad") failed++ else fallback++
+            }
         }
-        return if (failed.isEmpty()) {
-            OpResult.success("已恢复到 $target")
-        } else {
-            OpResult.failure("部分失败：${failed.joinToString("、")}")
+        return when {
+            failed > 0 && restoredToOrigin == 0 && fallback == 0 -> OpResult.failure("恢复失败")
+            failed > 0 -> OpResult.failure("成功 ${restoredToOrigin + fallback} 项，失败 $failed 项")
+            fallback == 0 -> OpResult.success("已还原到原位置（$restoredToOrigin 项）")
+            restoredToOrigin == 0 -> OpResult.success("已恢复到 Download/Eta/recovered（$fallback 项，这些条目删除时没记原路径）")
+            else -> OpResult.success("原位置 $restoredToOrigin 项，recovered $fallback 项（老条目无原路径）")
         }
     }
 
