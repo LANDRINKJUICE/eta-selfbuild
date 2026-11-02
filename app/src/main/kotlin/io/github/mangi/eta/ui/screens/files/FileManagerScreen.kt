@@ -1,26 +1,31 @@
 package io.github.mangi.eta.ui.screens.files
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.DriveFileRenameOutline
+import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,193 +39,226 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.files.FileManagerOps
 import io.github.mangi.eta.agent.files.FilePathRisk
-import io.github.mangi.eta.ui.components.EtaPreference
-import io.github.mangi.eta.ui.components.EtaPreferenceColors
-import io.github.mangi.eta.ui.components.EtaPreferenceGroup
-import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
-import io.github.mangi.eta.ui.components.EtaPreferenceIcon
 import io.github.mangi.eta.ui.components.EtaTextButton
 import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
-import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import io.github.mangi.eta.ui.components.MiuixScaffold
+import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 内置文件管理器：浏览、复制、移动、重命名、删除（进回收站）、新建目录。
+ * 双栏文件管理器（对齐 MT 的用法）。
  *
- * 几个刻意的设计：
- * 1. **删除走回收站**，不是直接 rm —— 误删还能捞回来。
- * 2. **二次确认 + 危险路径红字**：系统分区不限制操作，但删之前会告诉你后果。
- * 3. **列表先出名字**：目录读取在 IO 线程做，加载时给明确提示，不会白屏。
- * 4. **路径可在顶部编辑**：直接跳到目标目录，不用一层层点。
+ * 布局与交互：
+ * ```
+ * ┌──────────────┬──────────────┐
+ * │ 左栏路径行    │ 右栏路径行    │  ← 点路径行可返回上级
+ * │ 文件列表      │ 文件列表      │  ← 各自独立滚动、独立选择
+ * ├──────────────┴──────────────┤
+ * │ [复制→] [←复制] [移动→] [删除] │  ← 跨栏操作，这是双栏的核心价值
+ * └──────────────────────────────┘
+ * ```
+ *
+ * 为什么值得做成双栏：单栏下「复制到某个目录」要来回跳转、记住路径；
+ * 双栏把源与目标同时摆在眼前，这是 MT 最实用的地方。
+ *
+ * 性能：每个条目是独立的 LazyColumn item（可懒加载），不是塞进一个大 item。
  */
 @Composable
 internal fun FileManagerScreen(
     initialPath: String,
     onBack: () -> Unit,
-    /** 由调用方提供 shell 执行能力（root 或普通身份）。 */
     runShell: (String) -> String,
 ) {
-    var currentPath by remember { mutableStateOf(initialPath) }
-    var listing by remember { mutableStateOf<FileManagerOps.Listing?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 左栏 = 进入时的目录；右栏 = 内部存储根（最常用的复制目标）
+    var leftPath by remember { mutableStateOf(initialPath) }
+    var rightPath by remember { mutableStateOf("/storage/emulated/0") }
+
+    var leftListing by remember { mutableStateOf<FileManagerOps.Listing?>(null) }
+    var rightListing by remember { mutableStateOf<FileManagerOps.Listing?>(null) }
+    var leftLoading by remember { mutableStateOf(true) }
+    var rightLoading by remember { mutableStateOf(true) }
+    var leftSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var rightSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     var notice by remember { mutableStateOf<String?>(null) }
-    var pendingDelete by remember { mutableStateOf<List<String>?>(null) }
-    var showNewFolder by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<Pair<Set<String>, Boolean>?>(null) } // paths to isLeftPane
+    var showNewFolder by remember { mutableStateOf<Boolean?>(null) }                    // true=左栏
     var newFolderName by remember { mutableStateOf("") }
+    var singlePane by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    fun reload(path: String) {
-        currentPath = path
-        loading = true
-        selected = emptySet()
+    fun reloadLeft(path: String = leftPath) {
+        leftPath = path
+        leftLoading = true
+        leftSelected = emptySet()
         scope.launch {
-            val result = withContext(Dispatchers.IO) { FileManagerOps.list(runShell, path) }
-            listing = result
-            loading = false
+            leftListing = withContext(Dispatchers.IO) { FileManagerOps.list(runShell, path) }
+            leftLoading = false
         }
     }
 
-    LaunchedEffect(initialPath) { reload(initialPath) }
+    fun reloadRight(path: String = rightPath) {
+        rightPath = path
+        rightLoading = true
+        rightSelected = emptySet()
+        scope.launch {
+            rightListing = withContext(Dispatchers.IO) { FileManagerOps.list(runShell, path) }
+            rightLoading = false
+        }
+    }
 
-    MiuixScaffoldPage(
+    LaunchedEffect(initialPath) {
+        reloadLeft(initialPath)
+        reloadRight("/storage/emulated/0")
+    }
+
+    /** 跨栏搬运：fromLeft 表示把左栏选中项搬到右栏目录，反之亦然。 */
+    fun transfer(fromLeft: Boolean, move: Boolean) {
+        val sources = if (fromLeft) leftSelected else rightSelected
+        val target = if (fromLeft) rightPath else leftPath
+        if (sources.isEmpty()) {
+            notice = "先在${if (fromLeft) "左" else "右"}栏选中文件"
+            return
+        }
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                if (move) {
+                    FileManagerOps.move(runShell, sources.toList(), target)
+                } else {
+                    FileManagerOps.copy(runShell, sources.toList(), target)
+                }
+            }
+            notice = result.message
+            if (fromLeft) reloadLeft() else reloadRight()
+            if (move) {
+                // 移动会改变两侧目录内容，两边都刷新
+                reloadLeft()
+                reloadRight()
+            } else {
+                reloadLeft()
+                reloadRight()
+            }
+        }
+    }
+
+    MiuixScaffold(
         title = "文件",
         onBack = onBack,
         actions = {
-            IconButton(onClick = { reload(currentPath) }) {
+            IconButton(onClick = { singlePane = !singlePane }) {
+                Icon(Icons.Rounded.SwapHoriz, contentDescription = "切换单/双栏", modifier = Modifier.size(22.dp))
+            }
+            IconButton(onClick = { reloadLeft(); reloadRight() }) {
                 Icon(Icons.Rounded.Refresh, contentDescription = "刷新", modifier = Modifier.size(22.dp))
             }
-            IconButton(onClick = { showNewFolder = true }) {
-                Icon(Icons.Rounded.Add, contentDescription = "新建文件夹", modifier = Modifier.size(22.dp))
-            }
         },
-    ) {
-        // 当前路径 + 返回上级
-        item(key = "path") {
-            EtaPreferenceGroup(
+    ) { paddingValues, _, _ ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = paddingValues.calculateTopPadding()),
+        ) {
+            // ---------- 面板区 ----------
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                PaneColumn(
+                    title = leftPath,
+                    listing = leftListing,
+                    loading = leftLoading,
+                    selected = leftSelected,
+                    onToggleSelect = { path ->
+                        leftSelected = if (path in leftSelected) leftSelected - path else leftSelected + path
+                    },
+                    onOpenDirectory = { reloadLeft(it) },
+                    onGoParent = {
+                        val parent = leftPath.trimEnd('/').substringBeforeLast('/', "/")
+                        if (parent != leftPath) reloadLeft(parent)
+                    },
+                    onNewFolder = { showNewFolder = true },
+                    onFileTap = { notice = "${it.name} · ${FileManagerOps.formatSize(it.sizeBytes)}" },
+                    modifier = Modifier.weight(1f),
+                )
+                if (!singlePane) {
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .fillMaxSize()
+                            .background(MiuixTheme.colorScheme.dividerLine),
+                    )
+                    PaneColumn(
+                        title = rightPath,
+                        listing = rightListing,
+                        loading = rightLoading,
+                        selected = rightSelected,
+                        onToggleSelect = { path ->
+                            rightSelected = if (path in rightSelected) rightSelected - path else rightSelected + path
+                        },
+                        onOpenDirectory = { reloadRight(it) },
+                        onGoParent = {
+                            val parent = rightPath.trimEnd('/').substringBeforeLast('/', "/")
+                            if (parent != rightPath) reloadRight(parent)
+                        },
+                        onNewFolder = { showNewFolder = false },
+                        onFileTap = { notice = "${it.name} · ${FileManagerOps.formatSize(it.sizeBytes)}" },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            // ---------- 操作条 ----------
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp),
+                    .background(MiuixTheme.colorScheme.surface)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                EtaPreference(
-                    title = currentPath,
-                    summary = when {
-                        loading -> "加载中…"
-                        listing?.ok == false -> listing?.error.orEmpty()
-                        else -> "${listing?.entries?.size ?: 0} 项"
-                    },
-                    startAction = {
-                        EtaPreferenceIcon(
-                            icon = Icons.Rounded.FolderOpen,
-                            tint = EtaPreferenceColors.Blue,
-                        )
-                    },
-                    onClick = {
-                        val parent = currentPath.trimEnd('/').substringBeforeLast('/', "/")
-                        if (parent != currentPath) reload(parent)
-                    },
-                )
-            }
-        }
-
-        // 选中项的操作条
-        if (selected.isNotEmpty()) {
-            item(key = "actions") {
-                EtaPreferenceGroup(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 8.dp),
+                ActionChip("复制→", Icons.Rounded.ContentCopy, enabled = leftSelected.isNotEmpty()) {
+                    transfer(fromLeft = true, move = false)
+                }
+                ActionChip("←复制", Icons.Rounded.ContentCopy, enabled = rightSelected.isNotEmpty()) {
+                    transfer(fromLeft = false, move = false)
+                }
+                ActionChip("移动→", Icons.Rounded.DriveFileMove, enabled = leftSelected.isNotEmpty()) {
+                    transfer(fromLeft = true, move = true)
+                }
+                ActionChip("←移动", Icons.Rounded.DriveFileMove, enabled = rightSelected.isNotEmpty()) {
+                    transfer(fromLeft = false, move = true)
+                }
+                ActionChip(
+                    text = "删除",
+                    icon = Icons.Rounded.Delete,
+                    enabled = leftSelected.isNotEmpty() || rightSelected.isNotEmpty(),
+                    danger = true,
                 ) {
-                    EtaPreference(
-                        title = "已选 ${selected.size} 项",
-                        summary = "点这里清除选择",
-                        startAction = {
-                            EtaPreferenceIcon(icon = Icons.Rounded.Close, tint = EtaPreferenceColors.Orange)
-                        },
-                        onClick = { selected = emptySet() },
-                    )
-                    EtaPreference(
-                        title = "删除（移到回收站）",
-                        titleColor = top.yukonga.miuix.kmp.basic.BasicComponentDefaults.titleColor(
-                            color = MiuixTheme.colorScheme.error,
-                        ),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Delete,
-                                tint = MiuixTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = { pendingDelete = selected.toList() },
-                    )
-                }
-            }
-        }
-
-        // 目录内容
-        if (!loading && listing?.ok == true) {
-            if (listing?.entries.isNullOrEmpty()) {
-                item(key = "empty") {
-                    Text(
-                        text = "这个目录是空的",
-                        style = MiuixTheme.textStyles.subtitle,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 24.dp),
-                    )
-                }
-            } else {
-                item(key = "section_title") {
-                    EtaPreferenceGroupTitle("内容")
-                }
-                item(key = "entries") {
-                    EtaPreferenceGroup(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        listing?.entries?.forEachIndexed { index, entry ->
-                            if (index > 0) io.github.mangi.eta.ui.components.EtaPreferenceDivider()
-                            SimpleFileRow(
-                                entry = entry,
-                                selected = entry.path in selected,
-                                onToggleSelect = {
-                                    selected = if (entry.path in selected) {
-                                        selected - entry.path
-                                    } else {
-                                        selected + entry.path
-                                    }
-                                },
-                                onOpen = {
-                                    if (entry.isDirectory) {
-                                        reload(entry.path)
-                                    } else {
-                                        notice = "${entry.name} · ${FileManagerOps.formatSize(entry.sizeBytes)}"
-                                    }
-                                },
-                            )
-                        }
+                    if (leftSelected.isNotEmpty()) {
+                        pendingDelete = leftSelected to true
+                    } else {
+                        pendingDelete = rightSelected to false
                     }
                 }
             }
         }
     }
 
-    // 删除确认：危险路径额外加红字
-    val deleteTargets = pendingDelete
-    if (deleteTargets != null) {
-        val risk = FilePathRisk.assess(deleteTargets, destructive = true)
+    // ---------- 删除确认（危险路径加红字） ----------
+    pendingDelete?.let { (paths, fromLeft) ->
+        val risk = FilePathRisk.assess(paths.toList(), destructive = true)
         EtaWindowDialog(
             show = true,
-            title = "删除 ${deleteTargets.size} 项？",
+            title = "删除 ${paths.size} 项？",
             summary = buildString {
-                append(deleteTargets.take(3).joinToString("\n") { it.substringAfterLast('/') })
-                if (deleteTargets.size > 3) append("\n…共 ${deleteTargets.size} 项")
+                append(paths.take(3).joinToString("\n") { it.substringAfterLast('/') })
+                if (paths.size > 3) append("\n…共 ${paths.size} 项")
                 append("\n\n会移到回收站，${FilePathRisk.TRASH_RETENTION_DAYS} 天后自动清除。")
                 if (risk.warning.isNotBlank()) {
                     append("\n\n⚠ ")
@@ -236,27 +274,28 @@ internal fun FileManagerScreen(
                 onConfirm = {
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            FileManagerOps.moveToTrash(runShell, deleteTargets)
+                            FileManagerOps.moveToTrash(runShell, paths.toList())
                         }
                         notice = result.message
                         pendingDelete = null
-                        reload(currentPath)
+                        if (fromLeft) reloadLeft() else reloadRight()
                     }
                 },
             )
         }
     }
 
-    // 新建文件夹
-    if (showNewFolder) {
+    // ---------- 新建文件夹 ----------
+    showNewFolder?.let { isLeft ->
+        val parent = if (isLeft) leftPath else rightPath
         EtaWindowDialog(
             show = true,
             title = "新建文件夹",
-            summary = "在 $currentPath 下创建",
-            onDismissRequest = { showNewFolder = false },
+            summary = "在 $parent 下创建",
+            onDismissRequest = { showNewFolder = null },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.basic.TextField(
+                TextField(
                     value = newFolderName,
                     onValueChange = { newFolderName = it },
                     label = "文件夹名",
@@ -269,16 +308,15 @@ internal fun FileManagerScreen(
                 MiuixDialogActions(
                     confirmText = "创建",
                     confirmEnabled = newFolderName.isNotBlank(),
-                    onCancel = { showNewFolder = false },
+                    onCancel = { showNewFolder = null },
                     onConfirm = {
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                FileManagerOps.createDirectory(runShell, currentPath, newFolderName.trim())
+                            withContext(Dispatchers.IO) {
+                                FileManagerOps.createDirectory(runShell, parent, newFolderName.trim())
                             }
-                            notice = result.message
-                            showNewFolder = false
                             newFolderName = ""
-                            reload(currentPath)
+                            showNewFolder = null
+                            if (isLeft) reloadLeft() else reloadRight()
                         }
                     },
                 )
@@ -286,11 +324,10 @@ internal fun FileManagerScreen(
         }
     }
 
-    // 结果提示
     notice?.let { message ->
         EtaWindowDialog(
             show = true,
-            title = "完成",
+            title = "提示",
             summary = message,
             onDismissRequest = { notice = null },
         ) {
@@ -303,28 +340,110 @@ internal fun FileManagerScreen(
     }
 }
 
-/** 一行文件：图标 + 名字 + 大小/权限；点一下打开，长按（这里用选中态替代）多选。 */
+/** 单个面板：路径行 + 可懒加载的列表。 */
 @Composable
-private fun SimpleFileRow(
+private fun PaneColumn(
+    title: String,
+    listing: FileManagerOps.Listing?,
+    loading: Boolean,
+    selected: Set<String>,
+    onToggleSelect: (String) -> Unit,
+    onOpenDirectory: (String) -> Unit,
+    onGoParent: () -> Unit,
+    onNewFolder: () -> Unit,
+    onFileTap: (FileManagerOps.Entry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    Column(modifier = modifier.fillMaxSize()) {
+        // 路径行：点一下返回上级
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onGoParent() }
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.Folder,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = EtaPreferenceColors.Blue,
+            )
+            Spacer(Modifier.width(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MiuixTheme.textStyles.body2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = when {
+                        loading -> "加载中…"
+                        listing?.ok == false -> listing.error.orEmpty()
+                        else -> "${listing?.entries?.size ?: 0} 项 · 点击返回上级"
+                    },
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = if (listing?.ok == false) MiuixTheme.colorScheme.error
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onNewFolder) {
+                Icon(Icons.Rounded.Add, contentDescription = "新建", modifier = Modifier.size(18.dp))
+            }
+        }
+
+        if (!loading && listing?.ok == true && listing.entries.isEmpty()) {
+            Text(
+                text = "空目录",
+                style = MiuixTheme.textStyles.subtitle,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp),
+            )
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                // 每个条目一个 item：可懒加载，大目录不卡。
+                items(listing?.entries.orEmpty(), key = { it.path }) { entry ->
+                    FileRow(
+                        entry = entry,
+                        selected = entry.path in selected,
+                        onOpen = {
+                            if (entry.isDirectory) onOpenDirectory(entry.path) else onFileTap(entry)
+                        },
+                        onToggleSelect = { onToggleSelect(entry.path) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 一行文件：点名字进入/预览，点右侧圆点选中。 */
+@Composable
+private fun FileRow(
     entry: FileManagerOps.Entry,
     selected: Boolean,
-    onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
+    onToggleSelect: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { if (selected) onToggleSelect() else onOpen() }
-            .padding(vertical = 10.dp),
+            .clickable { onOpen() }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(
             imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = if (entry.isDirectory) EtaPreferenceColors.Yellow else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(18.dp),
+            tint = if (entry.isDirectory) EtaPreferenceColors.Yellow
+            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
+        Spacer(Modifier.width(6.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.name,
@@ -334,20 +453,55 @@ private fun SimpleFileRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = if (entry.isDirectory) {
-                    entry.permissions
-                } else {
-                    "${FileManagerOps.formatSize(entry.sizeBytes)} · ${entry.permissions}"
-                },
+                text = if (entry.isDirectory) entry.permissions
+                else FileManagerOps.formatSize(entry.sizeBytes),
                 style = MiuixTheme.textStyles.subtitle,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // 选中按钮（用文字而不是图标，手指点得准）
         EtaTextButton(
-            text = if (selected) "取消" else "选择",
+            text = if (selected) "✓" else "○",
             onClick = onToggleSelect,
+        )
+    }
+}
+
+/** 底部操作按钮。 */
+@Composable
+private fun ActionChip(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = text,
+            modifier = Modifier.size(18.dp),
+            tint = when {
+                !enabled -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                danger -> MiuixTheme.colorScheme.error
+                else -> MiuixTheme.colorScheme.primary
+            },
+        )
+        Text(
+            text = text,
+            style = MiuixTheme.textStyles.subtitle,
+            color = when {
+                !enabled -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                danger -> MiuixTheme.colorScheme.error
+                else -> MiuixTheme.colorScheme.primary
+            },
         )
     }
 }
