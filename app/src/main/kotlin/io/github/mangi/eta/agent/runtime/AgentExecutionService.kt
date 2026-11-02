@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.notify.ExecutionNotificationBuilder
 import io.github.mangi.eta.agent.overlay.AgentOverlayStatus
 import io.github.mangi.eta.agent.overlay.localizedText
 import io.github.mangi.eta.core.AndroidAgentLogger
@@ -28,6 +29,11 @@ internal class AgentExecutionService : Service() {
     private val owner = ownerSequence.incrementAndGet()
     private var foregroundActive = false
     @Volatile private var startRejected = false
+
+    /** Agent run 当前状态，供通知与状态栏胶囊展示；null 表示没有 Agent run 在跑。 */
+    @Volatile private var runStatus: AgentOverlayStatus? = null
+    /** 本次前台执行开始时间：流体云用它显示已用时间（计时由 SystemUI 渲染，无需我们刷新）。 */
+    @Volatile private var foregroundStartedAt: Long = System.currentTimeMillis()
 
     override fun onCreate() {
         super.onCreate()
@@ -95,32 +101,14 @@ internal class AgentExecutionService : Service() {
 
     private fun notification(): Notification {
         val status = runStatus
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        // activeRunCount 在 companion 里（静态更新用），这里通过 static 访问是合法的。
+        val count = if (activeRunCount > 0) activeRunCount else leases.count()
+        return ExecutionNotificationBuilder.build(
+            context = this,
+            status = status,
+            taskCount = count,
+            startedAt = foregroundStartedAt,
         )
-        val stop = PendingIntent.getService(
-            this, 1, Intent(this, AgentExecutionService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val taskCount = if (activeRunCount > 0) activeRunCount else leases.count()
-        val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.execution_title))
-            .setContentText(executionText(this, status, taskCount))
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .addAction(Notification.Action.Builder(null, getString(R.string.execution_stop), stop).build())
-        // 只有 Agent run 在跑时才申请提升为 Live Update；终端会话、Linux 启动等长驻任务不属于"正在进行、需要持续关注"的活动。
-        if (status != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-            builder
-                .setStyle(Notification.ProgressStyle().setProgressIndeterminate(true))
-                .setShortCriticalText(status.shortText())
-            // 请求方法从 API 36.1 才公开；标准 extra 也可供支持该协议的 API 36 系统读取。
-            builder.extras.putBoolean("android.requestPromotedOngoing", true)
-        }
-        return builder.build()
     }
 
     /** 状态栏胶囊约 7 个字符可完整显示；更长时只取动作，工具名留在展开态。 */
@@ -140,7 +128,6 @@ internal class AgentExecutionService : Service() {
         private val ownerSequence = AtomicLong()
         private val mainHandler = Handler(Looper.getMainLooper())
         @Volatile private var instance: AgentExecutionService? = null
-        private var runStatus: AgentOverlayStatus? = null
         private var activeRunCount = 0
         private var publishedStatusText: String? = null
 
@@ -149,8 +136,11 @@ internal class AgentExecutionService : Service() {
          * 只在显示文字变化时刷新通知，避免流式事件把通知更新频率推到系统限流。
          */
         fun updateRunStatus(context: Context, status: AgentOverlayStatus?, activeRunCount: Int) {
+            val previous = instance?.runStatus
+            // 从"没有任务"变成"有任务"时重置计时起点，避免显示上一次的累计时间。
+            if (previous == null && status != null) instance?.foregroundStartedAt = System.currentTimeMillis()
             mainHandler.post {
-                runStatus = status
+                instance?.runStatus = status
                 this.activeRunCount = activeRunCount
                 val count = if (activeRunCount > 0) activeRunCount else leases.count()
                 val text = executionText(context, status, count)
