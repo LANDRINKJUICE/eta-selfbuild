@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.screens.files
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -47,8 +48,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -123,7 +125,6 @@ internal fun FileManagerScreen(
     /** 传了就是「选文件」模式（附件按钮用）：底部变成「确认选择」。 */
     onPickPaths: ((List<String>) -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pickMode = onPickPaths != null
 
@@ -164,6 +165,9 @@ internal fun FileManagerScreen(
     var editorName by remember { mutableStateOf("") }
     var editorText by remember { mutableStateOf("") }
     var editorDirty by remember { mutableStateOf(false) }
+
+    // 内置图片查看器：文件名 + 完整路径 + 已解码的位图（路径留着给"用其他应用打开"用）
+    var imageView by remember { mutableStateOf<Triple<String, String, android.graphics.Bitmap>?>(null) }
 
     // 多选时"当前操作栏"指向那一栏：哪栏有选中就作用于哪栏
     val selectedPaths = if (activeIsLeft) left.selected else right.selected
@@ -270,29 +274,55 @@ internal fun FileManagerScreen(
         }
     }
 
-    /** 按类型打开文件：文本进编辑器，图片/媒体交给系统，压缩包看内容，其它给属性。 */
+    /** 打开内置图片查看器：把字节读进来，按屏幕尺寸采样解码，避免大图 OOM。 */
+    fun openImage(entry: FileManagerOps.Entry) {
+        scope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                val bytes = FileManagerOps.readBytesDirect(entry.path) ?: return@withContext null
+                runCatching {
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+                    // 按最长边 2048 采样：够看清，又不会因为一张 8000px 的照片吃光内存
+                    var sample = 1
+                    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+                    val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                }.getOrNull()
+            }
+            if (bitmap != null) {
+                imageView = Triple(entry.name, entry.path, bitmap)
+            } else {
+                notice = "读不到这张图（可能不是有效图片、超过 48 MB，或它在应用无权访问的位置）"
+                showInfo(entry)
+            }
+        }
+    }
+
+    /** 按类型打开文件：文本进编辑器，图片进内置查看器，音视频交系统，压缩包看内容，其它给属性。 */
     fun openFile(entry: FileManagerOps.Entry) {
         when {
             FileManagerOps.looksLikeText(entry.name) -> openEditor(entry)
-            FileManagerOps.looksLikeImage(entry.name) || FileManagerOps.looksLikeMedia(entry.name) -> {
-                val ok = runCatching {
-                    context.startActivity(
-                        android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            setDataAndType(
-                                android.net.Uri.fromFile(java.io.File(entry.path)),
-                                if (FileManagerOps.looksLikeImage(entry.name)) "image/*" else "*/*",
-                            )
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                }.isSuccess
-                if (!ok) showInfo(entry)
+
+            // 图片走内置查看器：外部打开需要 FileProvider，而 targetSdk 37 下 file:// 被系统禁止
+            // （这正是"点图片打不开"的根因），内置查看器不受这条限制，也不依赖外部应用。
+            FileManagerOps.looksLikeImage(entry.name) -> openImage(entry)
+
+            FileManagerOps.looksLikeMedia(entry.name) -> scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    FileManagerOps.openExternal(runShell, entry.path, FileManagerOps.mimeOf(entry.name))
+                }
+                if (!result.ok) {
+                    notice = result.message
+                    showInfo(entry)
+                }
             }
+
             FileManagerOps.looksLikeArchive(entry.name) -> scope.launch {
                 val result = withContext(Dispatchers.IO) { FileManagerOps.listArchive(runShell, entry.path) }
                 infoText = "「${entry.name}」内容" to result.message
             }
+
             else -> {
                 // 无扩展名或未知类型：用 file 命令判定，能当文本读的就进编辑器（.uuid 属于这种）
                 scope.launch {
@@ -302,6 +332,7 @@ internal fun FileManagerScreen(
             }
         }
     }
+
 
     fun runSearch() {
         val dir = activePane().path
@@ -317,16 +348,19 @@ internal fun FileManagerScreen(
         }
     }
 
-    // ============================================================ 编辑器整页
+    // ============================================================ 编辑器 / 看图整页
     val editing = editorPath != null
+    val viewing = imageView != null
     MiuixScaffold(
         title = when {
             editing -> editorName
+            viewing -> imageView?.first.orEmpty()
             selectMode -> "已选 ${selectedPaths.size} 项"
             else -> "文件管理"
         },
         onBack = {
             when {
+                viewing -> imageView = null
                 editing -> {
                     if (editorDirty) {
                         notice = "有未保存的修改，请先点保存或再按一次返回放弃"
@@ -344,7 +378,24 @@ internal fun FileManagerScreen(
             }
         },
         actions = {
-            if (editing) {
+            if (viewing) {
+                EtaTextButton(
+                    text = "用其他应用打开",
+                    onClick = {
+                        val current = imageView ?: return@EtaTextButton
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                FileManagerOps.openExternal(
+                                    runShell,
+                                    current.second,
+                                    FileManagerOps.mimeOf(current.first),
+                                )
+                            }
+                            notice = result.message
+                        }
+                    },
+                )
+            } else if (editing) {
                 EtaTextButton(
                     text = "保存",
                     enabled = editorDirty,
@@ -393,7 +444,60 @@ internal fun FileManagerScreen(
             }
         },
     ) { paddingValues, _, _ ->
-        if (editing) {
+        if (viewing) {
+            // ---------- 内置图片查看器 ----------
+            val (name, path, bitmap) = imageView!!
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .background(androidx.compose.ui.graphics.Color.Black),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text(
+                        text = "${bitmap.width} × ${bitmap.height} · ${FileManagerOps.formatSize(java.io.File(path).length())}",
+                        style = MiuixTheme.textStyles.subtitle,
+                        color = androidx.compose.ui.graphics.Color.White,
+                    )
+                    Text(
+                        text = path,
+                        style = MiuixTheme.textStyles.subtitle,
+                        color = androidx.compose.ui.graphics.Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EtaTextButton(text = "关闭", onClick = { imageView = null })
+                        EtaTextButton(
+                            text = "用其他应用打开",
+                            onClick = {
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        FileManagerOps.openExternal(runShell, path, FileManagerOps.mimeOf(name))
+                                    }
+                                    notice = result.message
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        } else if (editing) {
             // ---------- 编辑器 ----------
             Column(
                 modifier = Modifier

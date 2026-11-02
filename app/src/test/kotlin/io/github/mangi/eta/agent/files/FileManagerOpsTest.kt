@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.files
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -367,5 +368,62 @@ class FileManagerOpsTest {
         assertTrue(text.contains("文件"))
         assertTrue(text.contains("-rw-r--r--"))
         assertTrue(text.contains("2.0 KB"))
+    }
+
+    // ---------------------------------------------------------------- 打开方式
+
+    /**
+     * 图片走内置查看器，靠 readBytesDirect 直接读字节。
+     * 守住两条边界：① 不存在/不可读 → null ② 超过上限 → null（不能把内存打爆）。
+     */
+    @Test
+    fun readBytesDirectRejectsMissingAndOversized() {
+        assertNull(FileManagerOps.readBytesDirect("/definitely/not/here.png"))
+        val small = java.io.File.createTempFile("eta-test", ".txt")
+        try {
+            small.writeText("hi")
+            assertEquals("hi", String(FileManagerOps.readBytesDirect(small.absolutePath)!!))
+            // 上限设成 1 字节，2 字节的文件必须被拒
+            assertNull(FileManagerOps.readBytesDirect(small.absolutePath, maxBytes = 1L))
+        } finally {
+            small.delete()
+        }
+    }
+
+    /** 交给外部应用打开时，MIME 要按扩展名给对，否则系统找不到接收方。 */
+    @Test
+    fun mimeOfCoversCommonTypes() {
+        assertEquals("image/jpeg", FileManagerOps.mimeOf("a.JPG"))
+        assertEquals("image/png", FileManagerOps.mimeOf("b.png"))
+        assertEquals("video/mp4", FileManagerOps.mimeOf("c.mp4"))
+        assertEquals("audio/mpeg", FileManagerOps.mimeOf("d.mp3"))
+        assertEquals("application/pdf", FileManagerOps.mimeOf("e.pdf"))
+        assertEquals("*/*", FileManagerOps.mimeOf("noext"))
+    }
+
+    /**
+     * 关键回归：targetSdk 37 下应用进程内用 file:// 打开会被系统拒绝（FileUriExposedException），
+     * 所以必须走 shell 的 am start。这里守住命令形状：VIEW + file:// + 正确引用。
+     */
+    @Test
+    fun openExternalUsesAmStartWithQuotedUri() {
+        val commands = mutableListOf<String>()
+        val result = FileManagerOps.openExternal(
+            { cmd -> commands.add(cmd); "Starting: Intent" },
+            "/sdcard/中文 图.jpg",
+            "image/jpeg",
+        )
+        assertTrue(result.ok)
+        val cmd = commands.single()
+        assertTrue(cmd.contains("am start"))
+        assertTrue(cmd.contains("android.intent.action.VIEW"))
+        assertTrue(cmd.contains("'file:///sdcard/中文 图.jpg'"))
+        assertTrue(cmd.contains("'image/jpeg'"))
+    }
+
+    @Test
+    fun openExternalReportsFailure() {
+        val result = FileManagerOps.openExternal({ "Error: Activity not started" }, "/sdcard/a.xyz", "*/*")
+        assertFalse(result.ok)
     }
 }

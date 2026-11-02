@@ -423,6 +423,82 @@ internal object FileManagerOps {
         return OpResult.success("共 ${items.size} 项\n\n$body")
     }
 
+    // ------------------------------------------------------------ 打开方式
+
+    /** 图片能读进来的体积上限：超过就不进内置查看器，避免把内存打爆。 */
+    const val IMAGE_MAX_BYTES = 48L * 1024 * 1024
+
+    /**
+     * 直接读文件字节。
+     *
+     * Eta 持有 `MANAGE_EXTERNAL_STORAGE`（实测 appops 为 allow），
+     * 所以 `/sdcard` 下的图片可以直接用 Java 读，不需要走 root。
+     */
+    fun readBytesDirect(path: String, maxBytes: Long = IMAGE_MAX_BYTES): ByteArray? =
+        runCatching {
+            val file = java.io.File(path)
+            if (!file.isFile || !file.canRead()) return@runCatching null
+            val length = file.length()
+            if (length <= 0L || length > maxBytes) return@runCatching null
+            file.readBytes()
+        }.getOrNull()
+
+    /** 从扩展名猜 MIME（用于交给外部应用打开）。 */
+    fun mimeOf(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "heic", "heif" -> "image/heic"
+            "avif" -> "image/avif"
+            "mp4" -> "video/mp4"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            "3gp" -> "video/3gpp"
+            "avi" -> "video/x-msvideo"
+            "mov" -> "video/quicktime"
+            "mp3" -> "audio/mpeg"
+            "wav" -> "audio/x-wav"
+            "flac" -> "audio/flac"
+            "aac" -> "audio/aac"
+            "ogg", "opus" -> "audio/ogg"
+            "m4a" -> "audio/mp4"
+            "amr" -> "audio/amr"
+            "pdf" -> "application/pdf"
+            "apk" -> "application/vnd.android.package-archive"
+            else -> "*/*"
+        }
+    }
+
+    /**
+     * 交给外部应用打开（图片/音视频/PDF 等）。
+     *
+     * 为什么用 root shell 的 `am start` 而不是在应用进程里 `startActivity`：
+     * Eta 的 targetSdk 是 37，而 Android 从 7.0 起**禁止把 `file://` URI 交给别的应用**
+     * （应用进程内会抛 `FileUriExposedException`，异常被吞掉后表现成"点了没反应"）。
+     * 从 shell 发出的 `am start` 不经过这条客户端检查，因此在没有 FileProvider 的前提下
+     * 是能让系统播放器/看图器接住文件的最简办法。
+     *
+     * @return 是否成功唤起（按输出里有没有 Error/Exception 判断）
+     */
+    fun openExternal(shell: (String) -> String, path: String, mime: String): OpResult {
+        val uri = "file://$path"
+        val command = "am start -a android.intent.action.VIEW -d ${shellQuote(uri)} -t ${shellQuote(mime)} 2>&1"
+        val out = runCatching { shell(command) }.getOrElse {
+            return OpResult.failure("打开失败：${it.javaClass.simpleName}")
+        }
+        val lower = out.lowercase()
+        return when {
+            lower.contains("error") || lower.contains("exception") || lower.contains("unable to") ->
+                OpResult.failure("没有应用能打开这个文件（$mime）")
+
+            else -> OpResult.success("已交给系统打开")
+        }
+    }
+
     /** 属性面板内容：大小、时间、权限、属主、完整路径。 */
     fun describeEntry(entry: Entry): String {
         val time = if (entry.modifiedAtMillis > 0) {
