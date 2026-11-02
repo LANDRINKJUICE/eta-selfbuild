@@ -30,10 +30,6 @@ internal class AgentExecutionService : Service() {
     private var foregroundActive = false
     @Volatile private var startRejected = false
 
-    /** Agent run 当前状态，供通知与状态栏胶囊展示；null 表示没有 Agent run 在跑。 */
-    @Volatile private var runStatus: AgentOverlayStatus? = null
-    /** 本次前台执行开始时间：流体云用它显示已用时间（计时由 SystemUI 渲染，无需我们刷新）。 */
-    @Volatile private var foregroundStartedAt: Long = System.currentTimeMillis()
 
     override fun onCreate() {
         super.onCreate()
@@ -128,6 +124,10 @@ internal class AgentExecutionService : Service() {
         private val ownerSequence = AtomicLong()
         private val mainHandler = Handler(Looper.getMainLooper())
         @Volatile private var instance: AgentExecutionService? = null
+        /** Agent run 当前状态，供通知与状态栏胶囊展示；null 表示没有 Agent run 在跑。 */
+        @Volatile internal var runStatus: AgentOverlayStatus? = null
+        /** 本次前台执行开始时间：流体云用它显示已用时间（计时由 SystemUI 渲染，无需刷新）。 */
+        @Volatile internal var foregroundStartedAt: Long = System.currentTimeMillis()
         private var activeRunCount = 0
         private var publishedStatusText: String? = null
 
@@ -136,11 +136,11 @@ internal class AgentExecutionService : Service() {
          * 只在显示文字变化时刷新通知，避免流式事件把通知更新频率推到系统限流。
          */
         fun updateRunStatus(context: Context, status: AgentOverlayStatus?, activeRunCount: Int) {
-            val previous = instance?.runStatus
+            val previous = runStatus
             // 从"没有任务"变成"有任务"时重置计时起点，避免显示上一次的累计时间。
-            if (previous == null && status != null) instance?.foregroundStartedAt = System.currentTimeMillis()
+            if (previous == null && status != null) foregroundStartedAt = System.currentTimeMillis()
             mainHandler.post {
-                instance?.runStatus = status
+                runStatus = status
                 this.activeRunCount = activeRunCount
                 val count = if (activeRunCount > 0) activeRunCount else leases.count()
                 val text = executionText(context, status, count)
