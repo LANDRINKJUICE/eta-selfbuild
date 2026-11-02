@@ -83,6 +83,8 @@ import io.github.mangi.eta.ui.screens.mcp.McpServerDetailScreen
 import io.github.mangi.eta.ui.screens.mcp.McpServersScreen
 import io.github.mangi.eta.ui.screens.memory.AgentMemoryScreen
 import io.github.mangi.eta.ui.screens.permissions.PermissionHealthScreen
+import io.github.mangi.eta.agent.files.FileShellRunner
+import io.github.mangi.eta.ui.screens.files.FileManagerScreen
 import io.github.mangi.eta.ui.screens.scheduled.ScheduledTasksScreen
 import io.github.mangi.eta.ui.screens.skills.AgentSkillsScreen
 import io.github.mangi.eta.ui.screens.subagent.SubagentSettingsScreen
@@ -346,6 +348,7 @@ fun AgentAppRoot(
             onOpenCharacters = { pushRoute(AppRoute.Characters) },
             onOpenPermissions = { pushRoute(AppRoute.Permissions) },
             onOpenSettings = { pushRoute(AppRoute.Settings) },
+            onOpenFileManager = { pushRoute(AppRoute.FileManager) },
             onOpenModelProviders = { pushRoute(AppRoute.ModelProviders) },
             homeCharacter = if (route is AppRoute.Home) agentState.homeState.roleplayChatUi() else null,
             onOpenCharacter = {
@@ -695,6 +698,15 @@ fun AgentAppRoot(
             }
             entry<AppRoute.ScheduledTasks>(swipeDismiss = swipeDismiss) {
                 ScheduledTasksScreen(onBack = ::popRoute)
+            }
+
+            // 文件管理器：入口在设置页与首页；用 root shell 读取任意目录。
+            entry<AppRoute.FileManager>(swipeDismiss = swipeDismiss) {
+                FileManagerScreen(
+                    initialPath = "/sdcard/Download",
+                    onBack = ::popRoute,
+                    runShell = { command -> FileShellRunner.run(command) },
+                )
             }
             entry<AppRoute.DataBackup>(swipeDismiss = swipeDismiss) {
                 DataBackupScreen(

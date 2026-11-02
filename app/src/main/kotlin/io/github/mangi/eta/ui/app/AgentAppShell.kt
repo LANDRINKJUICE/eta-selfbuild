@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -93,6 +94,7 @@ internal fun AgentAppShell(
     onSearchConversations: (String) -> Unit,
     onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFileManager: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
     canStopKimiWeb: Boolean,
@@ -134,6 +136,7 @@ internal fun AgentAppShell(
                             onOpenConversationPane = onOpenConversationPane,
                             onNewConversation = onNewConversation,
                             onOpenTerminal = onOpenTerminal,
+                            onOpenFileManager = onOpenFileManager,
                             onLaunchKimiWeb = onLaunchKimiWeb,
                             kimiWebLabel = kimiWebLabel,
                             canStopKimiWeb = canStopKimiWeb,
@@ -195,6 +198,7 @@ private fun AgentTopBar(
     onOpenConversationPane: () -> Unit,
     onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFileManager: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
     canStopKimiWeb: Boolean,
@@ -229,6 +233,7 @@ private fun AgentTopBar(
             TopBarOverflowMenu(
                 onNewConversation = onNewConversation,
                 onOpenTerminal = onOpenTerminal,
+                onOpenFileManager = onOpenFileManager,
                 onLaunchKimiWeb = onLaunchKimiWeb,
                 kimiWebLabel = kimiWebLabel,
                 canStopKimiWeb = canStopKimiWeb,
@@ -271,6 +276,7 @@ private val TopBarMenuIconSize = 20.dp
 private fun TopBarOverflowMenu(
     onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFileManager: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
     canStopKimiWeb: Boolean,
@@ -331,6 +337,16 @@ private fun TopBarOverflowMenu(
                         icon = { modifier ->
                             Icon(
                                 imageVector = Icons.Rounded.Terminal,
+                                contentDescription = null,
+                                modifier = modifier.size(TopBarMenuIconSize),
+                            )
+                        },
+                    ),
+                    DropdownItem(
+                        text = "打开文件夹",
+                        icon = { modifier ->
+                            Icon(
+                                imageVector = Icons.Rounded.Folder,
                                 contentDescription = null,
                                 modifier = modifier.size(TopBarMenuIconSize),
                             )
@@ -405,9 +421,10 @@ private fun TopBarOverflowMenu(
                             } else when (index) {
                                 0 -> onNewConversation()
                                 1 -> onOpenTerminal()
-                                2 -> onLaunchKimiWeb()
-                                3 -> onOpenBrowser()
-                                4 -> onStopKimiWeb()
+                                2 -> onOpenFileManager()
+                                3 -> onLaunchKimiWeb()
+                                4 -> onOpenBrowser()
+                                5 -> onStopKimiWeb()
                             }
                         },
                     )
@@ -440,6 +457,7 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.AppearanceSettings -> stringResource(R.string.appearance_title)
     is AppRoute.EtaBuildNotes -> stringResource(R.string.ui_about_build_notes_title)
     is AppRoute.ScheduledTasks -> stringResource(R.string.route_scheduled_tasks)
+    is AppRoute.FileManager -> "文件"
     is AppRoute.DataBackup -> stringResource(R.string.data_backup_title)
     is AppRoute.Memory -> stringResource(R.string.route_memory)
     is AppRoute.LinuxEnvironment -> stringResource(R.string.route_linux_environment)

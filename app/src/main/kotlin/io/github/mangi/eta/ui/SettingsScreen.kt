@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
@@ -342,6 +343,19 @@ private fun SettingsPageContent(
                             )
                         },
                         onClick = { onNavigate(AppRoute.ScheduledTasks) },
+                    )
+
+                    EtaPreferenceDivider()
+                    EtaArrowPreference(
+                        title = "文件",
+                        summary = "浏览、复制、移动、删除与压缩（内置，可替代 MT 日常用法）",
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Folder,
+                                tint = EtaPreferenceColors.Yellow,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.FileManager) },
                     )
 
                     EtaPreferenceDivider()

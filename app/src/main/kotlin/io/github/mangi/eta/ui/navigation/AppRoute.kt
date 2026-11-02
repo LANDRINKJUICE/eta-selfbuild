@@ -62,6 +62,10 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object ScheduledTasks : AppRoute
 
+    /** 内置文件管理器；入口在设置页「上下文与扩展」与首页。 */
+    @Serializable
+    data object FileManager : AppRoute
+
     @Serializable
     data object SpeechSettings : AppRoute
 
