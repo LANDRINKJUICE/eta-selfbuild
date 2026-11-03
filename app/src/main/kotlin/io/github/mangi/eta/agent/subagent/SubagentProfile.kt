@@ -126,6 +126,7 @@ internal data class SubagentProfile(
             "get_health_summary",
             "recent_notifications",
             "search_notification_history",
+            "suggest_scheduled_tasks",
             "recent_app_activity",
             "app_usage_summary",
             "search_clipboard_history",

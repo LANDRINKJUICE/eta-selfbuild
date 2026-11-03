@@ -108,6 +108,7 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "top_memory_apps", "top_storage_apps" -> Icons.Rounded.Layers
     "read_sms_code" -> Icons.Rounded.Key
     "recent_notifications", "search_notification_history" -> Icons.Rounded.Notifications
+    "suggest_scheduled_tasks" -> Icons.Rounded.Schedule
     "get_setting", "set_setting" -> Icons.Rounded.Settings
     "inspect_app", "app_state_control" -> Icons.Rounded.AdminPanelSettings
     "get_logcat" -> Icons.Rounded.Description

@@ -39,6 +39,7 @@ internal object AgentToolRequirements {
             "wait", "wait_for_text", "wait_for_package", "open_system_panel",
             "set_alarm", "set_timer", "device_status", "inspect_app", "media_control", "set_volume",
             "search_notification_history", "recent_app_activity", "app_usage_summary",
+            "suggest_scheduled_tasks",
             "get_current_location", "get_device_environment", "memory_get", "memory_write",
             "character_memory_get", "character_memory_write",
             "skills_list", "skills_read", "skills_read_resource", "skills_list_curated",
@@ -88,6 +89,7 @@ internal object AgentToolRequirements {
         mapOf(
             "recent_notifications" to ToolSystemAccess.NOTIFICATIONS,
             "search_notification_history" to ToolSystemAccess.NOTIFICATIONS,
+            "suggest_scheduled_tasks" to ToolSystemAccess.NOTIFICATIONS,
             "search_personal_orders" to ToolSystemAccess.NOTIFICATIONS,
             "recent_app_activity" to ToolSystemAccess.USAGE,
             "app_usage_summary" to ToolSystemAccess.USAGE,
