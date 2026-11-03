@@ -424,7 +424,9 @@ internal class RootShellDeviceController(
         if (snapshot != null) {
             val service = AgentAccessibilityService.current()
                 ?: return errorJson("ACCESSIBILITY_UNAVAILABLE", "无障碍服务已断开，请重新观察屏幕")
-            val result = service.clickNode(snapshot, index)
+            // 节点校验失败时内部重抓一次快照、按稳定指纹重定位，比让模型重新观察快一个数量级；
+            // 重定位不唯一时原样返回失败，由模型重新观察（不再按旧坐标盲点）。
+            val result = service.clickNodeWithRefresh(snapshot, index)
             if (result.ok) {
                 waitForUiSettle("tap")
                 return nodeActionJson("tap_element", result)

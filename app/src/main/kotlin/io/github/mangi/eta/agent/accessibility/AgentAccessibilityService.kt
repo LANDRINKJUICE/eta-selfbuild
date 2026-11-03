@@ -478,6 +478,40 @@ class AgentAccessibilityService : AccessibilityService() {
             }
         }
 
+    /** 可以内部重试的过期码：都是「快照过期、界面可能没换」的情况。 */
+    private val refreshableStaleCodes = setOf("STALE_CONTENT", "STALE_NODE")
+
+    /**
+     * 带内部重抓的点击：节点校验失败时先重新抓一次当前快照，用稳定指纹找回同一目标再点，
+     * 省掉模型「重新观察 → 再点」的秒级往返（重抓一次树只要几十毫秒）。
+     *
+     * 三道闸，任何一道不过都返回原来的失败：
+     * 1. 只对 `STALE_CONTENT` / `STALE_NODE` 重试；`STALE_WINDOW`（窗口换了）不赌。
+     * 2. 旧目标必须有强身份（uniqueId 或 text/desc），否则无法确认「还是同一个控件」。
+     * 3. 新快照里必须唯一匹配（[StaleTargetRelocator]），有歧义就放弃，交给模型重新观察。
+     */
+    fun clickNodeWithRefresh(snapshot: NodeSnapshot, index: Int): NodeActionResult {
+        val first = clickNode(snapshot, index)
+        if (first.ok || first.code !in refreshableStaleCodes) return first
+        val target = snapshot.indexedNodes.firstOrNull { it.index == index } ?: return first
+        if (!target.hasStrongIdentity()) return first
+        val refreshed = runCatching {
+            captureNodeSnapshot(snapshot.nodes.size.coerceIn(1, 120), snapshot.displayId)
+        }.getOrNull() ?: return first
+        val relocated = StaleTargetRelocator.relocate(
+            targetKey = target.relocationKey(),
+            candidates = refreshed.indexedNodes.map { it.index to it.relocationKey() },
+            truncated = refreshed.truncated,
+        ) ?: return first
+        val second = clickNode(refreshed, relocated)
+        if (!second.ok) return first
+        AndroidAgentLogger.debug {
+            "Agent accessibility action=tap_element_refresh old_snapshot=${snapshot.id} " +
+                "new_snapshot=${refreshed.id} old_index=$index new_index=$relocated"
+        }
+        return second
+    }
+
     fun longClickNode(
         snapshot: NodeSnapshot,
         index: Int,
@@ -2288,6 +2322,18 @@ class AgentAccessibilityService : AccessibilityService() {
         val scrollTarget: NodeActionTarget?,
     ) {
         fun hasStrongIdentity(): Boolean = identity().strong
+
+        /**
+         * 重定位用的稳定键：有 `uniqueId` 用它，否则用语义指纹。
+         * 只给 [StaleTargetRelocator] 用 —— 它决定「快照过期后还能不能找回同一个控件」。
+         */
+        fun relocationKey(): String =
+            if (uniqueId.isNotBlank()) {
+                StaleTargetRelocator.UNIQUE_ID_PREFIX + uniqueId
+            } else {
+                StaleTargetRelocator.SEMANTIC_PREFIX +
+                    "$windowId|$packageName|$className|$viewId|$text|$desc"
+            }
 
         fun sameSemanticIdentity(other: IndexedNode): Boolean =
             windowId == other.windowId &&
