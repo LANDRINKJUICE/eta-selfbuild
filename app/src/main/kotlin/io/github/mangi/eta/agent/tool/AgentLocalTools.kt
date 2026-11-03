@@ -57,6 +57,7 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AgentLogger
 import io.github.mangi.eta.core.HookSupport
 import io.github.mangi.eta.data.repository.AgentMemoryException
+import io.github.mangi.eta.agent.memory.AgentMemoryValidator
 import io.github.mangi.eta.data.repository.AgentMemoryMutation
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.AgentMemoryWriteResult
@@ -456,6 +457,18 @@ internal class AgentLocalTools(
             )
             "clear" -> AgentMemoryMutation.Clear(revision)
             else -> error("不支持的记忆写入模式")
+        }
+        // [状态] 必须带日期，否则过期提示机制空转。只校验本次写入的片段，不回溯历史正文。
+        val segment = when (mutation) {
+            is AgentMemoryMutation.ReplaceRange -> mutation.content
+            is AgentMemoryMutation.Append -> mutation.content
+            else -> ""
+        }
+        AgentMemoryValidator.validate(segment)?.let { violation ->
+            return errorResult(
+                "MEMORY_STATUS_MISSING_DATE",
+                "${violation.message}。${violation.hint}",
+            )
         }
         when (val result = AgentMemoryRepository.mutate(mutation)) {
             is AgentMemoryWriteResult.Success -> JSONObject()

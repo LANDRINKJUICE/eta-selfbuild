@@ -128,6 +128,11 @@ internal object AgentPromptBuilder {
                     "ready=true 仅表示基础 rootfs 已安装；curl、git、jq、rg、fd、sqlite3、wget、ps 等常用工具是否已装看 common_tools，python、node、ssh、kimi、apk_analysis 等可选组件看 profiles；ready=false 时若任务依赖 Linux 开发环境，提示用户在设置中安装，不要退回 android 硬跑不存在的开发命令。" +
                     "分析 APK 使用 Linux 环境的 APK 分析工具；未安装时提示用户在设置中安装，当前 apktool 不支持回编译。" +
                     "读取图片内容调用 read_image；同一轮最多可读 4 张图片，需要更多时等当前批次返回并观察后下一轮继续。" +
+                    // 以下两条是实测反复踩过的坑，放在每次都可见的位置而不是只记在记忆里。
+                    "判断命令成败不要用 `cmd | tail` 这类管道收尾——退出码会变成 tail 的，永远为 0；" +
+                    "要用 `out=$(cmd 2>&1); rc=$?` 或 `set -o pipefail`，或者直接用 `--jq` 取字段。管道还会吞掉输出，看日志为空不代表命令没跑。" +
+                    "本机是 aarch64，跑不了 Robolectric：全量单测里固定有一批 Robolectric 用例在 @BeforeClass 因下载 android-all 失败，" +
+                    "那不是回归；判断回归只用 --tests 跑非 Robolectric 类，或看云端 verify 结果。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))
         }
@@ -252,6 +257,15 @@ internal object AgentPromptBuilder {
             append(
                 "只把上面的索引当作目录；需要某个 skill 的具体步骤、脚本或引用时，先调用 skills_read 读取对应 SKILL.md，" +
                     "正文引用其他文本资源时再调用 skills_read_resource；不要为了读取 Skill 资源而开启终端，也不要凭索引臆测正文细节。"
+            )
+            // 失败归档的闭环：只给路径和用法，不塞正文（省 token），但保证每次会话都知道它存在。
+            // 加这句是因为 self-improving-agent 承诺了「重复失败时 review ERRORS.md」，
+            // 而此前没有任何机制让我想起它 —— 记录了没人看等于没记。
+            appendLine()
+            append(
+                "工具失败会被自动写入 self-improving-agent 的历史记录（路径 data/ERRORS.md，可用 " +
+                    "skills_read_resource 读取）。在动手做「以前失败过的事」之前，先读一次这个文件，按里面的根因避开同样的坑；" +
+                    "遇到新的、可复现的失败时，用 memory_write 把根因和验证方法补进记忆，不要只记症状。"
             )
         }
         return systemMessage(body)
