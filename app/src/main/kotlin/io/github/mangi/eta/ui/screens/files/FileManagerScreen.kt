@@ -448,11 +448,13 @@ internal fun FileManagerScreen(
         compact = true,
         // 顶栏只显示**当前活动栏的路径**（MT 就是这样：点哪侧就显示哪侧）。
         // 选中文件时换成「已选 N 项」，编辑/看图时换成文件名。
+        // 标题留空：路径要能**点击跳转**，而 MiuixScaffold 的标题是纯文本不可点。
+        // 所以把路径做成 actions 里的第一项（可点文字），标题只在编辑/看图时用。
         title = when {
             viewing -> imageView?.first.orEmpty()
             editing -> editorName
             selectMode -> "已选 ${selectedPaths.size} 项"
-            else -> activePane().path
+            else -> ""
         },
         onBack = {
             when {
@@ -511,8 +513,23 @@ internal fun FileManagerScreen(
                     },
                 )
             } else {
-                // 顶栏极简：只留一个「⋮」。搜索/刷新/切栏全部收进菜单，
-                // 常用动作已经有底部工具栏与路径行，堆一排图标只会显得乱。
+                // 顶栏极简：**可点击的当前路径** + 一个「⋮」。
+                // 路径放这里是因为 MiuixScaffold 的标题是纯文本、点不了；
+                // 做成 actions 里的文字就能点，点一下弹「跳转」（MT 的行为）。
+                Text(
+                    text = activePane().path,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clickable {
+                            goToInput = activePane().path
+                            showGoTo = true
+                        }
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                )
                 IconButton(onClick = { showPaneMenu = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "更多", modifier = Modifier.size(22.dp))
                 }
@@ -696,7 +713,9 @@ internal fun FileManagerScreen(
                                 pickMode && entry.isDirectory -> load(left, entry.path)
                                 // 选文件模式下点文件也先「查看」（编辑/看图/属性），勾选交给长按或查看界面里的按钮
                                 pickMode -> openFile(entry)
-                                selectMode && entry.isDirectory && entry.path !in left.selected -> load(left, entry.path)
+                                // 多选模式下**一律是勾选**，包括文件夹 ——
+                                // 原来的写法会让"点文件夹"直接进入，导致无法同时选中目录和文件。
+                                // 要进目录请先退出多选模式，或用底部「↑」退回。
                                 selectMode -> toggleSelection(left, entry.path)
                                 entry.isDirectory -> load(left, entry.path)
                                 else -> openFile(entry)
@@ -739,7 +758,6 @@ internal fun FileManagerScreen(
                                 when {
                                     pickMode && entry.isDirectory -> load(right, entry.path)
                                     pickMode -> openFile(entry)
-                                    selectMode && entry.isDirectory && entry.path !in right.selected -> load(right, entry.path)
                                     selectMode -> toggleSelection(right, entry.path)
                                     entry.isDirectory -> load(right, entry.path)
                                     else -> openFile(entry)
@@ -786,12 +804,12 @@ internal fun FileManagerScreen(
                         newNameInput = ""
                         showNewFolder = true
                     }
-                    // ⇄ 交换左右栏路径：MT 里这个键很常用（左看源、右看目标）。
-                    // 单栏时没有可交换的，置灰。
-                    ToolButton(Icons.Rounded.SwapHoriz, "交换", enabled = dualPane) {
-                        val tmp = left.path
-                        load(left, right.path, recordHistory = false)
-                        load(right, tmp, recordHistory = false)
+                    // ⇄ 同步对侧路径：把**另一栏**的路径套用到当前栏（MT 的行为）。
+                    // 之前写成了"互换两边路径"—— 那是两栏内容对调，不是 MT 的语义。
+                    // 典型用法：右栏先导航到目标目录，点 ⇄，左栏也跳到同一处。
+                    ToolButton(Icons.Rounded.SwapHoriz, "同步对侧路径", enabled = dualPane) {
+                        val other = if (activeIsLeft) right.path else left.path
+                        if (other != pane.path) load(pane, other, recordHistory = true)
                     }
                     ToolButton(Icons.Rounded.ArrowUpward, "上级", enabled = true) {
                         parentOf(pane.path)?.let { load(pane, it) }
@@ -1042,6 +1060,11 @@ internal fun FileManagerScreen(
             onDismissRequest = { showPaneMenu = false },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
+                MenuRow("搜索") {
+                    showPaneMenu = false
+                    goToInput = ""
+                    showGoTo = true
+                }
                 MenuRow("排序：${sortMode.label}${if (sortAscending) " ↑" else " ↓"}") {
                     val order = SortMode.entries
                     val next = order[(order.indexOf(sortMode) + 1) % order.size]
