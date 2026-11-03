@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CheckBox
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -42,6 +47,7 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Lock
@@ -440,11 +446,13 @@ internal fun FileManagerScreen(
         // 紧凑顶栏 + 空标题：文件管理器靠两栏路径行定位，不需要大标题，
         // 而大标题栏即使标题为空也会占着高度（会空出一大块）。
         compact = true,
+        // 顶栏只显示**当前活动栏的路径**（MT 就是这样：点哪侧就显示哪侧）。
+        // 选中文件时换成「已选 N 项」，编辑/看图时换成文件名。
         title = when {
-            editing -> editorName
             viewing -> imageView?.first.orEmpty()
+            editing -> editorName
             selectMode -> "已选 ${selectedPaths.size} 项"
-            else -> ""
+            else -> activePane().path
         },
         onBack = {
             when {
@@ -503,25 +511,10 @@ internal fun FileManagerScreen(
                     },
                 )
             } else {
-                IconButton(onClick = {
-                    goToInput = activePane().path
-                    showGoTo = true
-                }) {
-                    Icon(Icons.Rounded.Search, contentDescription = "搜索或跳转", modifier = Modifier.size(22.dp))
-                }
-                IconButton(onClick = { refreshBoth() }) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新", modifier = Modifier.size(22.dp))
-                }
-                IconButton(onClick = {
-                    dualPane = !dualPane
-                    if (dualPane) load(right)
-                }) {
-                    Icon(Icons.Rounded.SwapHoriz, contentDescription = "单/双栏", modifier = Modifier.size(22.dp))
-                }
-                // 「⋯」放在顶栏：窄屏双栏时每栏都放一个会被挤出屏幕，而且点谁就作用于哪栏更明确。
-                // 它作用于**当前活动栏**（点某栏的路径行或文件会把它设为活动栏）。
+                // 顶栏极简：只留一个「⋮」。搜索/刷新/切栏全部收进菜单，
+                // 常用动作已经有底部工具栏与路径行，堆一排图标只会显得乱。
                 IconButton(onClick = { showPaneMenu = true }) {
-                    Icon(Icons.Rounded.MoreHoriz, contentDescription = "视图与新建", modifier = Modifier.size(22.dp))
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "更多", modifier = Modifier.size(22.dp))
                 }
             }
         },
@@ -719,16 +712,10 @@ internal fun FileManagerScreen(
                                 longPressTarget = entry to true
                             }
                         },
-                        onUp = { parentOf(left.path)?.let { load(left, it) } },
                         onGoPath = {
                             activeIsLeft = true
                             goToInput = left.path
                             showGoTo = true
-                        },
-                        onNew = {
-                            activeIsLeft = true
-                            newNameInput = ""
-                            showNewFolder = true
                         },
                         modifier = Modifier.weight(1f),
                     )
@@ -766,16 +753,10 @@ internal fun FileManagerScreen(
                                     longPressTarget = entry to false
                                 }
                             },
-                            onUp = { parentOf(right.path)?.let { load(right, it) } },
                             onGoPath = {
                                 activeIsLeft = false
                                 goToInput = right.path
                                 showGoTo = true
-                            },
-                            onNew = {
-                                activeIsLeft = false
-                                newNameInput = ""
-                                showNewFolder = true
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -795,18 +776,22 @@ internal fun FileManagerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val pane = activePane()
-                    ToolButton(Icons.Rounded.ArrowBack, "后退", enabled = pane.backStack.isNotEmpty()) {
+                    ToolButton(Icons.AutoMirrored.Rounded.ArrowBack, "后退", enabled = pane.backStack.isNotEmpty()) {
                         goBack(pane)
                     }
-                    ToolButton(Icons.Rounded.ArrowForward, "前进", enabled = pane.forwardStack.isNotEmpty()) {
+                    ToolButton(Icons.AutoMirrored.Rounded.ArrowForward, "前进", enabled = pane.forwardStack.isNotEmpty()) {
                         goForward(pane)
                     }
                     ToolButton(Icons.Rounded.Add, "新建", enabled = true) {
                         newNameInput = ""
                         showNewFolder = true
                     }
-                    ToolButton(Icons.Rounded.Refresh, "刷新", enabled = true) {
-                        load(pane, pane.path, recordHistory = false)
+                    // ⇄ 交换左右栏路径：MT 里这个键很常用（左看源、右看目标）。
+                    // 单栏时没有可交换的，置灰。
+                    ToolButton(Icons.Rounded.SwapHoriz, "交换", enabled = dualPane) {
+                        val tmp = left.path
+                        load(left, right.path, recordHistory = false)
+                        load(right, tmp, recordHistory = false)
                     }
                     ToolButton(Icons.Rounded.ArrowUpward, "上级", enabled = true) {
                         parentOf(pane.path)?.let { load(pane, it) }
@@ -850,88 +835,49 @@ internal fun FileManagerScreen(
                         EtaTextButton(
                             text = "确认",
                             enabled = picked.isNotEmpty(),
-                            onClick = { onPickPaths?.invoke(picked.toList()) },
+                            onClick = { onPickPaths.invoke(picked.toList()) },
                         )
                     }
 
                     selectMode -> Row(
+                        // MT 的选中态底栏：**纯图标、无文字**（全选/复制/取消/交换/批量）。
+                        // 选中时用户已经知道自己在操作文件，再写一遍"复制""删除"只会挤满整条。
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MiuixTheme.colorScheme.surfaceContainer)
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                            .horizontalScroll(rememberScrollState()),
+                            .height(52.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         val count = selectedPaths.size
-                        BarAction("复制", Icons.Rounded.ContentCopy, enabled = count > 0) {
+                        ToolButton(Icons.Rounded.CheckBox, "全选", enabled = true) {
+                            val all = displayEntries(activePane()).map { it.path }.toSet()
+                            if (activeIsLeft) left.selected = all else right.selected = all
+                        }
+                        ToolButton(Icons.Rounded.ContentCopy, "复制", enabled = count > 0) {
                             clipboard = selectedPaths.toList()
                             clipboardIsCut = false
                             selectMode = false
                             left.selected = emptySet()
                             right.selected = emptySet()
-                            notice = "已复制 $count 项，进入目标目录后点「粘贴到此处」"
+                            notice = "已复制 $count 项"
                         }
-                        BarAction("剪切", Icons.Rounded.ContentCut, enabled = count > 0) {
+                        ToolButton(Icons.Rounded.ContentCut, "剪切", enabled = count > 0) {
                             clipboard = selectedPaths.toList()
                             clipboardIsCut = true
                             selectMode = false
                             left.selected = emptySet()
                             right.selected = emptySet()
-                            notice = "已剪切 $count 项，进入目标目录后点「粘贴到此处」"
+                            notice = "已剪切 $count 项"
                         }
-                        BarAction("粘贴", Icons.Rounded.DriveFileMove, enabled = clipboard != null) { paste() }
-                        BarAction("重命名", Icons.Rounded.Edit, enabled = count == 1) {
-                            findEntry(selectedPaths.first())?.let { entry ->
-                                renameInput = entry.name
-                                renameTarget = entry
-                            }
-                        }
-                        BarAction("属性", Icons.Rounded.Info, enabled = count == 1) {
-                            findEntry(selectedPaths.first())?.let { showInfo(it) }
-                        }
-                        BarAction("解压", Icons.Rounded.FolderOpen, enabled = count == 1 && isArchiveSelected()) {
-                            selectedPaths.firstOrNull()?.let { path ->
-                                scope.launch {
-                                    val result = withContext(Dispatchers.IO) {
-                                        FileManagerOps.extractArchive(runShell, path)
-                                    }
-                                    notice = result.message
-                                    selectMode = false
-                                    left.selected = emptySet()
-                                    right.selected = emptySet()
-                                    refreshBoth()
-                                }
-                            }
-                        }
-                        BarAction("分享", Icons.Rounded.Share, enabled = count == 1) {
-                            selectedPaths.firstOrNull()?.let { path ->
-                                val name = path.trimEnd('/').substringAfterLast('/')
-                                scope.launch {
-                                    val result = withContext(Dispatchers.IO) {
-                                        FileManagerOps.openExternal(
-                                            runShell, path, FileManagerOps.mimeOf(name),
-                                        )
-                                    }
-                                    if (!result.ok) notice = result.message
-                                }
-                            }
-                        }
-                        BarAction("权限", Icons.Rounded.Lock, enabled = count > 0) {
-                            chmodInput = "644"
-                            showChmod = true
-                        }
-                        BarAction("删除", Icons.Rounded.Delete, enabled = count > 0, danger = true) {
-                            pendingDelete = selectedPaths.toList()
-                        }
-                        BarAction("全选", Icons.Rounded.CheckBox, enabled = true) {
-                            val all = displayEntries(activePane()).map { it.path }.toSet()
-                            if (activeIsLeft) left.selected = all else right.selected = all
-                        }
-                        BarAction("退出", Icons.Rounded.Refresh, enabled = true) {
+                        ToolButton(Icons.AutoMirrored.Rounded.DriveFileMove, "粘贴", enabled = clipboard != null) { paste() }
+                        ToolButton(Icons.Rounded.Close, "取消", enabled = true) {
                             selectMode = false
                             left.selected = emptySet()
                             right.selected = emptySet()
+                        }
+                        ToolButton(Icons.Rounded.Delete, "删除", enabled = count > 0) {
+                            pendingDelete = selectedPaths.toList()
                         }
                     }
 
@@ -1514,9 +1460,7 @@ private fun PaneView(
     onActivate: () -> Unit,
     onTap: (FileManagerOps.Entry) -> Unit,
     onLongPress: (FileManagerOps.Entry) -> Unit,
-    onUp: () -> Unit,
     onGoPath: () -> Unit,
-    onNew: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -1528,43 +1472,20 @@ private fun PaneView(
                 else MiuixTheme.colorScheme.surfaceContainer
             ),
     ) {
-        // 路径栏：**矮而紧凑**，一行放「↑ 路径 · 文件夹 N 文件 M」，右边是「＋」。
-        //
-        // 为什么这样改（看用户录屏后对照 MT 实体）：
-        // MT 的路径栏只有约 34dp 高、路径用小字、统计信息挤在同一行右侧 ——
-        // 信息密度全靠"字小行矮不留白"。我之前做成 76dp、路径用大字、统计另起一行，
-        // 反而比 MT 厚重，跟"简洁"背道而驰。
+        // 统计行：路径已经放到顶栏标题了，这里只留「文件夹 N · 文件 M」这一行小字。
+        // MT 就是这个结构（顶栏大字路径、下面一行小字统计），我原来把路径和统计都塞在这一行，
+        // 和顶栏重复了一次，看着就乱。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(36.dp)
+                .height(28.dp)
                 .background(
                     if (isActive) MiuixTheme.colorScheme.surfaceContainer
                     else MiuixTheme.colorScheme.surfaceContainerHigh
                 )
-                .clickable { onGoPath() }
-                .padding(start = 2.dp, end = 2.dp),
+                .padding(start = 10.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onUp, minWidth = 28.dp, minHeight = 28.dp) {
-                Icon(
-                    Icons.Rounded.ArrowUpward,
-                    contentDescription = "返回上一层",
-                    modifier = Modifier.size(18.dp),
-                    tint = if (isActive) MiuixTheme.colorScheme.onSurface
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Text(
-                text = displayPath(pane.path),
-                style = MiuixTheme.textStyles.subtitle,
-                color = if (isActive) MiuixTheme.colorScheme.onSurface
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(6.dp))
             Text(
                 text = when {
                     pane.loading -> "…"
@@ -1575,17 +1496,9 @@ private fun PaneView(
                 color = if (pane.listing?.ok == false) MiuixTheme.colorScheme.error
                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onNew, minWidth = 28.dp, minHeight = 28.dp) {
-                Icon(
-                    Icons.Rounded.Add,
-                    contentDescription = "新建",
-                    modifier = Modifier.size(18.dp),
-                    tint = if (isActive) MiuixTheme.colorScheme.onSurface
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
+            // 「＋」新建留在这里：MT 的 ＋ 在底栏，但我们底栏已经有 ＋，这里去掉避免重复。
         }
         // 细分隔线：把路径行和文件列表分开，视觉上更整齐
         Box(
@@ -1667,13 +1580,14 @@ private fun FileRow(
             Spacer(Modifier.width(6.dp))
         }
         Icon(
-            imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
+            imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.AutoMirrored.Rounded.InsertDriveFile,
             contentDescription = null,
-            modifier = Modifier.size(26.dp),
-            tint = if (entry.isDirectory) EtaPreferenceColors.Yellow
-            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            // MT 的文件夹图标是**黑色实心**，不是黄色系统图标 —— 黄色太跳，
+            // 一屏二十多个文件时会显得花；纯黑/深灰才干净。
+            modifier = Modifier.size(24.dp),
+            tint = MiuixTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.name,
@@ -1717,30 +1631,6 @@ private fun modifiedText(entry: FileManagerOps.Entry): String {
     return "$y-$mo-$d $h:$mi"
 }
 
-/** 底部操作栏里的一项（图标 + 文字，竖排）。 */
-@Composable
-private fun BarAction(
-    text: String,
-    icon: ImageVector,
-    enabled: Boolean,
-    danger: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val tint = when {
-        !enabled -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-        danger -> MiuixTheme.colorScheme.error
-        else -> MiuixTheme.colorScheme.primary
-    }
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(icon, contentDescription = text, modifier = Modifier.size(19.dp), tint = tint)
-        Text(text = text, style = MiuixTheme.textStyles.subtitle, color = tint)
-    }
-}
 
 /** 弹窗里的一行可点项。 */
 @Composable
