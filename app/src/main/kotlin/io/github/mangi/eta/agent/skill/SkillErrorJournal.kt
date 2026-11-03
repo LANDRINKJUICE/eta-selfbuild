@@ -84,7 +84,16 @@ internal object SkillErrorJournal {
         val file = journalFile(context) ?: return false
         val entry = buildEntry(toolName, code, message, argumentsJson)
         synchronized(writeLock) {
-            file.parentFile?.mkdirs()
+            // mkdirs 必须先成功；此前没检查返回值，目录属主不对时静默失败，
+            // 表现为「功能装了但从不工作」（实测：self-improving-agent 目录属主是 root，
+            // Eta 以 u0_a435 运行，ENOENT 一直重试一直失败）。
+            val dir = file.parentFile
+            if (dir != null && !dir.exists() && !dir.mkdirs()) {
+                runCatching {
+                    logger?.warn("SkillErrorJournal 无法创建目录 ${dir.absolutePath}（属主或权限不对，Eta uid 需要写权限）")
+                }
+                return false
+            }
             rotateIfNeeded(file)
             file.appendText(entry)
         }
