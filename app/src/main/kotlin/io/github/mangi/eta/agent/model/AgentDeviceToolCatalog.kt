@@ -137,6 +137,13 @@ internal object AgentDeviceToolCatalog {
                 ),
             )
             .put(
+                emptyFunction(
+                    "suggest_scheduled_tasks",
+                    "从最近 7 天通知里找出「可以做成定时任务」的候选规则（例如每天固定时段收到账单、打卡、快递类通知）。" +
+                        "纯本地统计，不联网、不创建任务；用户需到「定时任务」页点采用才生效。",
+                ),
+            )
+            .put(
                 function(
                     "recent_app_activity",
                     "读取最近打开应用的时间顺序，需要系统使用情况访问权。",

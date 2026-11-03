@@ -32,6 +32,9 @@ import io.github.mangi.eta.agent.runtime.AgentRunCancelledException
 import io.github.mangi.eta.agent.runtime.GuiControlCoordinator
 import io.github.mangi.eta.agent.virtualdisplay.CanvasRoutingPolicy
 import io.github.mangi.eta.agent.virtualdisplay.VirtualDisplayController
+import io.github.mangi.eta.data.repository.NotificationHistoryRepository
+import io.github.mangi.eta.agent.schedule.ScheduledSuggestionEngine
+import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
 import io.github.mangi.eta.agent.skill.SkillErrorJournal
 import io.github.mangi.eta.agent.skill.SkillIndexService
@@ -317,6 +320,7 @@ internal class AgentLocalTools(
                 in DEVICE_TOOL_NAMES ->
                     structuredDeviceTools.execute(toolCall.name, args)
                         ?: textResult(errorResult("UNKNOWN_TOOL", "未知设备工具"))
+                "suggest_scheduled_tasks" -> textResult(suggestScheduledTasks())
                 "read_image" -> fileVisionTool { imageTools.readImage(args) }
                 "save_screenshot" -> screenshotTools.saveScreenshot(args)
                 in AgentTerminalToolCatalog.names -> textResult(terminalTool {
@@ -878,6 +882,42 @@ internal class AgentLocalTools(
                 )
             }
         return ScreenPoint(point.x, point.y)
+    }
+
+    /**
+     * 从最近 7 天通知里给出「可以做成定时任务」的候选规则。
+     *
+     * 纯本地统计：不联网、不调模型、**不创建任何任务**。只返回结构化字段，
+     * 文案交给模型自己组织（引擎刻意不产出展示文本，避免中文硬编码进英文界面）。
+     */
+    private fun suggestScheduledTasks(): String {
+        val suggestions = runCatching {
+            ScheduledSuggestionEngine.suggest(
+                samples = NotificationHistoryRepository(context).recentSamples(),
+                existingTasks = ScheduledTaskStore.load(context),
+                nowMillis = System.currentTimeMillis(),
+            )
+        }.getOrDefault(emptyList())
+
+        val items = JSONArray()
+        suggestions.forEach { suggestion ->
+            items.put(
+                JSONObject()
+                    .put("trigger", suggestion.trigger.id)
+                    .put("hour", suggestion.hour)
+                    .put("minute", suggestion.minute)
+                    .put("keyword", suggestion.keyword)
+                    .put("keywords", JSONArray(suggestion.keywords))
+                    .put("evidence_days", suggestion.evidenceDays),
+            )
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "suggest_scheduled_tasks")
+            .put("count", items.length())
+            .put("items", items)
+            .put("hint", "候选规则，不是已创建的任务；需要用户到「定时任务」页点采用才会生效。")
+            .toString()
     }
 
     private fun searchApps(args: JSONObject): String {
