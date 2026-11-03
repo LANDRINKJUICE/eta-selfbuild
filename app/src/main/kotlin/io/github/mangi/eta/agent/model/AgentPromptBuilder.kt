@@ -215,6 +215,13 @@ internal object AgentPromptBuilder {
                 appendLine(context.headingIndex)
                 appendLine("</memory_headings>")
             }
+            if (context.staleHints.isNotEmpty()) {
+                appendLine()
+                appendLine("<memory_stale>")
+                appendLine("以下条目可能已过期，当作事实使用前先核实（调用 memory_get 或直接查设备）：")
+                context.staleHints.forEach { appendLine("- $it") }
+                appendLine("</memory_stale>")
+            }
         }.trim()
         return systemMessage(body)
     }
