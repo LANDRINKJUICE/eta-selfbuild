@@ -449,7 +449,7 @@ internal class RootShellDeviceController(
         if (snapshot != null) {
             val service = AgentAccessibilityService.current()
                 ?: return errorJson("ACCESSIBILITY_UNAVAILABLE", "无障碍服务已断开，请重新观察屏幕")
-            val result = service.longClickNode(snapshot, index, durationMs.toLong())
+            val result = service.longClickNodeWithRefresh(snapshot, index, durationMs.toLong())
             if (result.ok) {
                 waitForUiSettle("long_press")
                 return nodeActionJson("long_press_element", result)

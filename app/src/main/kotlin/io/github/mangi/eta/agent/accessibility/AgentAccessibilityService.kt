@@ -482,16 +482,21 @@ class AgentAccessibilityService : AccessibilityService() {
     private val refreshableStaleCodes = setOf("STALE_CONTENT", "STALE_NODE")
 
     /**
-     * 带内部重抓的点击：节点校验失败时先重新抓一次当前快照，用稳定指纹找回同一目标再点，
-     * 省掉模型「重新观察 → 再点」的秒级往返（重抓一次树只要几十毫秒）。
+     * 节点动作失败后，内部重抓一次快照并用稳定指纹重定位，省掉模型「重新观察 → 再点」的秒级往返
+     * （重抓一次树只要几十毫秒）。
      *
      * 三道闸，任何一道不过都返回原来的失败：
      * 1. 只对 `STALE_CONTENT` / `STALE_NODE` 重试；`STALE_WINDOW`（窗口换了）不赌。
      * 2. 旧目标必须有强身份（uniqueId 或 text/desc），否则无法确认「还是同一个控件」。
      * 3. 新快照里必须唯一匹配（[StaleTargetRelocator]），有歧义就放弃，交给模型重新观察。
      */
-    fun clickNodeWithRefresh(snapshot: NodeSnapshot, index: Int): NodeActionResult {
-        val first = clickNode(snapshot, index)
+    private fun retryWithFreshSnapshot(
+        snapshot: NodeSnapshot,
+        index: Int,
+        first: NodeActionResult,
+        actionName: String,
+        perform: (NodeSnapshot, Int) -> NodeActionResult,
+    ): NodeActionResult {
         if (first.ok || first.code !in refreshableStaleCodes) return first
         val target = snapshot.indexedNodes.firstOrNull { it.index == index } ?: return first
         if (!target.hasStrongIdentity()) return first
@@ -503,13 +508,31 @@ class AgentAccessibilityService : AccessibilityService() {
             candidates = refreshed.indexedNodes.map { it.index to it.relocationKey() },
             truncated = refreshed.truncated,
         ) ?: return first
-        val second = clickNode(refreshed, relocated)
+        val second = perform(refreshed, relocated)
         if (!second.ok) return first
         AndroidAgentLogger.debug {
-            "Agent accessibility action=tap_element_refresh old_snapshot=${snapshot.id} " +
+            "Agent accessibility action=${actionName}_refresh old_snapshot=${snapshot.id} " +
                 "new_snapshot=${refreshed.id} old_index=$index new_index=$relocated"
         }
         return second
+    }
+
+    /** 带内部重抓的点击，见 [retryWithFreshSnapshot]。 */
+    fun clickNodeWithRefresh(snapshot: NodeSnapshot, index: Int): NodeActionResult {
+        val first = clickNode(snapshot, index)
+        return retryWithFreshSnapshot(snapshot, index, first, "tap_element") { s, i -> clickNode(s, i) }
+    }
+
+    /** 带内部重抓的长按，见 [retryWithFreshSnapshot]。 */
+    fun longClickNodeWithRefresh(
+        snapshot: NodeSnapshot,
+        index: Int,
+        durationMs: Long,
+    ): NodeActionResult {
+        val first = longClickNode(snapshot, index, durationMs)
+        return retryWithFreshSnapshot(snapshot, index, first, "long_press_element") { s, i ->
+            longClickNode(s, i, durationMs)
+        }
     }
 
     fun longClickNode(

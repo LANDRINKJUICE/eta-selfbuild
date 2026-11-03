@@ -68,6 +68,7 @@ import io.github.mangi.eta.data.repository.AgentMemoryWriteResult
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
 import io.github.mangi.eta.data.repository.WebToolsSettingsRepository
 import java.util.Locale
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -923,6 +924,10 @@ internal class AgentLocalTools(
     }
 
     private fun shareFolder(args: JSONObject): String {
+        // 配置存在 localAgent 里；没初始化时 current() 会返回空列表，直接当成「没有挂载」会误导。
+        if (Prefs.localAgentPreferences() == null) {
+            return errorResult("CONFIG_UNAVAILABLE", "配置存储尚未就绪，请在 App 内重试")
+        }
         val action = args.optString("action").trim().lowercase().ifBlank { "list" }
         val current = SharedFolderMounts.current()
         return when (action) {
@@ -980,6 +985,11 @@ internal class AgentLocalTools(
             return errorResult("LIMIT_REACHED", "最多 ${SharedFolderMounts.MAX_MOUNTS} 个共享文件夹")
         }
         val normalized = SharedFolderMounts.normalizeSourcePath(source) ?: source
+        // 目录不存在的话，挂载会在会话建立时静默跳过（只有 ETA_MOUNT_FAILED 提示），
+        // 在 add 这一步就拒绝更直接。
+        if (!File(normalized).isDirectory) {
+            return errorResult("SOURCE_MISSING", "源目录不存在或不是目录：$normalized")
+        }
         val readOnly = args.optBoolean("readonly", true)
         val updated = current + SharedFolderMount(name = name, sourcePath = normalized, readOnly = readOnly)
         if (!SharedFolderMounts.save(updated)) {

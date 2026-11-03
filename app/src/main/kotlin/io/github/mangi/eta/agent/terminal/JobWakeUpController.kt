@@ -59,20 +59,29 @@ internal object JobWakeUpController {
         val preferences = Prefs.localAgentPreferences() ?: return
         val now = System.currentTimeMillis()
         val history = decodeHistory(preferences.getString(HISTORY_KEY, null))
-        if (remainingWakeUps(history, now) <= 0) {
+        val remaining = remainingWakeUps(history, now)
+        if (remaining <= 0) {
             logger.warn("Job wake-up skipped: rate limit reached")
             return
         }
+        // 第几次唤醒要告诉 Agent，否则它不知道自己已经在同一个坑里试过一轮。
+        val ordinal = MAX_WAKEUPS_PER_WINDOW - remaining + 1
         runCatching {
             preferences.edit()
                 .putString(HISTORY_KEY, encodeHistory((history + now).takeLast(HISTORY_LIMIT)))
                 .apply()
         }
         val app = context.applicationContext
-        Thread({ run(app, task, logTail, logger) }, "eta-job-wakeup").apply { isDaemon = true }.start()
+        Thread({ run(app, task, logTail, ordinal, logger) }, "eta-job-wakeup").apply { isDaemon = true }.start()
     }
 
-    private fun run(app: Context, task: DetachedTask, logTail: String, logger: AgentLogger) {
+    private fun run(
+        app: Context,
+        task: DetachedTask,
+        logTail: String,
+        wakeUpOrdinal: Int,
+        logger: AgentLogger,
+    ) {
         val config = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
             .getOrNull()
         if (config == null) {
@@ -88,7 +97,7 @@ internal object JobWakeUpController {
             val result = client.run(
                 request = AgentRuntimeWire.RunRequest(
                     runId = "job-wakeup-${task.id}-${System.currentTimeMillis()}",
-                    prompt = buildPrompt(task, logTail),
+                    prompt = buildPrompt(task, logTail, wakeUpOrdinal),
                     config = config,
                     images = emptyList(),
                 ),
@@ -114,7 +123,7 @@ internal object JobWakeUpController {
     }
 
     /** 交给 Agent 的指令：事实在前，要求在后，明确禁止起同样的任务重试。 */
-    internal fun buildPrompt(task: DetachedTask, logTail: String): String = buildString {
+    internal fun buildPrompt(task: DetachedTask, logTail: String, wakeUpOrdinal: Int = 1): String = buildString {
         appendLine("后台命令结束了，但看起来是失败的。请判断原因并处理。")
         appendLine()
         appendLine("任务：${task.description.ifBlank { "（无描述）" }}")
@@ -126,6 +135,11 @@ internal object JobWakeUpController {
             appendLine()
             appendLine("日志末尾：")
             appendLine(tail)
+        }
+        if (wakeUpOrdinal > 1) {
+            appendLine()
+            appendLine("注意：这是 10 分钟内的第 $wakeUpOrdinal 次自动唤醒，上一次没修好。")
+            appendLine("这次如果还没有把握，就直接报告结论和阻塞点，不要再尝试同样的做法。")
         }
         appendLine()
         appendLine("要求：")

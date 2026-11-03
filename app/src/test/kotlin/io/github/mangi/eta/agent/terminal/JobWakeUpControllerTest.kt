@@ -75,4 +75,15 @@ class JobWakeUpControllerTest {
         val prompt = JobWakeUpController.buildPrompt(task(), "   ")
         assertFalse(prompt.contains("日志末尾："))
     }
+
+    @Test
+    fun repeatWakeUpTellsAgentItAlreadyTriedOnce() {
+        // 第一次唤醒不提次数，避免噪音。
+        val first = JobWakeUpController.buildPrompt(task(), "log", wakeUpOrdinal = 1)
+        assertFalse(first.contains("自动唤醒"))
+        // 第二次必须说清楚，否则它不知道自己在同一个坑里试过一轮。
+        val second = JobWakeUpController.buildPrompt(task(), "log", wakeUpOrdinal = 2)
+        assertTrue(second.contains("第 2 次自动唤醒"))
+        assertTrue(second.contains("不要再尝试同样的做法"))
+    }
 }
