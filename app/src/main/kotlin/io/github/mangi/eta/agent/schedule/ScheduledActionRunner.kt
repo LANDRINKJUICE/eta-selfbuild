@@ -17,10 +17,9 @@ import android.provider.Settings
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.notify.ScheduledNotificationBuilder
+import io.github.mangi.eta.agent.memory.MemoryHealthReport
 import io.github.mangi.eta.agent.notify.EtaNotificationChannels
-import io.github.mangi.eta.agent.memory.AgentMemoryContextBuilder
-import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.agent.notify.ScheduledNotificationBuilder
 import io.github.mangi.eta.ui.MainActivity
 import java.util.Locale
 
@@ -105,57 +104,9 @@ internal object ScheduledActionRunner {
         }
     }
 
-    private fun memoryStatus(context: Context): String {
-        // 本进程是 :schedule，完整运行时（含记忆仓库）只在主进程初始化，
-        // 所以这里按需初始化一次；Repository 内部对重复 init 有幂等保护。
-        AgentMemoryRepository.init(context)
-        val snapshot = AgentMemoryRepository.snapshot()
-        val memoryContext = AgentMemoryContextBuilder.build(snapshot = snapshot, contextWindow = null)
-        val coreChars = memoryContext.coreContent.length
-        val suffix = if (!memoryContext.enabled) {
-            "记忆未初始化"
-        } else if (coreChars == 0) {
-            "缺少「# 核心记忆」段，每轮不会注入任何记忆"
-        } else if (memoryContext.coreTruncated) {
-            "核心记忆 $coreChars 字符（已按预算截断，轮次注入只取前 $coreChars）"
-        } else {
-            "核心记忆 $coreChars 字符（完整注入）"
-        }
-        val sizeKb = snapshot.byteSize / 1024.0
-        // 只报体积对用户没有行动价值（当初就因此没给它建默认任务）。补上「哪些条目该核对」：
-        // 状态类 7 天、知识类 30 天后需要重新确认是否还成立（与 AgentMemoryContext 的 stale 提示一致）。
-        val stale = staleEntries(snapshot.content)
-        val tail = if (stale.isEmpty()) {
-            ""
-        } else {
-            " · 待核对 ${stale.size} 条：" + stale.take(3).joinToString("、")
-        }
-        return String.format(Locale.US, "记忆文件 %.1f KB · %s%s", sizeKb, suffix, tail)
-    }
-
-    /**
-     * 找出需要重新核对的记忆条目。
-     *
-     * 只做**事实标记**，不判断内容对错 —— 判断要靠人（或下次对话里我去核实）。
-     * 顺带抓「日期写成未来」这种明显笔误（2026-11-04 实测真出现过一条 11-07）。
-     */
-    private fun staleEntries(content: String): List<String> {
-        val today = java.time.LocalDate.now()
-        val pattern = Regex("^##\\s*\\[(状态|知识)\\]\\s*(\\d{4}-\\d{2}-\\d{2})")
-        return content.lineSequence().mapNotNull { line ->
-            val match = pattern.find(line) ?: return@mapNotNull null
-            val kind = match.groupValues[1]
-            val raw = match.groupValues[2]
-            val date = runCatching { java.time.LocalDate.parse(raw) }.getOrNull() ?: return@mapNotNull null
-            val days = java.time.temporal.ChronoUnit.DAYS.between(date, today)
-            when {
-                days < 0 -> "$kind $raw（日期在未来，疑似笔误）"
-                days > if (kind == "状态") STALE_STATE_DAYS else STALE_KNOWLEDGE_DAYS ->
-                    "$kind $raw（$days 天）"
-                else -> null
-            }
-        }.toList()
-    }
+    private fun memoryStatus(context: Context): String =
+        runCatching { MemoryHealthReport.build(context).fullText() }
+            .getOrDefault("记忆体检失败")
 
     private fun permissionStatus(context: Context): String {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
@@ -224,6 +175,4 @@ internal object ScheduledActionRunner {
     }
 }
 
-/** 记忆体检阈值：状态类 7 天、知识类 30 天后需要重新核对（与 AgentMemoryContext 的 stale 提示一致）。 */
-private const val STALE_STATE_DAYS = 7L
-private const val STALE_KNOWLEDGE_DAYS = 30L
+/** 记忆体检阈值与判定已统一到 [MemoryHealthReport]（UI 卡片与定时任务共用同一份结论）。 */

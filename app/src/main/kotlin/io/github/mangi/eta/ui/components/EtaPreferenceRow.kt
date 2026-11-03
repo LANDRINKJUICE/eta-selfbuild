@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
@@ -112,6 +113,10 @@ internal fun EtaPreferenceRow(
     val colors = MiuixTheme.colorScheme
     Column(
         modifier = modifier.fillMaxWidth()
+            // 稳定标识：在无障碍里会变成 viewIdResourceName，Agent 的节点指纹优先用它，
+            // 快照过期重抓后能更可靠地找回同一行。标题为空的行（纯自定义内容）不加，
+            // 否则所有空标题行会共用一个 tag，指纹反而不唯一。
+            .then(if (title.isNullOrBlank()) Modifier else Modifier.testTag("eta-pref:$title"))
             .background(if (holdDownState) colors.onBackground.copy(alpha = 0.06f) else Color.Transparent)
             .then(interaction),
     ) {

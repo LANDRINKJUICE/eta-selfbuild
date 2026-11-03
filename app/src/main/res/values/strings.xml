@@ -1133,6 +1133,7 @@
   <string name="context_usage_description">Context usage: %1$s</string>
   <string name="memory_budget_summary">Inject up to %1$s characters per turn. The model reads detailed content as needed</string>
   <string name="memory_core_status_title">Core memory status</string>
+  <string name="memory_health_title">Memory health</string>
   <string name="memory_core_status_active">Recognized %1$s / %2$s characters; injected automatically every turn</string>
   <string name="memory_core_status_missing">No \"# 核心记忆\" section found; nothing is injected automatically</string>
   <string name="memory_over_limit">Over the 1 MiB limit. Remove some content</string>

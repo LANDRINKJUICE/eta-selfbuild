@@ -1,12 +1,17 @@
 package io.github.mangi.eta.ui.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Density
 import io.github.mangi.eta.data.model.AppearanceAccentColor
 import io.github.mangi.eta.data.model.AppearancePaletteStyle
@@ -94,7 +99,16 @@ fun AgentAppTheme(
             LocalPlatformDensity provides platformDensity,
             LocalDensity provides appDensity,
         ) {
-            content()
+            // 把 Compose 的 testTag 暴露成无障碍的 viewIdResourceName：
+            // Agent 的节点指纹优先用 viewId，快照过期重抓后能更可靠地找回同一个控件
+            // （见 StaleTargetRelocator）；没有这一层时 viewId 恒为空，只剩文本指纹。
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics { testTagsAsResourceId = true },
+            ) {
+                content()
+            }
         }
     }
 }

@@ -1118,6 +1118,7 @@
   <string name="context_usage_description">上下文用量：%1$s</string>
   <string name="memory_budget_summary">每轮最多注入 %1$s 字符，详细内容由模型按需读取</string>
   <string name="memory_core_status_title">核心记忆状态</string>
+  <string name="memory_health_title">记忆体检</string>
   <string name="memory_core_status_active">已识别 %1$s / %2$s 字符，每轮自动注入</string>
   <string name="memory_core_status_missing">未检测到 \&quot;# 核心记忆\&quot; 段，当前不会自动注入任何记忆</string>
   <string name="memory_over_limit">已超过 1 MiB 上限，请删减</string>

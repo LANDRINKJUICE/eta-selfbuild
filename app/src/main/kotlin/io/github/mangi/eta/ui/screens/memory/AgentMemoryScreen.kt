@@ -46,11 +46,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.memory.MemoryHealthReport
 import io.github.mangi.eta.ui.components.EtaCard
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
@@ -58,6 +60,8 @@ import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaSwitchPreference
 import io.github.mangi.eta.ui.components.EtaTextButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffold
@@ -195,6 +199,14 @@ private fun MemorySettingsGroup(
     state: AgentMemoryUiState,
     onAction: (AgentMemoryAction) -> Unit,
 ) {
+    val context = LocalContext.current
+    // 体检结果随记忆内容变化重算：只读一次文件，几十毫秒，放 IO 线程避免拖慢打开页面。
+    var health by remember { mutableStateOf<MemoryHealthReport.Report?>(null) }
+    LaunchedEffect(state.savedContent) {
+        health = withContext(Dispatchers.IO) {
+            runCatching { MemoryHealthReport.build(context) }.getOrNull()
+        }
+    }
     EtaPreferenceGroup(
         modifier = Modifier
             .padding(horizontal = EtaPreferenceDefaults.SidePadding)
@@ -226,6 +238,21 @@ private fun MemorySettingsGroup(
                 stringResource(R.string.memory_core_status_missing)
             },
         )
+        health?.let { report ->
+            EtaPreferenceDivider(hasLeading = false)
+            // 体检原本只存在于定时任务的执行体里，用户看不到；放到这里才算有入口。
+            EtaPreference(
+                title = stringResource(R.string.memory_health_title),
+                summary = buildString {
+                    append(report.summary())
+                    val detail = report.detail()
+                    if (detail.isNotBlank()) {
+                        append("\n")
+                        append(detail)
+                    }
+                },
+            )
+        }
     }
 }
 
