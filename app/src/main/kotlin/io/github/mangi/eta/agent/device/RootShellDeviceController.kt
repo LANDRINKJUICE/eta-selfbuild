@@ -429,28 +429,6 @@ internal class RootShellDeviceController(
                 waitForUiSettle("tap")
                 return nodeActionJson("tap_element", result)
             }
-            // 兜底：窗口内容变化是最常见的失败（Agent 流式输出时界面一直在重组，实测一次会话
-            // 遇到三次）。节点校验过不去，但**上次观察到的坐标**通常还有效，直接按坐标点一次，
-            // 并在结果里标明 fallback=coordinate，让调用方知道没走节点校验、必要时重新观察。
-            if (result.code in STALE_RETRY_CODES) {
-                val bounds = snapshot.indexedNodes.firstOrNull { it.index == index }?.bounds
-                if (bounds != null && !bounds.isEmpty) {
-                    val tapped = runCatching {
-                        JSONObject(tap(bounds.centerX(), bounds.centerY()))
-                    }.getOrNull()
-                    if (tapped != null && tapped.optBoolean("ok")) {
-                        waitForUiSettle("tap")
-                        tapped.put("tool", "tap_element")
-                        tapped.put("fallback", "coordinate")
-                        tapped.put(
-                            "note",
-                            "节点校验未通过（${result.code}），已按上次观察到的坐标点击；" +
-                                "如需精确操作请重新观察屏幕",
-                        )
-                        return tapped.toString()
-                    }
-                }
-            }
             return nodeActionJson("tap_element", result)
         }
         if (!rootAvailable()) return rootRequired()
@@ -459,9 +437,6 @@ internal class RootShellDeviceController(
         val node = resolved.node
         return tap(node.centerX, node.centerY).rewriteTool("tap_element")
     }
-
-    /** 这些失败都意味着「节点快照过期」，可以尝试坐标兜底。 */
-    private val STALE_RETRY_CODES = setOf("STALE_CONTENT", "STALE_NODE", "IDENTITY_CHANGED")
 
     fun longPressElement(
         observation: ElementObservation,
