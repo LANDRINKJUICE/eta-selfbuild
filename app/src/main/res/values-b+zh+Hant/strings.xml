@@ -1360,6 +1360,7 @@
   <string name="scheduled_tasks_empty">還沒有定時任務</string>
   <string name="scheduled_tasks_delete">刪除</string>
   <string name="scheduled_tasks_delete_confirm">刪除 %1$s 的任務？此操作無法復原。</string>
+  <string name="scheduled_tasks_brief_never">從未執行</string>
   <string name="scheduled_tasks_enabled">啟用</string>
   <string name="scheduled_tasks_action_device_status">裝置狀態</string>
   <string name="scheduled_tasks_action_memory_status">記憶狀態</string>

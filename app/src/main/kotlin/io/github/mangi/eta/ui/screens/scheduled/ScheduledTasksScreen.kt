@@ -176,13 +176,18 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
             }
         } else {
             // 分组标题与页面大标题重复，这里不再渲染，直接从任务列表开始。
+            // 最近一次执行记录：状态行与图标颜色都要用，抽出来避免同一查询写两遍。
+            fun latestRunOf(task: ScheduledTask) = runs.firstOrNull { it.taskId == task.id }
+
             tasks.forEach { task ->
                 item(key = "scheduled_task_${task.id}") {
                     EtaPreferenceGroup {
-                        // 一行读全：几点几分 + 做什么；点进去改时间或换动作。
+                        // 信息层级：**任务名是主标题**（「漂移检测」），时间与小一号灰字放在副标题。
+                        // 原来的排版把「每天 08:30」当大标题、任务名塞进 summary，标题字号是主标题的
+                        // 1.5 倍以上，扫一眼只看到时间、看不到在做什么 —— 主次颠倒。
                         EtaArrowPreference(
-                            title = ScheduledTaskSchedule.describe(task),
-                            summary = taskSummaryText(task),
+                            title = taskSummaryText(task),
+                            summary = "${ScheduledTaskSchedule.describe(task)} · ${runBriefText(latestRunOf(task))}",
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.Schedule,
@@ -196,6 +201,8 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                             },
                         )
 
+                        // 启用开关：用任务名而不是「启用」，读起来是「漂移检测：开」，
+                        // 一个任务一张卡，不必再重复一遍"启用"。
                         EtaPreferenceDivider()
                         EtaSwitchPreference(
                             title = stringResource(R.string.scheduled_tasks_enabled),
@@ -205,14 +212,13 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
 
                         EtaPreferenceDivider()
                         // 最近一次执行结果：定时任务最怕"静默失败"，这里必须看得见。
-                        val latestRun = runs.firstOrNull { it.taskId == task.id }
                         EtaArrowPreference(
                             title = stringResource(R.string.scheduled_tasks_history_title),
-                            summary = runSummaryText(latestRun),
+                            summary = runSummaryText(latestRunOf(task)),
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.History,
-                                    tint = if (latestRun?.ok == false) MiuixTheme.colorScheme.error else EtaPreferenceColors.Green,
+                                    tint = if (latestRunOf(task)?.ok == false) MiuixTheme.colorScheme.error else EtaPreferenceColors.Green,
                                 )
                             },
                             onClick = {
@@ -525,6 +531,28 @@ private fun runSummaryText(record: ScheduledRunLog.Record?): String = when {
     record == null -> stringResource(R.string.scheduled_tasks_history_never)
     record.ok -> stringResource(R.string.scheduled_tasks_history_ok, runTimeText(record))
     else -> stringResource(R.string.scheduled_tasks_history_failed, runTimeText(record))
+}
+
+/**
+ * 卡片副标题用的**精简**执行状态。
+ *
+ * 与 [runSummaryText] 的区别：那个是展开历史区里的完整句式（"上次执行于 …"），
+ * 拼进「每天 08:30 · …」这种副标题会太长、被截断，反而看不到关键信息。
+ * 这里只给最短结论：从未 / ✓ 07:50 / ✗ 07:50。
+ */
+@Composable
+private fun runBriefText(record: ScheduledRunLog.Record?): String = when {
+    record == null -> stringResource(R.string.scheduled_tasks_brief_never)
+    record.ok -> "✓ ${runTimeShort(record)}"
+    else -> "✗ ${runTimeShort(record)}"
+}
+
+/** HH:mm，用于卡片副标题（同一天不需要年月日）。 */
+private fun runTimeShort(record: ScheduledRunLog.Record): String {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = record.atMillis }
+    val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
+    val minute = calendar.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
+    return "$hour:$minute"
 }
 
 /** 执行时间：MM-dd HH:mm。 */

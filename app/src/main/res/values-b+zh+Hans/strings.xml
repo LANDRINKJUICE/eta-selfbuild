@@ -1445,6 +1445,7 @@
   <string name="scheduled_tasks_empty">还没有定时任务</string>
   <string name="scheduled_tasks_delete">删除</string>
   <string name="scheduled_tasks_delete_confirm">删除 %1$s 的任务？此操作无法撤销。</string>
+  <string name="scheduled_tasks_brief_never">从未执行</string>
   <string name="scheduled_tasks_enabled">启用</string>
   <string name="scheduled_tasks_action_device_status">设备状态</string>
   <string name="scheduled_tasks_action_memory_status">记忆状态</string>
