@@ -120,10 +120,19 @@ internal object ScheduledTaskScheduler {
 
     private fun cancelAll(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
-        ScheduledTaskStore.load(context).forEach { task ->
-            runCatching { manager.cancel(pendingIntent(context, task.id)) }
+        idsToCancel(ScheduledTaskStore.load(context).map { it.id }).forEach { id ->
+            runCatching { manager.cancel(pendingIntent(context, id)) }
         }
     }
+
+    /**
+     * 「取消这些 id 的闹钟」的完整集合 = 当前任务 + 历代遗留 id。
+     *
+     * 抽成纯函数是为了能单测 —— 上一版我把 LEGACY_TASK_IDS 定义好了却忘了接进 cancelAll，
+     * 结果修复完全没生效（装机后闹钟仍是 14 个），而这种错误读代码时很容易看漏。
+     */
+    internal fun idsToCancel(currentIds: List<String>): List<String> =
+        (currentIds + LEGACY_TASK_IDS).distinct()
 
     private fun canScheduleExact(manager: AlarmManager): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) manager.canScheduleExactAlarms() else true
