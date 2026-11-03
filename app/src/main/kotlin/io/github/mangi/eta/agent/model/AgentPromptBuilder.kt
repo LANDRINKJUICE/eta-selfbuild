@@ -264,7 +264,8 @@ internal object AgentPromptBuilder {
             appendLine()
             append(
                 "工具失败会被自动写入 self-improving-agent 的历史记录（路径 data/ERRORS.md，可用 " +
-                    "skills_read_resource 读取）。在动手做「以前失败过的事」之前，先读一次这个文件，按里面的根因避开同样的坑；" +
+                    "skills_read_resource 读取）。**同一个「工具 + 错误码」累计出现 ≥3 次时，会自动提炼到 " +
+                    "data/LESSONS.md** —— 那是浓缩版，动手前优先读它，比翻 ERRORS.md 快得多。" +
                     "遇到新的、可复现的失败时，用 memory_write 把根因和验证方法补进记忆，不要只记症状。"
             )
         }

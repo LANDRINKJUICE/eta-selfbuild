@@ -122,7 +122,39 @@ internal object ScheduledActionRunner {
             "核心记忆 $coreChars 字符（完整注入）"
         }
         val sizeKb = snapshot.byteSize / 1024.0
-        return String.format(Locale.US, "记忆文件 %.1f KB · %s", sizeKb, suffix)
+        // 只报体积对用户没有行动价值（当初就因此没给它建默认任务）。补上「哪些条目该核对」：
+        // 状态类 7 天、知识类 30 天后需要重新确认是否还成立（与 AgentMemoryContext 的 stale 提示一致）。
+        val stale = staleEntries(snapshot.content)
+        val tail = if (stale.isEmpty()) {
+            ""
+        } else {
+            " · 待核对 ${stale.size} 条：" + stale.take(3).joinToString("、")
+        }
+        return String.format(Locale.US, "记忆文件 %.1f KB · %s%s", sizeKb, suffix, tail)
+    }
+
+    /**
+     * 找出需要重新核对的记忆条目。
+     *
+     * 只做**事实标记**，不判断内容对错 —— 判断要靠人（或下次对话里我去核实）。
+     * 顺带抓「日期写成未来」这种明显笔误（2026-11-04 实测真出现过一条 11-07）。
+     */
+    private fun staleEntries(content: String): List<String> {
+        val today = java.time.LocalDate.now()
+        val pattern = Regex("^##\\s*\\[(状态|知识)\\]\\s*(\\d{4}-\\d{2}-\\d{2})")
+        return content.lineSequence().mapNotNull { line ->
+            val match = pattern.find(line) ?: return@mapNotNull null
+            val kind = match.groupValues[1]
+            val raw = match.groupValues[2]
+            val date = runCatching { java.time.LocalDate.parse(raw) }.getOrNull() ?: return@mapNotNull null
+            val days = java.time.temporal.ChronoUnit.DAYS.between(date, today)
+            when {
+                days < 0 -> "$kind $raw（日期在未来，疑似笔误）"
+                days > if (kind == "状态") STALE_STATE_DAYS else STALE_KNOWLEDGE_DAYS ->
+                    "$kind $raw（$days 天）"
+                else -> null
+            }
+        }.toList()
     }
 
     private fun permissionStatus(context: Context): String {
@@ -191,3 +223,7 @@ internal object ScheduledActionRunner {
         manager.notify(ScheduledNotificationBuilder.notificationId(task.id), notification)
     }
 }
+
+/** 记忆体检阈值：状态类 7 天、知识类 30 天后需要重新核对（与 AgentMemoryContext 的 stale 提示一致）。 */
+private const val STALE_STATE_DAYS = 7L
+private const val STALE_KNOWLEDGE_DAYS = 30L

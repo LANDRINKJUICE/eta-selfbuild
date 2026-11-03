@@ -413,6 +413,8 @@ internal class RootShellTerminalController(
             .put("runtime", session.runtime ?: JSONObject.NULL)
             .put("status", when { result.timedOut -> "timed_out"; session.closed -> "cancelled"; result.exitCode == 0 -> "exited"; else -> "failed" })
             .put("exit_code", result.exitCode)
+            // 细分失败原因：失败归档只认 code，没有它只能记下毫无信息的 "failed"。
+            .put("code", TerminalExitClassifier.classify(result.exitCode, result.timedOut, result.stderr))
             .put("timed_out", result.timedOut)
             .put("stdout", stdout)
             .put("stderr", stderr)
@@ -575,6 +577,8 @@ internal class RootShellTerminalController(
             .put("runtime", observation.runtime ?: JSONObject.NULL)
             .put("status", when { processSupervisor.isClosing -> "cancelled"; result.exitCode == -2 -> "timed_out"; result.exitCode == 0 -> "exited"; else -> "failed" })
             .put("exit_code", result.exitCode)
+            // 同上：给失败归档一个能诊断的码，而不是 "failed"。
+            .put("code", TerminalExitClassifier.classify(result.exitCode, result.exitCode == -2, result.stderr))
             .put("timed_out", result.exitCode == -2)
             .put("stdout", stdout)
             .put("stderr", stderr)

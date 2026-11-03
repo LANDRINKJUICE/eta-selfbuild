@@ -55,6 +55,17 @@ internal object SkillErrorJournal {
     private const val STDERR_FIELD = "stderr"
     private const val EXIT_CODE_FIELD = "exit_code"
 
+    /** 同一「工具 + 错误码」累计到这个次数就提炼成一条规则。 */
+    private const val PROMOTE_THRESHOLD = 3
+
+    private val LESSONS_HEADER = buildString {
+        appendLine("# 高频失败模式（自动提炼）")
+        appendLine()
+        appendLine("> 同一「工具 + 错误码」累计出现 ≥$PROMOTE_THRESHOLD 次时自动写入本文件。")
+        appendLine("> 这里只有**观察到的事实**（次数、典型消息）；应对办法要结合当时上下文判断，不要当结论照抄。")
+        appendLine()
+    }
+
     private val lastLoggedAt = HashMap<String, Long>()
     private val writeLock = Any()
     private val counter = AtomicLong()
@@ -104,6 +115,7 @@ internal object SkillErrorJournal {
             rotateIfNeeded(file)
             file.appendText(entry)
         }
+        maybePromote(context, logger, toolName, code, message)
         counter.incrementAndGet()
         true
     }.getOrElse { throwable ->
@@ -114,6 +126,63 @@ internal object SkillErrorJournal {
 
     /** 已记录条数，供健康检查展示。 */
     fun recordedCount(): Long = counter.get()
+
+    /**
+     * 失败升级：同一「工具 + 错误码」反复出现时，从流水账里提炼成一条规则。
+     *
+     * 动机（2026-11-04）：ERRORS.md 是**流水账**，越写越长、没人会从头读；真正该被下一次
+     * 开工看到的，是「这个坑踩过 N 次、典型长什么样」。所以到阈值就往 LESSONS.md 写一条。
+     *
+     * 只写**观察到的事实**（次数 + 典型消息），不编造应对办法 —— 那是模型该结合上下文判断的。
+     */
+    private fun maybePromote(
+        context: Context,
+        logger: AgentLogger?,
+        toolName: String,
+        code: String,
+        message: String,
+    ) {
+        runCatching {
+            // 没有信息量的码不值得提炼，否则 LESSONS.md 会变成第二个流水账。
+            if (code.isBlank() || code == "UNKNOWN" || code == "failed") return
+            val journal = journalFile(context) ?: return
+            if (!journal.exists()) return
+            val count = countOccurrences(journal.readText(), "· $toolName · $code")
+            if (count < PROMOTE_THRESHOLD) return
+
+            val lessons = lessonsFile(context) ?: return
+            val dir = lessons.parentFile
+            if (dir != null && !dir.exists() && !dir.mkdirs()) return
+            val existing = if (lessons.exists()) lessons.readText() else LESSONS_HEADER
+            val heading = "## $toolName · $code"
+            if (existing.contains(heading)) return
+
+            val entry = buildString {
+                appendLine()
+                appendLine("$heading（累计 $count 次）")
+                appendLine("- 典型消息：${message.take(200)}")
+            }
+            lessons.writeText(existing + entry)
+        }.onFailure { throwable ->
+            runCatching { logger?.warn("SkillErrorJournal 提炼规则失败：${throwable.message}") }
+        }
+    }
+
+    /** 子串出现次数。用 indexOf 循环而不是 windowed：后者会为长文件造一堆临时字符串。 */
+    internal fun countOccurrences(text: String, needle: String): Int {
+        if (needle.isEmpty()) return 0
+        var count = 0
+        var index = text.indexOf(needle)
+        while (index >= 0) {
+            count++
+            index = text.indexOf(needle, index + needle.length)
+        }
+        return count
+    }
+
+    private fun lessonsFile(context: Context): File? = runCatching {
+        File(SkillRuntime.skillsRoot(context), "$SKILL_ID/data/LESSONS.md")
+    }.getOrNull()
 
     private fun journalFile(context: Context): File? = runCatching {
         File(SkillRuntime.skillsRoot(context), "$SKILL_ID/data/ERRORS.md")

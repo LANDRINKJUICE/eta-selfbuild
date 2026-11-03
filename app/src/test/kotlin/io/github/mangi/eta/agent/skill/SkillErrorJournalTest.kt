@@ -129,4 +129,23 @@ class SkillErrorJournalTest {
         val big = """{"ok":false,"code":"X","message":"""" + "a".repeat(20_000) + "\"}"
         assertNull(SkillErrorJournal.parseError(big))
     }
+
+    // 「失败升级成规则」的计数基础：同一「工具 · 错误码」在流水账里出现几次。
+    @Test
+    fun countOccurrencesCountsNonOverlappingMatches() {
+        val text = "## a · terminal · read_only_fs\n## b · terminal · read_only_fs\n"
+        assertEquals(2, SkillErrorJournal.countOccurrences(text, "· terminal · read_only_fs"))
+    }
+
+    @Test
+    fun countOccurrencesHandlesNoMatchAndEmptyNeedle() {
+        assertEquals(0, SkillErrorJournal.countOccurrences("nothing here", "· terminal · timeout"))
+        assertEquals(0, SkillErrorJournal.countOccurrences("abc", ""))
+    }
+
+    @Test
+    fun countOccurrencesDoesNotDoubleCountOverlaps() {
+        // "aaa" 里找 "aa" 只算一次（不重叠），避免把一条记录数成两次而误触发提炼。
+        assertEquals(1, SkillErrorJournal.countOccurrences("aaa", "aa"))
+    }
 }
