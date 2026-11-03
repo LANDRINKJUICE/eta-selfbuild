@@ -153,6 +153,36 @@ class AgentMemoryContextBuilderTest {
         assertTrue(context.staleHints.isEmpty())
     }
 
+    /** [经验] 排在偏好之后、普通内容之前：超预算时它比随手记的内容更该留住。 */
+    @Test
+    fun lessonBlocksOutrankPlainContent() {
+        val content = buildString {
+            appendLine("# 核心记忆")
+            appendLine("## [偏好] 说话通俗")
+            appendLine("短句。")
+            appendLine("## [经验] 推送前必须核对树 sha")
+            appendLine("只报成功不代表推上去了。")
+            appendLine("## 普通记录")
+            appendLine("x".repeat(20_000))
+        }
+        val context = AgentMemoryContextBuilder.build(snapshot(content), null)
+
+        assertTrue(context.coreTruncated)
+        assertTrue(context.coreContent.contains("[偏好] 说话通俗"))
+        assertTrue(context.coreContent.contains("[经验] 推送前必须核对树 sha"))
+        assertFalse(context.coreContent.contains("x".repeat(100)))
+    }
+
+    /** 经验不会过期，不该像 [状态] 那样被标 stale。 */
+    @Test
+    fun lessonBlocksNeverGoStale() {
+        val old = java.time.LocalDate.now().minusDays(400).toString()
+        val content = "# 核心记忆\n## [经验] 甲\n$old 这一条很久了但仍有效"
+        val context = AgentMemoryContextBuilder.build(snapshot(content), 128_000)
+
+        assertTrue(context.staleHints.isEmpty())
+    }
+
     private fun snapshot(content: String): AgentMemorySnapshot = AgentMemorySnapshot(
         content = content,
         revision = "a".repeat(64),

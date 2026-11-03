@@ -106,7 +106,10 @@ internal object AgentMemoryContextBuilder {
             when (block.tag) {
                 TAG_RULE -> 0
                 TAG_PREF -> 1
-                else -> 2
+                // 经验排在偏好之后、普通内容之前：它是"我学到的东西"，
+                // 重要程度高于随手记的普通内容，但低于用户定的规矩。
+                TAG_LESSON -> 2
+                else -> 3
             }
         }
         val kept = LinkedHashSet<Block>()
@@ -223,6 +226,14 @@ internal object AgentMemoryContextBuilder {
     private const val TAG_PREF = "偏好"
     private const val TAG_STATUS = "状态"
     private const val TAG_KNOWLEDGE = "知识"
+    /**
+     * 「经验」= 踩过的坑 + 怎么验证的 + 正确做法。
+     *
+     * 为什么不和 [知识] 合并：知识是"事实"（某文件在哪、某个 API 怎么用），
+     * 经验是"我曾经在这里错过，识别信号是这个"。后者要按重要性排序保留，
+     * 前者只按需检索。两者混在一起，超预算时经验会先被砍掉 —— 那正是最不该丢的。
+     */
+    private const val TAG_LESSON = "经验"
     /** 状态类 7 天：项目进度变化快，一周以上就是旧消息。 */
     private const val STATUS_STALE_DAYS = 7L
     /** 知识类 30 天：技术结论相对稳定，但一个月也该复核。 */
