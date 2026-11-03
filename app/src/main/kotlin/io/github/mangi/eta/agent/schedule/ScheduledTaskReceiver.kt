@@ -31,7 +31,13 @@ internal class ScheduledTaskReceiver : Service() {
                 val task = ScheduledTaskStore.load(appContext).firstOrNull { it.id == taskId }
                 if (task == null) {
                     AndroidAgentLogger.warn("Scheduled task missing, skip")
-                } else if (task.enabled) {
+                } else if (!task.enabled) {
+                    // 已停用，什么都不做
+                } else if (!ScheduledRunGate.shouldRun(task.lastRunAtMillis, System.currentTimeMillis())) {
+                    // 同一任务刚跑过：这是重排闹钟/系统补发导致的重复触发。
+                    // 只跳过执行，下面 finally 里仍会续排下一次，不影响后续日程。
+                    AndroidAgentLogger.warn("Scheduled task duplicated, skip: ${task.id}")
+                } else {
                     ScheduledActionRunner.run(appContext, task)
                     ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
                 }

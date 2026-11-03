@@ -62,7 +62,11 @@ import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.ListEmptyState
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import io.github.mangi.eta.ui.model.RecentUsageMessageWindow
 import io.github.mangi.eta.ui.model.TokenUsageSnapshot
@@ -148,6 +152,20 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
         usage = withContext(Dispatchers.IO) {
             runCatching { loadTokenUsageSnapshot(EtaDatabase.get(context.applicationContext)) }
                 .getOrDefault(TokenUsageSnapshot())
+        }
+    }
+
+    // 页面停留期间定时重读：任务在 :schedule 进程里跑，写的是 SharedPreferences，
+    // 本页不主动轮询就永远看不到「刚刚执行过」和最新 last_run_at（用户实测：执行完了列表不动）。
+    // 只读两个小文件，开销可忽略；用 repeatOnLifecycle 绑到 RESUMED，
+    // 切后台或离开页面即停止，不会常驻轮询。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(context, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(5_000L)
+                reloadTasks()
+            }
         }
     }
 
