@@ -22,8 +22,8 @@ class ScheduledSuggestionEngineTest {
             set(2026, Calendar.NOVEMBER, day, hour, minute, 0)
         }.timeInMillis
 
-    private fun sample(pkg: String, title: String, day: Int, hour: Int, minute: Int) =
-        NotificationSample(pkg, title, at(day, hour, minute))
+    private fun sample(pkg: String, title: String, day: Int, hour: Int, minute: Int, text: String = "") =
+        NotificationSample(pkg, title, at(day, hour, minute), text)
 
     private fun now() = at(7, 12, 0)
 
@@ -167,5 +167,84 @@ class ScheduledSuggestionEngineTest {
         val result = ScheduledSuggestionEngine.suggest(samples, nowMillis = now(), zone = zone)
 
         assertEquals(ScheduledSuggestionEngine.MAX_SUGGESTIONS, result.size)
+    }
+
+    // 以下 4 个用例对应 2026-11-04 真机实测发现的两个缺陷，防止再退化。
+
+    @Test
+    fun `正文里的关键词也算证据`() {
+        // 真机场景：快递通知标题是「芝麻粒限时奖励提醒」，正文才是「快递已送达」。
+        val samples = (1..4).map {
+            sample("com.eg.android.AlipayGphone", "芝麻粒限时奖励提醒", it, 12, 51, text = "你有10芝麻粒快递已送达")
+        }
+
+        val result = ScheduledSuggestionEngine.suggest(samples, nowMillis = now(), zone = zone)
+
+        assertTrue(result.any { it.keywords.contains("快递") })
+    }
+
+    @Test
+    fun `时段相近但不同事不算重复`() {
+        // 真机场景：09:00 的权限检查把 09:20 的账单建议按 ±30 分钟判成重复，建议全被吞。
+        val samples = (1..4).map { sample("com.sankuai.meituan", "【美团月付】账单已出", it, 9, 28) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-perm-mon0900",
+                trigger = ScheduledTrigger.DAILY_TIME,
+                action = ScheduledActionKind.PERMISSIONS_CHECK,
+                enabled = true,
+                hour = 9,
+                minute = 0,
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        val time = result.single { it.trigger == ScheduledTrigger.DAILY_TIME }
+        assertEquals(9, time.hour)
+        assertEquals(20, time.minute)
+    }
+
+    @Test
+    fun `同一时刻的自定义指令仍然算重复`() {
+        val samples = (1..4).map { sample("com.sankuai.meituan", "【美团月付】账单已出", it, 9, 28) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-1",
+                trigger = ScheduledTrigger.DAILY_TIME,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
+                enabled = true,
+                hour = 9,
+                minute = 20,
+                prompt = "看一眼天气",
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        assertTrue(result.none { it.trigger == ScheduledTrigger.DAILY_TIME })
+    }
+
+    @Test
+    fun `被已有任务吃掉的定时建议不会连带屏蔽通知匹配`() {
+        // 真机场景：已有 09:35 打卡任务把 09:35 的签到定时建议吃掉后，
+        // 旧代码仍把「打卡」标成已覆盖，规则二也不给 → 一条建议都没有。
+        val samples = (1..4).map { sample("com.eg.android.AlipayGphone", "支付宝会员签到提醒", it, 9, 31) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-clock-0935",
+                trigger = ScheduledTrigger.DAILY_TIME,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
+                enabled = true,
+                hour = 9,
+                minute = 35,
+                prompt = "检查今天 09:35 前后关于 打卡 的通知，需要就提醒我。",
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        assertTrue(result.none { it.trigger == ScheduledTrigger.DAILY_TIME })
+        assertEquals("签到", result.single { it.trigger == ScheduledTrigger.NOTIFICATION_MATCH }.keyword)
     }
 }

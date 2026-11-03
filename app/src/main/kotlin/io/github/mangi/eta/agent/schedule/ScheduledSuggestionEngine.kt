@@ -14,6 +14,14 @@ internal data class NotificationSample(
     val packageName: String,
     val title: String,
     val postedAtMillis: Long,
+    /**
+     * 通知正文。
+     *
+     * **必须一起匹配**：真机数据里最该被发现的那些提醒，关键词恰恰不在标题上——
+     * 快递通知标题是「芝麻粒限时奖励提醒」，正文才是「你有10芝麻粒快递已送达」。
+     * 只匹配标题时快递族命中 0 条（正文 6 条），还款同理（标题 5 条 / 正文 16 条）。
+     */
+    val text: String = "",
 )
 
 /**
@@ -69,6 +77,13 @@ internal object ScheduledSuggestionEngine {
     /** 「相近时刻」半径：关键词命中落在某个时刻前后这么多分钟内，就算同一时段。 */
     private const val WINDOW_MINUTES = 30
 
+    /**
+     * 判「和已有任务撞死」的半径：只用来防止两个自定义指令在同一分钟各跑一次模型。
+     *
+     * 刻意远小于 [WINDOW_MINUTES]：时段相邻不代表是同一件事（09:00 权限检查 ≠ 09:20 账单）。
+     */
+    private const val SAME_SLOT_MINUTES = 5
+
     /** 至少要覆盖这么多天，才认为它是习惯而不是偶然。 */
     private const val MIN_EVIDENCE_DAYS = 3
 
@@ -122,7 +137,7 @@ internal object ScheduledSuggestionEngine {
 
         val hits = KEYWORD_FAMILIES.mapNotNull { family ->
             val byWord = family.words
-                .map { word -> word to recent.filter { it.title.contains(word, ignoreCase = true) } }
+                .map { word -> word to recent.filter { it.matches(word) } }
                 .filter { it.second.isNotEmpty() }
             if (byWord.isEmpty()) return@mapNotNull null
 
@@ -139,9 +154,12 @@ internal object ScheduledSuggestionEngine {
         }
         if (hits.isEmpty()) return emptyList()
 
-        val timed = timedSuggestions(hits, clock)
-        // 定时建议已经覆盖的词不再单独给「收到就处理」：真机数据里「账单」会同时满足两条规则，
-        // 结果同一件事占了两个名额，看着像重复。
+        // 先按已有任务过滤，再算「已被定时建议覆盖的词」。
+        // 顺序反了会双杀：被 conflicts 吃掉的定时建议仍然把词标成已覆盖，
+        // 规则二（收到就处理）也被排除，结果一条都不剩（2026-11-04 真机实测踩到）。
+        val timed = timedSuggestions(hits, clock).filterNot { conflicts(it, existingTasks) }
+        // 真正留下来的定时建议已经覆盖的词，不再单独给「收到就处理」：
+        // 真机数据里「账单」会同时满足两条规则，同一件事占两个名额，看着像重复。
         val covered = timed.flatMap { it.keywords }.toSet()
         val matches = keywordSuggestions(hits.filterNot { it.family.label in covered })
         val suggestions = timed + matches
@@ -229,11 +247,21 @@ internal object ScheduledSuggestionEngine {
         return listOf(daily) + sorted.filterNot { it.trigger == ScheduledTrigger.DAILY_TIME }
     }
 
-    /** 已经存在形状相同的任务就不再建议；同一时段 ±30 分钟的也算重复。 */
+    /**
+     * 已经存在「同一件事」的任务就不再建议。
+     *
+     * **判据不能只看时间**：真机上 09:00 是权限检查、09:35 是打卡检查，把 09:20 的账单建议
+     * 按 ±30 分钟判成重复，结果一条建议都出不来。判断重复要看**做什么**，不是几点做。
+     *
+     * [ScheduledTrigger.DAILY_TIME] 只在两种情况下算重复：
+     * 1. 已有任务的自定义指令里已经写了这个词族的词（真的是同一件事）；
+     * 2. 已有任务也是自定义指令、且时间几乎撞死（≤[SAME_SLOT_MINUTES] 分钟）——同时跑两次模型纯浪费。
+     */
     private fun conflicts(
         suggestion: ScheduledSuggestion,
         existingTasks: List<ScheduledTask>,
     ): Boolean = existingTasks.any { task ->
+        if (!task.enabled) return@any false
         when {
             suggestion.trigger == ScheduledTrigger.NOTIFICATION_MATCH ->
                 task.trigger == ScheduledTrigger.NOTIFICATION_MATCH &&
@@ -241,14 +269,32 @@ internal object ScheduledSuggestionEngine {
 
             suggestion.trigger == ScheduledTrigger.DAILY_TIME ->
                 task.trigger == ScheduledTrigger.DAILY_TIME &&
-                    circularDistance(
-                        task.hour * 60 + task.minute,
-                        suggestion.hour * 60 + suggestion.minute,
-                    ) <= WINDOW_MINUTES
+                    (
+                        sameJob(task, suggestion) ||
+                            (
+                                task.action == ScheduledActionKind.CUSTOM_PROMPT &&
+                                    circularDistance(
+                                        task.hour * 60 + task.minute,
+                                        suggestion.hour * 60 + suggestion.minute,
+                                    ) <= SAME_SLOT_MINUTES
+                                )
+                        )
 
             else -> false
         }
     }
+
+    /** 已有任务是不是已经在做同一件事：它的指令文本里出现了这个词族的词。 */
+    private fun sameJob(task: ScheduledTask, suggestion: ScheduledSuggestion): Boolean {
+        if (task.action != ScheduledActionKind.CUSTOM_PROMPT || task.prompt.isBlank()) return false
+        return suggestion.keywords
+            .flatMap { label -> KEYWORD_FAMILIES.firstOrNull { it.label == label }?.words.orEmpty() }
+            .any { task.prompt.contains(it, ignoreCase = true) }
+    }
+
+    /** 标题和正文都算命中。真机上最该被发现的关键词常常只出现在正文里（快递就是）。 */
+    private fun NotificationSample.matches(word: String): Boolean =
+        title.contains(word, ignoreCase = true) || text.contains(word, ignoreCase = true)
 
     /** 自身与系统包的噪音太大（会建议「汇总 Eta 自己的通知」），直接排除。 */
     private fun isExcluded(packageName: String): Boolean =

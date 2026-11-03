@@ -94,7 +94,7 @@ internal class NotificationHistoryRepository(context: Context) {
         val result = ArrayList<NotificationSample>()
         database.readableDatabase.query(
             TABLE,
-            arrayOf("package_name", "title", "posted_at"),
+            arrayOf("package_name", "title", "text", "posted_at"),
             "posted_at>=?",
             arrayOf(from.toString()),
             null,
@@ -107,7 +107,8 @@ internal class NotificationHistoryRepository(context: Context) {
                 result += NotificationSample(
                     packageName = packageName,
                     title = cursor.getString(1).orEmpty(),
-                    postedAtMillis = cursor.getLong(2),
+                    postedAtMillis = cursor.getLong(3),
+                    text = cursor.getString(2).orEmpty(),
                 )
             }
         }
@@ -146,7 +147,7 @@ internal class NotificationHistoryRepository(context: Context) {
     private companion object {
         const val DATABASE_NAME = "eta_notification_history.db"
         const val TABLE = "notification_history"
-        const val MAX_RECORDS = 1_000
+        const val MAX_RECORDS = 3_000
         const val RETENTION_DAYS = 7
         const val HOUR_MS = 60L * 60 * 1_000
         const val RETENTION_MS = RETENTION_DAYS * 24L * HOUR_MS
