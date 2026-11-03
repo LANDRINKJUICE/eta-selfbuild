@@ -48,6 +48,34 @@ class SkillErrorJournalTest {
 
         assertNotNull(parsed)
         assertEquals("UNKNOWN", parsed!!.first)
+        // 消息不能 fallback 到整段 JSON —— 实测那样会把几 KB envelope 抄进日志。
+        assertEquals("炸了", parsed.second)
+    }
+
+    /** 有些工具用 error/status 字段放错误码，别一律归成 UNKNOWN（那样记录没有诊断价值）。 */
+    @Test
+    fun fallsBackToErrorOrStatusFieldForCode() {
+        assertEquals("TIMEOUT", SkillErrorJournal.parseError("""{"ok":false,"error":"TIMEOUT"}""")!!.first)
+        assertEquals("FAILED", SkillErrorJournal.parseError("""{"ok":false,"status":"FAILED"}""")!!.first)
+    }
+
+    /** 连 message 都没有时，至少用错误码占位，不能把原始 envelope 抄进去。 */
+    @Test
+    fun missingMessageUsesCodeInsteadOfRawJson() {
+        val parsed = SkillErrorJournal.parseError("""{"ok":false,"code":"BOOM","payload":"${"x".repeat(500)}"}""")
+
+        assertNotNull(parsed)
+        assertEquals("BOOM", parsed!!.first)
+        assertEquals("BOOM", parsed.second)
+        assertTrue(parsed.second.length < 50)
+    }
+
+    @Test
+    fun longMessageIsTruncated() {
+        val parsed = SkillErrorJournal.parseError("""{"ok":false,"code":"X","message":"${"y".repeat(2000)}"}""")
+
+        assertNotNull(parsed)
+        assertTrue(parsed!!.second.length <= 300)
     }
 
     /** 流程提示类错误码不进日志，否则会把真正的坑淹掉。 */

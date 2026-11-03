@@ -47,6 +47,10 @@ internal object SkillErrorJournal {
     private const val OK_FIELD = "ok"
     private const val CODE_FIELD = "code"
     private const val MESSAGE_FIELD = "message"
+    /** 有些工具用 error 字段放错误码/文本，一并兜底。 */
+    private const val ERROR_FIELD = "error"
+    private const val ERROR_MESSAGE_FIELD = "error_message"
+    private const val STATUS_FIELD = "status"
 
     private val lastLoggedAt = HashMap<String, Long>()
     private val writeLock = Any()
@@ -127,9 +131,17 @@ internal object SkillErrorJournal {
         return runCatching {
             val json = org.json.JSONObject(trimmed)
             if (json.optBoolean(OK_FIELD, true)) return null
-            val code = json.optString(CODE_FIELD).ifBlank { "UNKNOWN" }
-            val message = json.optString(MESSAGE_FIELD).ifBlank { trimmed }
-            code to message
+            // 错误码优先取顶层的 code；取不到就用原始 envelope 的 code（如 terminal 用 tool/action 定位），
+            // 都没有时才用 UNKNOWN —— 全塞 UNKNOWN 的话这条记录没有诊断价值。
+            val code = json.optString(CODE_FIELD)
+                .ifBlank { json.optString(ERROR_FIELD) }
+                .ifBlank { json.optString(STATUS_FIELD) }
+                .ifBlank { "UNKNOWN" }
+            // 消息绝不 fallback 到整段 JSON：实测那样会把几 KB 原始 envelope 抄进日志，把文件搞脏。
+            val message = json.optString(MESSAGE_FIELD)
+                .ifBlank { json.optString(ERROR_MESSAGE_FIELD) }
+                .ifBlank { code }
+            code to message.replace(Regex("\\s+"), " ").take(MAX_MESSAGE_CHARS)
         }.getOrNull()
     }
 
