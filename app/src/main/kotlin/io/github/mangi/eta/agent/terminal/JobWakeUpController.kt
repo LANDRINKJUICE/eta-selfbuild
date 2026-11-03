@@ -97,6 +97,15 @@ internal object JobWakeUpController {
             if (!result.ok) {
                 logger.warn("Job wake-up run failed: ${result.error?.take(200).orEmpty()}")
             }
+            // 回执：把原来那条「失败了」的通知升级成「已自动处理」，用户不用回会话才知道。
+            runCatching {
+                BackgroundCommandNotification.showWakeUpResult(
+                    context = app,
+                    task = task,
+                    summary = if (result.ok) result.content else result.error.orEmpty(),
+                    ok = result.ok,
+                )
+            }
         } catch (failure: Exception) {
             logger.warn("Job wake-up failed: type=${failure.javaClass.simpleName}")
         } finally {

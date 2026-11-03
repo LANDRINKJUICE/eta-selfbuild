@@ -38,4 +38,29 @@ internal object BackgroundCommandNotification {
             .build()
         if (manager.areNotificationsEnabled()) manager.notify(task.id, NOTIFICATION_ID, notification)
     }
+
+    /**
+     * 自动唤醒跑完后的结果回执：复用同一条通知（同一 task.id 与 NOTIFICATION_ID），
+     * 把「失败了」升级成「已自动处理」，用户不必回会话才知道发生了什么。
+     */
+    fun showWakeUpResult(context: Context, task: DetachedTask, summary: String, ok: Boolean) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, "后台命令结果", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_TERMINAL),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val text = summary.trim().replace('\n', ' ').take(140)
+            .ifEmpty { if (ok) "已自动处理，详情见会话" else "自动处理未完成，详情见会话" }
+        val notification = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(if (ok) "后台命令失败，已自动处理" else "后台命令失败，自动处理未完成")
+            .setContentText(text)
+            .setSubText(task.description.ifBlank { null })
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
+            .build()
+        if (manager.areNotificationsEnabled()) manager.notify(task.id, NOTIFICATION_ID, notification)
+    }
 }
