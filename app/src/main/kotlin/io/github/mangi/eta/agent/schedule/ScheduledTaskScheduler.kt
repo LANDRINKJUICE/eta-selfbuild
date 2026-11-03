@@ -28,6 +28,9 @@ internal object ScheduledTaskScheduler {
 
     fun rescheduleAll(context: Context) {
         val appContext = context.applicationContext
+        // 首次启用（或清数据后）灌一套默认任务，否则新装的人是"一个任务都没有"的空白状态。
+        // 已有任务时只打标记不覆盖，见 ScheduledDefaults。
+        runCatching { ScheduledDefaults.seedIfNeeded(appContext) }
         runCatching { cancelAll(appContext) }
         val timeTasks = ScheduledTaskStore.load(appContext)
             .filter { it.enabled && it.trigger.usesAlarm }

@@ -20,9 +20,17 @@ import java.util.UUID
 internal object ScheduledTaskStore {
     private const val PREFS_NAME = "eta_scheduled_tasks"
     private const val KEY_TASKS = "tasks"
+    /** 是否已灌过默认任务。独立于 tasks：用户删空后不该被重新塞回来。 */
+    private const val KEY_SEEDED = "seeded_v1"
 
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    internal fun hasSeeded(context: Context): Boolean = prefs(context).getBoolean(KEY_SEEDED, false)
+
+    internal fun markSeeded(context: Context) {
+        prefs(context).edit().putBoolean(KEY_SEEDED, true).apply()
+    }
 
     fun load(context: Context): List<ScheduledTask> {
         val raw = prefs(context).getString(KEY_TASKS, null) ?: return emptyList()
