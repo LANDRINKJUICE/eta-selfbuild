@@ -296,8 +296,9 @@ internal class ShellProcessSupervisor(
         val payload = shellQuote(command.orEmpty())
         // name 经 SharedFolderMounts 校验只含 [A-Za-z0-9._-]，可安全拼进双引号路径。
         val mountsBlock = sharedMounts.joinToString("\n") { mount ->
-            "eta_mount_optional ${shellQuote(mount.sourcePath)} " +
-                "\"\$eta_rootfs${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}\" bind"
+            val mode = if (mount.readOnly) "ro" else "rw"
+            "eta_mount_shared ${shellQuote(mount.sourcePath)} " +
+                "\"\$eta_rootfs${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}\" $mode"
         }
         val innerScriptHead = """
             eta_rootfs=${'$'}1
@@ -317,6 +318,20 @@ internal class ShellProcessSupervisor(
               eta_options=${'$'}3
               "${'$'}eta_busybox" mkdir -p "${'$'}eta_target" 2>/dev/null || return 0
               "${'$'}eta_busybox" mount -o "${'$'}eta_options" "${'$'}eta_source" "${'$'}eta_target" 2>/dev/null || true
+            }
+            eta_mount_shared() {
+              eta_source=${'$'}1
+              eta_target=${'$'}2
+              eta_readonly=${'$'}3
+              "${'$'}eta_busybox" mkdir -p "${'$'}eta_target" 2>/dev/null || return 0
+              "${'$'}eta_busybox" mount -o bind "${'$'}eta_source" "${'$'}eta_target" 2>/dev/null || {
+                echo "ETA_MOUNT_FAILED ${'$'}eta_target" >&2
+                return 0
+              }
+              if [ "${'$'}eta_readonly" = ro ]; then
+                "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_target" 2>/dev/null ||
+                  echo "ETA_MOUNT_NOT_READONLY ${'$'}eta_target" >&2
+              fi
             }
             "${'$'}eta_busybox" mount -t proc proc "${'$'}eta_rootfs/proc" || exit 125
             eta_mount_required /dev "${'$'}eta_rootfs/dev" rbind

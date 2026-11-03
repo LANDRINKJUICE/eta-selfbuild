@@ -146,6 +146,10 @@ internal fun SharedFoldersScreen(
                                     "${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}",
                                 )
                             )
+                            if (mount.readOnly) {
+                                append(" · ")
+                                append(context.getString(R.string.shared_folders_readonly))
+                            }
                             if (missing) {
                                 append(" · ")
                                 append(context.getString(R.string.shared_folders_source_missing))
@@ -449,7 +453,12 @@ private fun SharedFolderPickerDialog(
                 confirmText = stringResource(R.string.shared_folders_add),
                 onCancel = onDismiss,
                 onConfirm = {
-                    val sourceError = SharedFolderMounts.validateSource(path, existing, extraForbiddenRoots)
+                    val sourceError = SharedFolderMounts.validateSource(
+                        path,
+                        existing,
+                        extraForbiddenRoots,
+                        allowedDataRoots = listOf("/data/data/${context.packageName}"),
+                    )
                     val errorText = when (sourceError) {
                         SharedFolderMounts.SourceError.INVALID_PATH ->
                             context.getString(R.string.shared_folders_error_path_invalid)

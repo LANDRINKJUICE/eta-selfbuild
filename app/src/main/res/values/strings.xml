@@ -116,6 +116,7 @@
   <string name="shared_folders_add">Add shared folder</string>
   <string name="shared_folders_mount_point">Mount point: %1$s</string>
   <string name="shared_folders_source_missing">Source directory missing</string>
+  <string name="shared_folders_readonly">Read-only</string>
   <string name="shared_folders_remove_title">Remove shared folder</string>
   <string name="shared_folders_remove_message">Remove “%1$s” (%2$s)? Files in the source directory are not deleted.</string>
   <string name="shared_folders_picker_title">Add shared folder</string>

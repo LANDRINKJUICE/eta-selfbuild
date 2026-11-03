@@ -29,6 +29,8 @@ internal object ProotCommandBuilder {
         bind(workspace, "/workspace")
         bind(tempDirectory.absolutePath, "/dev/shm")
         if (publicStorageGranted && File("/storage/emulated/0").canRead()) bind("/storage/emulated/0")
+        // proot 的 -b 只支持读写绑定，无法在绑定后 remount 成只读；
+        // 需要只读保证时用 chroot 后端（Root 模式），那里会额外做 remount,bind,ro。
         sharedMounts.filter {
             SharedFolderMounts.validateName(it.name, emptyList()) == null &&
                 permittedSharedSource(it.sourcePath, publicStorageGranted) &&

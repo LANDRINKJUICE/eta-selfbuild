@@ -35,6 +35,7 @@ import io.github.mangi.eta.agent.virtualdisplay.VirtualDisplayController
 import io.github.mangi.eta.data.repository.NotificationHistoryRepository
 import io.github.mangi.eta.agent.schedule.ScheduledSuggestionEngine
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
+import io.github.mangi.eta.agent.terminal.SharedFolderMount
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
 import io.github.mangi.eta.agent.skill.SkillErrorJournal
 import io.github.mangi.eta.agent.skill.SkillIndexService
@@ -321,6 +322,7 @@ internal class AgentLocalTools(
                     structuredDeviceTools.execute(toolCall.name, args)
                         ?: textResult(errorResult("UNKNOWN_TOOL", "未知设备工具"))
                 "suggest_scheduled_tasks" -> textResult(suggestScheduledTasks())
+                "share_folder" -> textResult(shareFolder(args))
                 "read_image" -> fileVisionTool { imageTools.readImage(args) }
                 "save_screenshot" -> screenshotTools.saveScreenshot(args)
                 in AgentTerminalToolCatalog.names -> textResult(terminalTool {
@@ -918,6 +920,105 @@ internal class AgentLocalTools(
             .put("items", items)
             .put("hint", "候选规则，不是已创建的任务；需要用户到「定时任务」页点采用才会生效。")
             .toString()
+    }
+
+    private fun shareFolder(args: JSONObject): String {
+        val action = args.optString("action").trim().lowercase().ifBlank { "list" }
+        val current = SharedFolderMounts.current()
+        return when (action) {
+            "list" -> shareFolderList(current)
+            "add" -> shareFolderAdd(args, current)
+            "remove" -> shareFolderRemove(args, current)
+            else -> errorResult("INVALID_ARGUMENT", "action 仅支持 list / add / remove")
+        }
+    }
+
+    private fun shareFolderList(current: List<SharedFolderMount>): String {
+        val items = JSONArray()
+        current.forEach { mount ->
+            items.put(
+                JSONObject()
+                    .put("name", mount.name)
+                    .put("source", mount.sourcePath)
+                    .put("readonly", mount.readOnly)
+                    .put("mount_point", "${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}")
+            )
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "share_folder")
+            .put("action", "list")
+            .put("count", items.length())
+            .put("items", items)
+            .put("hint", "配置改动对下一条 Linux 命令生效；chroot 后端支持只读，proot 后端无法只读。")
+            .toString()
+    }
+
+    private fun shareFolderAdd(args: JSONObject, current: List<SharedFolderMount>): String {
+        val name = args.optString("name").trim()
+        val source = args.optString("source").trim()
+        if (name.isEmpty() || source.isEmpty()) {
+            return errorResult("INVALID_ARGUMENT", "add 需要 name 与 source")
+        }
+        when (SharedFolderMounts.validateName(name, current)) {
+            SharedFolderMounts.NameError.INVALID ->
+                return errorResult("INVALID_NAME", "挂载名只能用字母、数字、点、下划线、连字符，最多 48 字符")
+            SharedFolderMounts.NameError.DUPLICATE ->
+                return errorResult("DUPLICATE_NAME", "挂载名已存在：$name")
+            null -> Unit
+        }
+        when (SharedFolderMounts.validateSource(source, current, allowedDataRoots = allowedSharedDataRoots())) {
+            SharedFolderMounts.SourceError.INVALID_PATH ->
+                return errorResult("INVALID_PATH", "源目录必须是绝对路径")
+            SharedFolderMounts.SourceError.FORBIDDEN_ROOT ->
+                return errorResult("FORBIDDEN_PATH", "该目录不允许共享：$source")
+            SharedFolderMounts.SourceError.DUPLICATE ->
+                return errorResult("DUPLICATE_SOURCE", "该源目录已经共享过：$source")
+            null -> Unit
+        }
+        if (current.size >= SharedFolderMounts.MAX_MOUNTS) {
+            return errorResult("LIMIT_REACHED", "最多 ${SharedFolderMounts.MAX_MOUNTS} 个共享文件夹")
+        }
+        val normalized = SharedFolderMounts.normalizeSourcePath(source) ?: source
+        val readOnly = args.optBoolean("readonly", true)
+        val updated = current + SharedFolderMount(name = name, sourcePath = normalized, readOnly = readOnly)
+        if (!SharedFolderMounts.save(updated)) {
+            return errorResult("SAVE_FAILED", "写入共享文件夹配置失败")
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "share_folder")
+            .put("action", "add")
+            .put("name", name)
+            .put("source", normalized)
+            .put("readonly", readOnly)
+            .put("mount_point", "${SharedFolderMounts.LINUX_MOUNTS_ROOT}/$name")
+            .put("hint", "下一条 Linux 命令即可看到该目录。")
+            .toString()
+    }
+
+    private fun shareFolderRemove(args: JSONObject, current: List<SharedFolderMount>): String {
+        val name = args.optString("name").trim()
+        val target = current.firstOrNull { it.name == name }
+            ?: return errorResult("NOT_FOUND", "没有名为 $name 的共享文件夹")
+        val updated = current.filterNot { it.name == name }
+        if (!SharedFolderMounts.save(updated)) {
+            return errorResult("SAVE_FAILED", "写入共享文件夹配置失败")
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "share_folder")
+            .put("action", "remove")
+            .put("name", target.name)
+            .put("source", target.sourcePath)
+            .put("remaining", updated.size)
+            .toString()
+    }
+
+    /** /data/data 下只放行 Eta 自己的目录，避免把别的应用私有数据暴露给 Linux 环境。 */
+    private fun allowedSharedDataRoots(): List<String> {
+        val packageName = runCatching { context.packageName }.getOrNull().orEmpty()
+        return if (packageName.isBlank()) emptyList() else listOf("/data/data/$packageName")
     }
 
     private fun searchApps(args: JSONObject): String {

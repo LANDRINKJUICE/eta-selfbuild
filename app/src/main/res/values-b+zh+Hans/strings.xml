@@ -117,6 +117,7 @@
   <string name="shared_folders_add">添加共享文件夹</string>
   <string name="shared_folders_mount_point">挂载点：%1$s</string>
   <string name="shared_folders_source_missing">源目录不存在</string>
+  <string name="shared_folders_readonly">只读</string>
   <string name="shared_folders_remove_title">移除共享文件夹</string>
   <string name="shared_folders_remove_message">移除“%1$s”（%2$s）？源目录中的文件不会被删除。</string>
   <string name="shared_folders_picker_title">添加共享文件夹</string>

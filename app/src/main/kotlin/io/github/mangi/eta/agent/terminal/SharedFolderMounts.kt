@@ -5,10 +5,12 @@ import io.github.mangi.eta.config.Prefs
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 一条共享文件夹配置：Android 侧目录 [sourcePath] 在 Linux 环境中出现在 /workspace/mounts/[name]。 */
+/** 一条共享文件夹配置：Android 侧目录 [sourcePath] 在 Linux 环境中出现在 /workspace/mounts/[name]。
+ * [readOnly] 为真时挂载后 remount 成只读，Linux 环境里改不动源目录。 */
 internal data class SharedFolderMount(
     val name: String,
     val sourcePath: String,
+    val readOnly: Boolean = false,
 )
 
 /**
@@ -83,11 +85,20 @@ internal object SharedFolderMounts {
         sourcePath: String,
         existing: List<SharedFolderMount>,
         extraForbiddenRoots: List<String> = emptyList(),
+        allowedDataRoots: List<String> = emptyList(),
     ): SourceError? {
         val normalized = normalizeSourcePath(sourcePath) ?: return SourceError.INVALID_PATH
         val forbidden = FORBIDDEN_ROOTS + extraForbiddenRoots.mapNotNull(::normalizeSourcePath)
         if (forbidden.any { normalized == it || normalized.startsWith("$it/") }) {
             return SourceError.FORBIDDEN_ROOT
+        }
+        // /data/data 下只放行明确列出的应用目录（默认只有 Eta 自己），
+        // 避免把其他应用的私有数据（聊天库、密码库）暴露给 Linux 环境。
+        if (normalized == "/data/data" || normalized.startsWith("/data/data/")) {
+            val allowed = allowedDataRoots.mapNotNull(::normalizeSourcePath)
+            if (allowed.none { normalized == it || normalized.startsWith("$it/") }) {
+                return SourceError.FORBIDDEN_ROOT
+            }
         }
         if (existing.any { it.sourcePath == normalized }) return SourceError.DUPLICATE
         return null
@@ -117,6 +128,7 @@ internal object SharedFolderMounts {
                 JSONObject()
                     .put("name", mount.name)
                     .put("source", mount.sourcePath)
+                    .apply { if (mount.readOnly) put("ro", true) }
             )
         }
         return array.toString()
@@ -133,7 +145,11 @@ internal object SharedFolderMounts {
             val source = normalizeSourcePath(item.optString("source")) ?: continue
             if (!NAME_PATTERN.matches(name) || name == "." || name == "..") continue
             if (mounts.any { it.name == name || it.sourcePath == source }) continue
-            mounts += SharedFolderMount(name = name, sourcePath = source)
+            mounts += SharedFolderMount(
+                name = name,
+                sourcePath = source,
+                readOnly = item.optBoolean("ro", false),
+            )
         }
         return mounts.take(MAX_MOUNTS)
     }

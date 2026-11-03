@@ -56,6 +56,30 @@ class SharedFolderMountsTest {
     }
 
     @Test
+    fun validateSourceRestrictsDataDataToAllowedRoots() {
+        val existing = emptyList<SharedFolderMount>()
+        val allowed = listOf("/data/data/com.example.app")
+        // 未给白名单时 /data/data 整棵与任意应用目录都拒绝。
+        assertEquals(
+            SharedFolderMounts.SourceError.FORBIDDEN_ROOT,
+            SharedFolderMounts.validateSource("/data/data", existing),
+        )
+        assertEquals(
+            SharedFolderMounts.SourceError.FORBIDDEN_ROOT,
+            SharedFolderMounts.validateSource("/data/data/com.other.app/files", existing),
+        )
+        // 给了白名单后只放行该应用自身目录及其子目录。
+        assertNull(SharedFolderMounts.validateSource("/data/data/com.example.app/files", existing, allowedDataRoots = allowed))
+        assertNull(SharedFolderMounts.validateSource("/data/data/com.example.app", existing, allowedDataRoots = allowed))
+        assertEquals(
+            SharedFolderMounts.SourceError.FORBIDDEN_ROOT,
+            SharedFolderMounts.validateSource("/data/data/com.other.app/files", existing, allowedDataRoots = allowed),
+        )
+        // 白名单不影响公共存储与 /data/data 之外的路径。
+        assertNull(SharedFolderMounts.validateSource("/data/local/tmp/other", existing, allowedDataRoots = allowed))
+    }
+
+    @Test
     fun validateNameRejectsUnsafeNamesAndDuplicates() {
         val existing = listOf(SharedFolderMount(name = "dl", sourcePath = "/sdcard/Download"))
         assertEquals(SharedFolderMounts.NameError.INVALID, SharedFolderMounts.validateName("", existing))
@@ -84,6 +108,7 @@ class SharedFolderMountsTest {
         val mounts = listOf(
             SharedFolderMount(name = "dl", sourcePath = "/sdcard/Download"),
             SharedFolderMount(name = "app", sourcePath = "/data/data/com.example.app/files"),
+            SharedFolderMount(name = "ro", sourcePath = "/data/data/com.example.app/databases", readOnly = true),
         )
         val decoded = SharedFolderMounts.decode(SharedFolderMounts.encode(mounts))
         assertEquals(mounts, decoded)
@@ -129,12 +154,28 @@ class SharedFolderMountsTest {
         // 整个 inner script 被 shellQuote 包裹，挂载源路径两侧的单引号会被转义；按无引号片段断言。
         assertTrue(payload.contains("/sdcard/Download"))
         assertTrue(payload.contains("/data/data/com.example.app/files"))
-        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/dl\" bind"))
-        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/app\" bind"))
+        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/dl\" rw"))
+        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/app\" rw"))
         // 共享挂载必须在 workspace bind 之后执行，目标路径才落在已挂载的 workspace 上。
         val workspaceBind = payload.indexOf("eta_mount_required /data/local/tmp/eta")
         val sharedMount = payload.indexOf("workspace/mounts/dl")
         assertTrue(workspaceBind >= 0 && sharedMount > workspaceBind)
+    }
+
+    @Test
+    fun linuxPayloadMarksReadOnlyMounts() {
+        val supervisor = ShellProcessSupervisor()
+        val payload = supervisor.buildLinuxPayload(
+            rootfsPath = "/data/user/0/app/files/terminal/alpine/rootfs",
+            command = "ls",
+            sharedMounts = listOf(
+                SharedFolderMount(name = "db", sourcePath = "/data/data/com.example.app/databases", readOnly = true),
+                SharedFolderMount(name = "dl", sourcePath = "/sdcard/Download", readOnly = false),
+            ),
+        )
+        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/db\" ro"))
+        assertTrue(payload.contains("\$eta_rootfs/workspace/mounts/dl\" rw"))
+        assertTrue(payload.contains("remount,bind,ro"))
     }
 
     @Test

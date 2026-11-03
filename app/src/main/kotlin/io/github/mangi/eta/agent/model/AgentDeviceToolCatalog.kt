@@ -145,6 +145,22 @@ internal object AgentDeviceToolCatalog {
             )
             .put(
                 function(
+                    "share_folder",
+                    "管理 Linux 环境的共享文件夹：把 Android 目录挂到 /workspace/mounts/<name>。" +
+                        "action=list 查看；add 需要 name 与 source；remove 只需 name。" +
+                        "readonly 默认 true，只读在 chroot 后端生效（proot 后端无法只读）。" +
+                        "禁止 /、/proc、/sys、/dev、/system、/vendor、/apex、/product 与工作区自身；" +
+                        "/data/data 下只允许 Eta 自己的包目录。配置对下一条命令生效，无需重启。",
+                    properties(
+                        "action" to string("list / add / remove", 16),
+                        "name" to string("挂载名，字母数字点下划线连字符，最多 48", 48),
+                        "source" to string("Android 侧绝对路径", 1024),
+                        "readonly" to boolean("是否只读挂载，默认 true"),
+                    ),
+                ),
+            )
+            .put(
+                function(
                     "recent_app_activity",
                     "读取最近打开应用的时间顺序，需要系统使用情况访问权。",
                     properties(
