@@ -3,12 +3,10 @@ package io.github.mangi.eta.ui.screens.scheduled
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.width
 import top.yukonga.miuix.kmp.basic.Switch
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import io.github.mangi.eta.agent.schedule.ScheduledTaskReceiver
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,8 +49,11 @@ import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import io.github.mangi.eta.ui.components.EtaArrowPreference
+import io.github.mangi.eta.ui.components.EtaSwitch
+import io.github.mangi.eta.ui.components.EtaPreferenceRow
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
-import io.github.mangi.eta.ui.components.EtaSwitchPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.EtaPreferenceIcon
 import io.github.mangi.eta.ui.components.EtaRadioButtonPreference
@@ -108,6 +109,8 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     var editing by remember { mutableStateOf<ScheduledTask?>(null) }
     var pendingDelete by remember { mutableStateOf<ScheduledTask?>(null) }
     var runs by remember { mutableStateOf(emptyList<ScheduledRunLog.Record>()) }
+    /** 已展开执行历史的任务 id；默认全部折叠。 */
+    var expandedHistory by remember { mutableStateOf<Set<String>>(emptySet()) }
     /** 长按弹菜单的任务；极简版把编辑/历史/删除都收进这里。 */
     var longPressTask by remember { mutableStateOf<ScheduledTask?>(null) }
     // 用量卡片：打开页面时读一次本地库；不联网、不调模型，所以没有轮询的必要。
@@ -190,16 +193,14 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
             tasks.forEach { task ->
                 item(key = "scheduled_task_${task.id}") {
                     val latest = latestRunOf(task)
-                    // 完全按作者的 EtaPreference 体系来：
-                    //   1) EtaSwitchPreference（原生行）承载「任务名 + 时间 + 开关」，带左侧图标
-                    //   2) 下面**常驻**一组执行历史（原生 EtaPreference 行），不再收进弹窗
-                    // 之前我手写 Row+Switch 导致间距失衡、也没有图标，所以看着"简陋"。
                     EtaPreferenceGroup {
-                        EtaSwitchPreference(
+                        // 为什么不用 EtaSwitchPreference：它内部用 Modifier.toggleable 接管了整行点击，
+                        // 我在外面加的 combinedClickable 会被覆盖 —— 长按菜单因此完全失效（用户实测）。
+                        // 改用 EtaPreferenceRow + endActions 放开关：开关只占右侧开关本身，
+                        // 左边整行归我控制，点=编辑、长按=菜单，两个都不丢。
+                        EtaPreferenceRow(
                             title = taskSummaryText(task),
                             summary = ScheduledTaskSchedule.describe(task),
-                            checked = task.enabled,
-                            onCheckedChange = { checked -> persist(task.copy(enabled = checked)) },
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.Schedule,
@@ -207,36 +208,60 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                             },
-                        )
-
-                        // 最近一次结果：用原生行 + 图标，成功绿 / 失败红。
-                        EtaPreferenceDivider()
-                        EtaPreference(
-                            title = stringResource(R.string.scheduled_tasks_history_title),
-                            summary = runSummaryText(latest),
-                            startAction = {
-                                EtaPreferenceIcon(
-                                    icon = if (latest?.ok == false) Icons.Rounded.ErrorOutline
-                                    else Icons.Rounded.History,
-                                    tint = if (latest?.ok == false) MiuixTheme.colorScheme.error
-                                    else EtaPreferenceColors.Green,
+                            interaction = Modifier.combinedClickable(
+                                onClick = {
+                                    editing = task
+                                    showEditor = true
+                                },
+                                onLongClick = { longPressTask = task },
+                            ),
+                            endActions = {
+                                EtaSwitch(
+                                    checked = task.enabled,
+                                    onCheckedChange = { checked -> persist(task.copy(enabled = checked)) },
+                                    enabled = true,
                                 )
                             },
                         )
 
-                        // 执行历史常驻展开（最近 5 次），不再点开弹窗
-                        runs.filter { it.taskId == task.id }.take(5).forEach { record ->
+                        // 历史默认折叠：只显示最近 1 条（就是"最近执行"），
+                        // 点「展开」才看更多。任务一多时不会一屏全是历史。
+                        if (expandedHistory.contains(task.id)) {
+                            runs.filter { it.taskId == task.id }.take(5).forEach { record ->
+                                EtaPreferenceDivider()
+                                EtaPreference(
+                                    title = runTimeText(record),
+                                    summary = record.message.ifBlank { if (record.ok) "成功" else "失败" },
+                                    startAction = {
+                                        EtaPreferenceIcon(
+                                            icon = if (record.ok) Icons.Rounded.CheckCircle
+                                            else Icons.Rounded.ErrorOutline,
+                                            tint = if (record.ok) EtaPreferenceColors.Green
+                                            else MiuixTheme.colorScheme.error,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+
+                        // 展开/收起：只有真有历史时才显示
+                        val total = runs.count { it.taskId == task.id }
+                        if (total > 0) {
                             EtaPreferenceDivider()
-                            EtaPreference(
-                                title = runTimeText(record),
-                                summary = record.message.ifBlank { if (record.ok) "成功" else "失败" },
+                            EtaArrowPreference(
+                                title = if (expandedHistory.contains(task.id)) "收起执行历史" else "展开执行历史（$total 条）",
                                 startAction = {
                                     EtaPreferenceIcon(
-                                        icon = if (record.ok) Icons.Rounded.CheckCircle
-                                        else Icons.Rounded.ErrorOutline,
-                                        tint = if (record.ok) EtaPreferenceColors.Green
-                                        else MiuixTheme.colorScheme.error,
+                                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
+                                },
+                                onClick = {
+                                    expandedHistory = if (expandedHistory.contains(task.id)) {
+                                        expandedHistory - task.id
+                                    } else {
+                                        expandedHistory + task.id
+                                    }
                                 },
                             )
                         }

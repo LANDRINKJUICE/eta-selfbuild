@@ -5,7 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,14 +42,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.InsertDriveFile
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.runtime.Composable
@@ -73,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.agent.files.FileManagerOps
 import io.github.mangi.eta.agent.files.FilePathRisk
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
+import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaTextButton
 import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
@@ -615,7 +610,7 @@ internal fun FileManagerScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 TextField(
                     value = editorText,
                     onValueChange = {
@@ -631,7 +626,7 @@ internal fun FileManagerScreen(
                         fontSize = 13.sp,
                     ),
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EtaTextButton(text = "关闭", onClick = { editorPath = null })
                     if (pickMode) {
@@ -736,6 +731,13 @@ internal fun FileManagerScreen(
                             goToInput = left.path
                             showGoTo = true
                         },
+                        onUp = { parentOf(left.path)?.let { load(left, it) } },
+                        onRetry = { load(left, left.path, recordHistory = false) },
+                        onNew = {
+                            activeIsLeft = true
+                            newNameInput = ""
+                            showNewFolder = true
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     if (dualPane) {
@@ -775,6 +777,13 @@ internal fun FileManagerScreen(
                                 activeIsLeft = false
                                 goToInput = right.path
                                 showGoTo = true
+                            },
+                            onUp = { parentOf(right.path)?.let { load(right, it) } },
+                            onRetry = { load(right, right.path, recordHistory = false) },
+                            onNew = {
+                                activeIsLeft = false
+                                newNameInput = ""
+                                showNewFolder = true
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -1484,6 +1493,9 @@ private fun PaneView(
     onTap: (FileManagerOps.Entry) -> Unit,
     onLongPress: (FileManagerOps.Entry) -> Unit,
     onGoPath: () -> Unit,
+    onUp: () -> Unit,
+    onRetry: () -> Unit,
+    onNew: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -1506,7 +1518,7 @@ private fun PaneView(
                     if (isActive) MiuixTheme.colorScheme.surfaceContainer
                     else MiuixTheme.colorScheme.surfaceContainerHigh
                 )
-                .padding(start = 10.dp, end = 4.dp),
+                .padding(start = EtaPreferenceDefaults.SidePadding, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1533,13 +1545,43 @@ private fun PaneView(
 
         // 列表必须 weight(1f) 占满剩余高度：以前用 fillMaxSize()，路径行从两行改成一行后，
         // 空目录那条 Text 不占高度，列表又按整屏高排布，路径行下面就会空出一大块。
-        if (!pane.loading && pane.listing?.ok == true && entries.isEmpty()) {
-            Text(
-                text = if (showHidden) "（空目录）" else "（空目录，或只有隐藏文件）",
-                style = MiuixTheme.textStyles.subtitle,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(12.dp),
-            )
+        // 三种情况都走这个分支：读取失败、读到空、加载完成但没内容。
+        // 原来的条件是 `ok == true && entries.isEmpty()`，读取失败时（ok=false）
+        // 会掉进下面的 LazyColumn 显示一片空白 —— 用户以为目录是空的。
+        if (!pane.loading && (pane.listing?.ok == false || entries.isEmpty())) {
+            // 空状态要给"下一步动作"，不能只是一行灰字（设计规范：empty state 需带 action）。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 区分三种情况，别把"读不到"说成"空目录"（会误导用户去新建文件夹）。
+                val failed = pane.listing?.ok == false
+                Text(
+                    text = when {
+                        failed -> pane.listing?.error.orEmpty().ifBlank { "读取失败" }
+                        showHidden -> "空目录"
+                        else -> "空目录（可能只有隐藏文件）"
+                    },
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = if (failed) MiuixTheme.colorScheme.error
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(12.dp))
+                if (failed) {
+                    // 读失败给"重试"，不是"新建" —— 新建救不了权限问题
+                    EtaTextButton(
+                        text = "重试",
+                        onClick = { onRetry() },
+                    )
+                } else {
+                    EtaTextButton(
+                        text = "新建文件夹",
+                        onClick = { onNew() },
+                    )
+                }
+            }
         } else {
             LazyColumn(
                 state = listState,
@@ -1547,6 +1589,39 @@ private fun PaneView(
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
+                // MT 的列表第一项是「..」：点一下回上一层。
+                // 放成列表项而不是工具栏按钮，因为进深层目录后它永远在视野顶部，
+                // 手指不用移到屏幕底部（MT 就是这样）。
+                // 在组件内部自己算上级路径（parentOf 是外层 Composable 的局部函数，这里访问不到）。
+                // 根目录时返回 null，不显示「..」。
+                val parent = pane.path.trimEnd('/').let { p ->
+                    if (p.isEmpty() || p == "/") null else p.substringBeforeLast('/', "/")
+                }.takeIf { it != pane.path.trimEnd('/') }
+                if (parent != null) {
+                    item(key = "__parent__") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                                .clickable { onUp() }
+                                .padding(start = EtaPreferenceDefaults.SidePadding, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Folder,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = MiuixTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "..",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
                 items(entries, key = { it.path }) { entry ->
                     FileRow(
                         entry = entry,
@@ -1590,7 +1665,7 @@ private fun FileRow(
                 else androidx.compose.ui.graphics.Color.Transparent
             )
             .heightIn(min = 56.dp)
-            .padding(start = 8.dp, end = 4.dp),
+            .padding(start = EtaPreferenceDefaults.SidePadding, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selectMode) {
@@ -1600,7 +1675,7 @@ private fun FileRow(
                 color = if (selected) MiuixTheme.colorScheme.primary
                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(8.dp))
         }
         Icon(
             imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.AutoMirrored.Rounded.InsertDriveFile,
@@ -1705,7 +1780,9 @@ private fun ToolButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, minWidth = 44.dp, minHeight = 44.dp) {
+        // Android 触控目标规范是 48dp（iOS 才是 44pt）——
+    // 这条是装了 ui-ux-pro-max 技能后用它的规则查出来的：我原来写 44dp，偏小。
+    IconButton(onClick = onClick, enabled = enabled, minWidth = 48.dp, minHeight = 48.dp) {
         Icon(
             imageVector = icon,
             contentDescription = label,
