@@ -2283,15 +2283,20 @@ class AgentAccessibilityService : AccessibilityService() {
         val nodes: List<UiNode> = indexedNodes.map(IndexedNode::toUiNode)
 
         internal fun hasUnambiguousIdentity(target: IndexedNode): Boolean {
-            if (!target.hasStrongIdentity()) return false
-            val hasUniqueId = target.uniqueId.isNotBlank()
-            val matches = if (hasUniqueId) {
-                indexedNodes.count { candidate -> candidate.uniqueId == target.uniqueId }
-            } else {
-                indexedNodes.count(target::sameSemanticIdentity)
+            if (!target.hasRelocationIdentity()) return false
+            // viewId 来自 Compose testTag，是跨重组稳定的身份；uniqueId 次之，语义指纹最后。
+            // 之前这里只看 uniqueId/text/desc，而 Compose 偏好行的文字在子节点上、自身 text 为空，
+            // 于是「内容变了」一律判 STALE_CONTENT —— 加 testTag 就是为了让这里能认出同一行。
+            val hasStableId = target.uniqueId.isNotBlank() || target.viewId.isNotBlank()
+            val matches = when {
+                target.uniqueId.isNotBlank() ->
+                    indexedNodes.count { candidate -> candidate.uniqueId == target.uniqueId }
+                target.viewId.isNotBlank() ->
+                    indexedNodes.count { candidate -> candidate.viewId == target.viewId }
+                else -> indexedNodes.count(target::sameSemanticIdentity)
             }
             return AccessibilityIdentityFreshnessPolicy.canBypassContentChange(
-                hasUniqueId = hasUniqueId,
+                hasUniqueId = hasStableId,
                 snapshotTruncated = truncated,
                 identityMatchCount = matches,
             )
