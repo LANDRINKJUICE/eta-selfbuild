@@ -26,6 +26,30 @@ internal object ScheduledTaskScheduler {
     /** 固定基址 + id 哈希，保证同一任务始终复用同一个 PendingIntent（重复注册即覆盖，不会堆积）。 */
     private const val REQUEST_CODE_BASE = 0x5C4E0000
 
+    /**
+     * 历代用过、现在已经不存在的任务 id。
+     *
+     * 为什么必须记着它们：`cancelAll` 只能按「当前任务列表」里的 id 取消，
+     * 而 PendingIntent 的 requestCode = BASE + taskId.hashCode()。
+     * 一旦任务 id 改名（例如 eta-device-1230 → eta-device-mon1230），
+     * 旧 id 的闹钟就再也找不到人取消，会一直留在系统里每天多跑一次。
+     *
+     * 实测（2026-11-03）：把 9 个任务规整成 7 个并改了 4 个 id 之后，
+     * 闹钟数变成 14（7 新 + 7 孤儿），而且孤儿还按旧的 daily 语义在跑。
+     *
+     * 维护规则：以后只要「删任务」或「改任务 id」，就把旧 id 加到这里，
+     * 让下一次 rescheduleAll 顺手清掉。
+     */
+    private val LEGACY_TASK_IDS = listOf(
+        "eta-device-1230",
+        "eta-perm-0900",
+        "eta-selfcheck-1400",
+        "eta-backup-2200",
+        "eta-clean-2330",
+        "eta-memory-2300",
+        "eta-weekcheck-2345",
+    )
+
     fun rescheduleAll(context: Context) {
         val appContext = context.applicationContext
         // 首次启用（或清数据后）灌一套默认任务，否则新装的人是"一个任务都没有"的空白状态。
