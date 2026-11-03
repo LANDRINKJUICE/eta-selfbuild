@@ -151,6 +151,10 @@ internal object ScheduledTaskSchedule {
 
     /** 周期的人类可读描述（用于通知副标题与列表）。 */
     fun describe(task: ScheduledTask): String {
+        // 只对「每天定时」有意义。事件型任务没有时刻，硬拼 hour/minute 会得到
+        // 「每天 00:00」这种误导文案（2026-11-04 真机可见：一条「收到含签到的通知就处理」
+        // 被标成每天零点）。事件型这里兜底给触发条件，正常界面由 UI 层用字符串资源渲染。
+        if (!task.trigger.usesAlarm) return task.triggerSummary().text
         val time = String.format(java.util.Locale.US, "%02d:%02d", task.hour, task.minute)
         return when (task.repeat) {
             ScheduledRepeat.DAILY -> "每天 $time"

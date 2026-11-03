@@ -89,7 +89,18 @@ private const val DefaultHour = 9
 private const val DefaultMinute = 0
 
 /** 按「几点几分」排序，列表顺序与用户的一天一致。 */
-private val TaskOrder: Comparator<ScheduledTask> = compareBy({ it.hour }, { it.minute })
+/**
+ * 列表顺序：**定时任务在前，事件型任务在后**，各自内部稳定排序。
+ *
+ * 曾经只按 hour/minute 排 —— 事件型任务的 hour/minute 恒为 0，于是所有
+ * 「收到就处理」都挤到最前面，把真正的定时任务压到下面（2026-11-04 真机可见）。
+ */
+private val TaskOrder: Comparator<ScheduledTask> = compareBy(
+    { if (it.trigger.usesAlarm) 0 else 1 },
+    { it.hour },
+    { it.minute },
+    { it.keyword },
+)
 
 /**
  * 编辑弹窗内容区的最高高度。
@@ -243,19 +254,33 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                                 EtaTextButton(
                                     text = stringResource(R.string.scheduled_suggestion_use),
                                     onClick = {
-                                        // 采用 = 落盘 + 注册闹钟 + 从建议里移除，同一条不会再出现。
-                                        persist(
-                                            ScheduledTask(
-                                                id = ScheduledTaskStore.newId(),
-                                                trigger = suggestion.trigger,
-                                                action = ScheduledActionKind.CUSTOM_PROMPT,
-                                                enabled = true,
-                                                hour = suggestion.hour,
-                                                minute = suggestion.minute,
-                                                keyword = suggestion.keyword,
-                                                prompt = prompt,
-                                            ),
-                                        )
+                                        // 采用 = 落盘 + 注册闹钟 + 从建议里移除。
+                                        // **幂等**：已经有同形的任务就不再创建 —— 连点两下、或退出重进后
+                                        // 建议又出现时，都会重复添加（2026-11-04 真机上出现 3 组重复任务）。
+                                        val duplicated = tasks.any { existing ->
+                                            existing.trigger == suggestion.trigger && if (
+                                                suggestion.trigger == ScheduledTrigger.NOTIFICATION_MATCH
+                                            ) {
+                                                existing.keyword.equals(suggestion.keyword, ignoreCase = true)
+                                            } else {
+                                                existing.hour == suggestion.hour &&
+                                                    existing.minute == suggestion.minute
+                                            }
+                                        }
+                                        if (!duplicated) {
+                                            persist(
+                                                ScheduledTask(
+                                                    id = ScheduledTaskStore.newId(),
+                                                    trigger = suggestion.trigger,
+                                                    action = ScheduledActionKind.CUSTOM_PROMPT,
+                                                    enabled = true,
+                                                    hour = suggestion.hour,
+                                                    minute = suggestion.minute,
+                                                    keyword = suggestion.keyword,
+                                                    prompt = prompt,
+                                                ),
+                                            )
+                                        }
                                         suggestions = suggestions.filterNot { it.id == suggestion.id }
                                     },
                                     colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -298,7 +323,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         // 左边整行归我控制，点=编辑、长按=菜单，两个都不丢。
                         EtaPreferenceRow(
                             title = taskSummaryText(task),
-                            summary = ScheduledTaskSchedule.describe(task),
+                            summary = taskTriggerText(task),
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.Schedule,
@@ -457,7 +482,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
         EtaWindowDialog(
             show = true,
             title = stringResource(R.string.scheduled_tasks_delete),
-            summary = stringResource(R.string.scheduled_tasks_delete_confirm, taskTimeText(deleteTarget)),
+            summary = stringResource(R.string.scheduled_tasks_delete_confirm, taskTriggerText(deleteTarget)),
             onDismissRequest = { pendingDelete = null },
         ) {
             MiuixDialogActions(
@@ -638,12 +663,17 @@ private fun ScheduleEditorDialog(
                         ScheduledTask(
                             id = task?.id ?: ScheduledTaskStore.newId(),
                             // 当前界面只做「每天定时」；事件型任务的编辑入口下一版补 UI。
+                            // 但**必须原样带回 trigger / keyword / threshold**：漏了 keyword
+                            // 会把「通知含签到」存成「通知含空串」，matchesEvent 里 keyword
+                            // 为空直接返回 false，任务从此永不触发（2026-11-04 发现）。
                             trigger = task?.trigger ?: ScheduledTrigger.DAILY_TIME,
                             hour = hour,
                             minute = minute,
                             action = action,
                             enabled = task?.enabled ?: true,
                             lastRunAtMillis = task?.lastRunAtMillis,
+                            keyword = task?.keyword ?: "",
+                            threshold = task?.threshold ?: 20,
                             prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
                             repeat = repeat,
                             dayOfWeek = dayOfWeek,
@@ -715,6 +745,29 @@ private fun runTimeText(record: ScheduledRunLog.Record): String {
 
 /** HH:mm；不用 String.format，避免跟随系统 Locale 出现阿拉伯数字变体。 */
 private fun taskTimeText(task: ScheduledTask): String = ScheduledTaskSchedule.describe(task)
+
+/**
+ * 卡片副标题：**按触发条件给文案，不是一律「每天 HH:mm」**。
+ *
+ * `ScheduledTaskSchedule.describe()` 只认识「每天几点」，对事件型任务会拼出
+ * 「每天 00:00」——用户看到一条「收到含签到的通知就处理」却标着每天零点，
+ * 完全读不懂（2026-11-04 真机可见）。事件型的文案必须由这里用字符串资源给。
+ */
+@Composable
+private fun taskTriggerText(task: ScheduledTask): String = when (task.trigger) {
+    ScheduledTrigger.DAILY_TIME -> ScheduledTaskSchedule.describe(task)
+    ScheduledTrigger.NOTIFICATION_MATCH -> stringResource(
+        R.string.scheduled_trigger_notification_match,
+        task.keyword.ifBlank { stringResource(R.string.scheduled_tasks_keyword_any) },
+    )
+    ScheduledTrigger.POWER_CONNECTED -> stringResource(R.string.scheduled_trigger_power_connected)
+    ScheduledTrigger.POWER_DISCONNECTED -> stringResource(R.string.scheduled_trigger_power_disconnected)
+    ScheduledTrigger.BATTERY_LOW -> stringResource(R.string.scheduled_trigger_battery_low, task.threshold)
+    ScheduledTrigger.BATTERY_OK -> stringResource(R.string.scheduled_trigger_battery_ok, task.threshold)
+    ScheduledTrigger.SCREEN_UNLOCKED -> stringResource(R.string.scheduled_trigger_screen_unlocked)
+    ScheduledTrigger.WIFI_CONNECTED -> stringResource(R.string.scheduled_trigger_wifi_connected)
+    ScheduledTrigger.WIFI_DISCONNECTED -> stringResource(R.string.scheduled_trigger_wifi_disconnected)
+}
 
 /** 列表摘要：内置动作显示动作名；自定义指令显示指令内容（截断，太长会把这一行撑爆）。 */
 @Composable

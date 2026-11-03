@@ -1527,4 +1527,13 @@
     <string name="scheduled_tasks_weekday_title">Day of week</string>
     <string name="scheduled_tasks_day_of_month_title">Day of month</string>
     <string name="scheduled_tasks_interval_title">Interval</string>
+    <string name="scheduled_trigger_notification_match">When a notification contains “%1$s”</string>
+    <string name="scheduled_trigger_power_connected">When the charger is plugged in</string>
+    <string name="scheduled_trigger_power_disconnected">When the charger is unplugged</string>
+    <string name="scheduled_trigger_battery_low">When battery ≤ %1$d%%</string>
+    <string name="scheduled_trigger_battery_ok">When battery ≥ %1$d%% and charging</string>
+    <string name="scheduled_trigger_screen_unlocked">When the screen is unlocked</string>
+    <string name="scheduled_trigger_wifi_connected">When Wi-Fi connects</string>
+    <string name="scheduled_trigger_wifi_disconnected">When Wi-Fi disconnects</string>
+    <string name="scheduled_tasks_keyword_any">any notification</string>
 </resources>

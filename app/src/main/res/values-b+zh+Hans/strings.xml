@@ -1508,4 +1508,13 @@
     <string name="scheduled_tasks_weekday_title">星期几</string>
     <string name="scheduled_tasks_day_of_month_title">每月几号</string>
     <string name="scheduled_tasks_interval_title">间隔</string>
+    <string name="scheduled_trigger_notification_match">通知含「%1$s」时</string>
+    <string name="scheduled_trigger_power_connected">插入充电时</string>
+    <string name="scheduled_trigger_power_disconnected">拔掉充电时</string>
+    <string name="scheduled_trigger_battery_low">电量 ≤ %1$d%% 时</string>
+    <string name="scheduled_trigger_battery_ok">电量 ≥ %1$d%% 且充电中时</string>
+    <string name="scheduled_trigger_screen_unlocked">解锁屏幕时</string>
+    <string name="scheduled_trigger_wifi_connected">连上 Wi-Fi 时</string>
+    <string name="scheduled_trigger_wifi_disconnected">断开 Wi-Fi 时</string>
+    <string name="scheduled_tasks_keyword_any">任意通知</string>
 </resources>
