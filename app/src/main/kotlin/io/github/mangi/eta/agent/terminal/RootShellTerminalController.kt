@@ -402,7 +402,7 @@ internal class RootShellTerminalController(
         }
         val stdout = rawStdout.truncateForJson()
         val stderr = if (mergeStderr) "" else result.stderr.truncateForJson()
-        return JSONObject()
+        val json = JSONObject()
             .put("ok", result.exitCode == 0)
             .put("tool", "terminal")
             .put("action", "exec")
@@ -420,7 +420,17 @@ internal class RootShellTerminalController(
             .put("stderr_truncated", !mergeStderr && result.stderr.length > MAX_OUTPUT_CHARS)
             .put("output_truncated", rawStdout.length > MAX_OUTPUT_CHARS || (!mergeStderr && result.stderr.length > MAX_OUTPUT_CHARS))
             .put("session_closed", result.timedOut || session.closed)
-            .toString()
+        // 失败且看起来是走错环境时，直接把「该切到哪」写进结果 —— 否则 stderr 只说
+        // 「文件不存在」，我得自己想起来两个环境命名空间不通用（实测这坑踩了 6 次以上）。
+        if (result.exitCode != 0) {
+            EnvironmentPathHint.hint(session.environment.wireName, result.stderr)
+                ?.let { json.put("hint", it) }
+        } else {
+            // 退出码 0 但命令以 tail/head 收尾 —— 这个 0 可能是它们的，真实命令也许失败了。
+            // 只在「看起来成功」时提醒，失败时已有更具体的信息，不打扰。
+            PipeExitCodeHint.hint(command)?.let { json.put("hint", it) }
+        }
+        return json.toString()
     }
 
     private fun runSessionCommand(
@@ -555,7 +565,7 @@ internal class RootShellTerminalController(
         }
         val stdout = rawStdout.truncateForJson()
         val stderr = if (mergeStderr) "" else result.stderr.truncateForJson()
-        return JSONObject()
+        val json = JSONObject()
             .put("ok", result.exitCode == 0)
             .put("tool", "terminal")
             .put("action", "exec")
@@ -571,7 +581,14 @@ internal class RootShellTerminalController(
             .put("stdout_truncated", result.outputTruncated || rawStdout.length > MAX_OUTPUT_CHARS || (mergeStderr && result.stderrTruncated))
             .put("stderr_truncated", !mergeStderr && (result.stderrTruncated || result.stderr.length > MAX_OUTPUT_CHARS))
             .put("output_truncated", result.outputTruncated || result.stderrTruncated || rawStdout.length > MAX_OUTPUT_CHARS || result.stderr.length > MAX_OUTPUT_CHARS)
-            .toString()
+        // 同 execInSession：走错环境时直接给「该切到哪」。
+        if (result.exitCode != 0) {
+            EnvironmentPathHint.hint(environment.wireName, result.stderr)
+                ?.let { json.put("hint", it) }
+        } else {
+            PipeExitCodeHint.hint(command)?.let { json.put("hint", it) }
+        }
+        return json.toString()
     }
 
     fun fileTool(name: String, args: JSONObject): String {
