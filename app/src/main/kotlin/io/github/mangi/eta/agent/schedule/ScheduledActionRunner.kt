@@ -64,8 +64,8 @@ internal object ScheduledActionRunner {
         // 自我体检：跑工作区脚本、看闹钟注册、量 tmp 与负载。不需要模型，但会起 shell。
         ScheduledActionKind.SELF_CHECK -> ScheduledHealthCheck.report(context, pendingAlarmCount(context))
         // 下面四个都要跑工作区脚本，统一收在 ScheduledWorkspaceActions 里。
-        ScheduledActionKind.SNAPSHOT -> ScheduledWorkspaceActions.snapshot()
-        ScheduledActionKind.BRAIN_BACKUP -> ScheduledWorkspaceActions.brainBackup()
+        ScheduledActionKind.SNAPSHOT -> ScheduledWorkspaceActions.snapshot(context)
+        ScheduledActionKind.BRAIN_BACKUP -> ScheduledWorkspaceActions.brainBackup(context)
         ScheduledActionKind.CLEAN_TMP -> ScheduledWorkspaceActions.cleanTmp()
         ScheduledActionKind.DRIFT_CHECK -> ScheduledWorkspaceActions.driftCheck()
         // 自定义指令：交给 Agent 跑一次，结果摘要进通知。

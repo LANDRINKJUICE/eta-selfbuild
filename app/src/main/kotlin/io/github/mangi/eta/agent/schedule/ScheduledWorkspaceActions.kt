@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.schedule
 
+import android.content.Context
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -42,10 +43,10 @@ internal object ScheduledWorkspaceActions {
      * 同名文件已存在时改名成 `<日期>-<HHmm>.md`，免得同一天跑两次把上一份覆盖掉 ——
      * 快照的价值就在于「改动前后各留一张底片」，被覆盖掉就等于白拍。
      */
-    fun snapshot(): String {
+    fun snapshot(context: Context): String {
         val paths = ScheduledShell.Paths
         val script = paths.tool("sys-snapshot.sh")
-        if (!script.isFile) return ScheduledShell.missingScript(script)
+        if (!ScheduledShell.ensureScript(context, script)) return ScheduledShell.missingScript(script)
         if (!paths.analysis.isDirectory) {
             return ScheduledShell.failure("系统分析目录不存在 ${paths.analysis.absolutePath}")
         }
@@ -92,9 +93,9 @@ internal object ScheduledWorkspaceActions {
      *
      * 顺带说明：payload 里含记忆与技能，属于敏感内容，只留在本机 tmp/ 下，本动作不联网。
      */
-    fun brainBackup(): String {
+    fun brainBackup(context: Context): String {
         val script = ScheduledShell.Paths.tool("eta-brain-backup.sh")
-        if (!script.isFile) return ScheduledShell.missingScript(script)
+        if (!ScheduledShell.ensureScript(context, script)) return ScheduledShell.missingScript(script)
 
         val outcome = ScheduledShell.run(
             command = "/system/bin/sh '${script.absolutePath}' --dry-run 2>/dev/null",

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.schedule
 
+import android.content.Context
 import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.core.AndroidAgentLogger
 import java.io.File
@@ -44,6 +45,35 @@ internal object ScheduledShell {
 
     /** 一句话说明「为什么没跑」，带上工作区路径，方便用户自己去补文件。 */
     fun missingScript(script: File): String = "未执行：找不到脚本 ${script.absolutePath}"
+
+    /**
+     * 确保工作区里有这个脚本；没有就从 APK 的 assets/scripts/ 恢复一份。
+     *
+     * 为什么要内置（2026-11-03）：这四个脚本原先只存在于工作区，工作区一被清理，
+     * 定时任务里的体检/快照/备份就全部静默失效（实测技能体检报「缺脚本，跳过」，
+     * 但用户看到的是「未验证」，根本不知道要补什么）。
+     *
+     * 恢复目标是工作区而不是 cacheDir：用户可以手动跑同一份、也可以自己改；
+     * 代价是可能再次被清理，所以每次用之前都补一次，代价只有一次 isFile 判断。
+     *
+     * @return 脚本最终是否可用
+     */
+    fun ensureScript(context: Context, script: File): Boolean {
+        if (script.isFile) return true
+        return runCatching {
+            val dir = script.parentFile
+            if (dir != null && !dir.exists() && !dir.mkdirs()) return false
+            context.assets.open("scripts/${script.name}").use { input ->
+                script.outputStream().use { output -> input.copyTo(output) }
+            }
+            script.setReadable(true, false)
+            AndroidAgentLogger.warn("脚本已从 APK 恢复：${script.name} -> ${script.absolutePath}")
+            script.isFile
+        }.getOrElse { failure ->
+            AndroidAgentLogger.warn("脚本恢复失败 ${script.name}：${failure.javaClass.simpleName}")
+            false
+        }
+    }
 
     /**
      * 同步执行一条 shell 命令，返回完整结果。**不抛异常**：失败一律折成 [Outcome]，由调用方决定文案。

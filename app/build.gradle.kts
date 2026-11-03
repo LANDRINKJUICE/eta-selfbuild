@@ -48,6 +48,12 @@ android {
         }
     }
 
+    // assets 里的 .sh 是给终端直接跑的脚本，别压缩：压缩后在 APK 里 grep 不到原文，
+    // 出问题时不方便核对"包里的脚本和源码是不是同一份"。
+    androidResources {
+        noCompress += listOf("sh")
+    }
+
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {

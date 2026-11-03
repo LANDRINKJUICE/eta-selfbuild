@@ -73,14 +73,14 @@ internal object ScheduledHealthCheck {
 
     private fun collect(context: Context, pendingAlarms: Int): List<Finding> = listOf(
         directories(),
-        skillAudit(),
+        skillAudit(context),
         notificationPermission(context),
         accessibility(context),
         rootAccess(),
         exactAlarm(context),
         alarmRegistration(pendingAlarms),
         tmpSize(),
-        loadAndTemperature(),
+        loadAndTemperature(context),
         memoryStatus(context),
     )
 
@@ -104,9 +104,11 @@ internal object ScheduledHealthCheck {
 
     // ---------------------------------------------------------------- 技能体检
 
-    private fun skillAudit(): Finding {
+    private fun skillAudit(context: Context): Finding {
         val script = ScheduledShell.Paths.tool("skill-audit.sh")
-        if (!script.isFile) return Finding("技能体检", STATUS_UNKNOWN, "缺 ${script.absolutePath}，跳过")
+        if (!ScheduledShell.ensureScript(context, script)) {
+            return Finding("技能体检", STATUS_UNKNOWN, "缺 ${script.absolutePath}，且无法从 APK 恢复")
+        }
         val outcome = ScheduledShell.run(
             command = "/system/bin/sh '${script.absolutePath}' 2>&1",
             timeoutSeconds = SCRIPT_TIMEOUT_SECONDS,
@@ -204,7 +206,26 @@ internal object ScheduledHealthCheck {
             timeoutSeconds = PROBE_TIMEOUT_SECONDS,
             asRoot = true,
         )
-        if (!outcome.ok) return Finding("定时任务闹钟", STATUS_UNKNOWN, "读不到 alarm 服务：${outcome.reason}")
+        if (!outcome.ok) {
+            // grep -c 在「无匹配」时退出码是 1 —— 那是 **0 个闹钟**，不是执行失败。
+            // 之前没区分这两种情况，把 0 个直接报成「读不到 alarm 服务：退出码 1」，
+            // 这项检查因此长期给出假结果。现在：退出码 1 且 stdout 恰好是 "0" 时按 0 个处理。
+            if (outcome.exitCode == 1 && !outcome.timedOut && outcome.stdout.trim() == "0") {
+                return when {
+                    pendingAlarms == 0 -> Finding("定时任务闹钟", STATUS_OK, "没有需要注册的定时任务")
+                    else -> Finding(
+                        "定时任务闹钟",
+                        STATUS_BAD,
+                        "应有 $pendingAlarms 个，实际 0 个（进一次定时任务页会自动重建）",
+                    )
+                }
+            }
+            return Finding(
+                "定时任务闹钟",
+                STATUS_UNKNOWN,
+                "读不到 alarm 服务：${outcome.reason}（stderr=${outcome.stderr.trim().take(80)}）",
+            )
+        }
         val count = outcome.stdout.trim().toIntOrNull()
             ?: return Finding("定时任务闹钟", STATUS_UNKNOWN, "dumpsys 输出无法解析")
         return when {
@@ -242,9 +263,11 @@ internal object ScheduledHealthCheck {
 
     // ---------------------------------------------------------------- 负载与温度
 
-    private fun loadAndTemperature(): Finding {
+    private fun loadAndTemperature(context: Context): Finding {
         val script = ScheduledShell.Paths.tool("check-load.sh")
-        if (!script.isFile) return Finding("负载与温度", STATUS_UNKNOWN, "缺 ${script.absolutePath}，跳过")
+        if (!ScheduledShell.ensureScript(context, script)) {
+            return Finding("负载与温度", STATUS_UNKNOWN, "缺 ${script.absolutePath}，且无法从 APK 恢复")
+        }
         val outcome = ScheduledShell.run(
             command = "/system/bin/sh '${script.absolutePath}' 2>&1",
             timeoutSeconds = SCRIPT_TIMEOUT_SECONDS,
