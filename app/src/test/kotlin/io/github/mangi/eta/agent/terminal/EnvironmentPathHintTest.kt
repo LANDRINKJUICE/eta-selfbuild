@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.terminal
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +14,24 @@ import org.junit.Test
  */
 class EnvironmentPathHintTest {
 
+    /** 真实回填值是 "debian"/"alpine"，不是入口参数里的 "linux" —— 这里必须覆盖。 */
+    @Test
+    fun realWireNameDebianAndAlpineAreHandled() {
+        assertNotNull(
+            EnvironmentPathHint.hint(
+                "debian",
+                "cat: /data/data/io.github.mangi.eta/files/memory/MEMORY.md: No such file or directory",
+            ),
+        )
+        assertNotNull(
+            EnvironmentPathHint.hint(
+                "alpine",
+                "cat: /data/data/io.github.mangi.eta/x: No such file or directory",
+            ),
+        )
+    }
+
+    /** android 侧看 Linux 路径：两个真实值都要触发。 */
     @Test
     fun androidEnvPointingAtLinuxPathSuggestsLinux() {
         val hint = EnvironmentPathHint.hint(
@@ -26,7 +45,7 @@ class EnvironmentPathHintTest {
     @Test
     fun linuxEnvPointingAtAndroidPathSuggestsAndroid() {
         val hint = EnvironmentPathHint.hint(
-            environment = "linux",
+            environment = "debian",
             stderr = "cat: /data/data/io.github.mangi.eta/shared_prefs/x.xml: No such file or directory",
         )
 

@@ -33,21 +33,25 @@ internal object EnvironmentPathHint {
     )
 
     /**
-     * @param environment 当前执行环境（"android" / "linux"）
+     * @param environment 当前执行环境。注意这里是**结果里回填的 wireName**：
+     *   android 环境是 "android"，Linux 环境是具体发行版（"debian" / "alpine"），
+     *   不是调用参数里的 "linux"（"linux" 只是入口别名，会被映射成已安装的发行版）。
+     *   第一版按 "linux" 判断，导致 Linux 方向永远不触发 —— 单元测试用假数据测通了，
+     *   真机一跑才发现。
      * @param stderr 命令的 stderr
      * @return 给模型看的一行提示；不需要提示时返回 null
      */
     internal fun hint(environment: String, stderr: String): String? {
         if (stderr.isBlank()) return null
         val path = extractMissingPath(stderr) ?: return null
-        val env = environment.lowercase()
+        val isAndroidEnv = environment.equals("android", ignoreCase = true)
 
         return when {
-            env == "android" && isLinuxPath(path) ->
+            isAndroidEnv && isLinuxPath(path) ->
                 "路径 $path 属于 Linux 环境，当前是 android。改用 environment=\"linux\" 重试（两边的 /workspace 与 /data/local/tmp/eta 是同一物理目录）。"
 
-            env == "linux" && isAndroidPath(path) ->
-                "路径 $path 只在 Android 宿主可见，Debian chroot 里看不到。改用 environment=\"android\"，或先把它 cp 到 /workspace/tmp/ 再读。"
+            !isAndroidEnv && isAndroidPath(path) ->
+                "路径 $path 只在 Android 宿主可见，当前是 Linux 环境（${environment}）里看不到。改用 environment=\"android\"，或先把它 cp 到 /workspace/tmp/ 再读。"
 
             else -> null
         }
