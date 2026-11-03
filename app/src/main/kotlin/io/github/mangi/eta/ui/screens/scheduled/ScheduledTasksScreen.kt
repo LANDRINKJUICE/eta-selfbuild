@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +51,8 @@ import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
+import io.github.mangi.eta.ui.components.EtaPreferenceDivider
+import io.github.mangi.eta.ui.components.EtaSwitchPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.EtaPreferenceIcon
 import io.github.mangi.eta.ui.components.EtaRadioButtonPreference
@@ -106,7 +110,6 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     var runs by remember { mutableStateOf(emptyList<ScheduledRunLog.Record>()) }
     /** 长按弹菜单的任务；极简版把编辑/历史/删除都收进这里。 */
     var longPressTask by remember { mutableStateOf<ScheduledTask?>(null) }
-    var expandedTaskId by remember { mutableStateOf<String?>(null) }
     // 用量卡片：打开页面时读一次本地库；不联网、不调模型，所以没有轮询的必要。
     var usage by remember { mutableStateOf(TokenUsageSnapshot()) }
     // 与输入框上方的上下文按钮保持一致：token 数字跟随当前界面语言做数字分组。
@@ -187,57 +190,56 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
             tasks.forEach { task ->
                 item(key = "scheduled_task_${task.id}") {
                     val latest = latestRunOf(task)
-                    // 极简**两行**：
-                    //   第一行 = 任务名 + 时间            [开关]
-                    //   第二行 = 最近执行结果（小字灰）
-                    // 编辑 / 立即执行 / 删除 / 历史 收进长按菜单。
-                    // 原来是四个条目（任务行/启用/最近执行/删除）各占一行，一屏只放得下两个任务。
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {
-                                    editing = task
-                                    showEditor = true
-                                },
-                                onLongClick = { longPressTask = task },
-                            )
-                            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = taskSummaryText(task),
-                                    style = MiuixTheme.textStyles.body1,
-                                    color = if (task.enabled) MiuixTheme.colorScheme.onSurface
+                    // 完全按作者的 EtaPreference 体系来：
+                    //   1) EtaSwitchPreference（原生行）承载「任务名 + 时间 + 开关」，带左侧图标
+                    //   2) 下面**常驻**一组执行历史（原生 EtaPreference 行），不再收进弹窗
+                    // 之前我手写 Row+Switch 导致间距失衡、也没有图标，所以看着"简陋"。
+                    EtaPreferenceGroup {
+                        EtaSwitchPreference(
+                            title = taskSummaryText(task),
+                            summary = ScheduledTaskSchedule.describe(task),
+                            checked = task.enabled,
+                            onCheckedChange = { checked -> persist(task.copy(enabled = checked)) },
+                            startAction = {
+                                EtaPreferenceIcon(
+                                    icon = Icons.Rounded.Schedule,
+                                    tint = if (task.enabled) EtaPreferenceColors.Blue
                                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
-                                Text(
-                                    text = ScheduledTaskSchedule.describe(task),
-                                    style = MiuixTheme.textStyles.subtitle,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                            },
+                        )
+
+                        // 最近一次结果：用原生行 + 图标，成功绿 / 失败红。
+                        EtaPreferenceDivider()
+                        EtaPreference(
+                            title = stringResource(R.string.scheduled_tasks_history_title),
+                            summary = runSummaryText(latest),
+                            startAction = {
+                                EtaPreferenceIcon(
+                                    icon = if (latest?.ok == false) Icons.Rounded.ErrorOutline
+                                    else Icons.Rounded.History,
+                                    tint = if (latest?.ok == false) MiuixTheme.colorScheme.error
+                                    else EtaPreferenceColors.Green,
                                 )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Switch(
-                                checked = task.enabled,
-                                onCheckedChange = { checked -> persist(task.copy(enabled = checked)) },
+                            },
+                        )
+
+                        // 执行历史常驻展开（最近 5 次），不再点开弹窗
+                        runs.filter { it.taskId == task.id }.take(5).forEach { record ->
+                            EtaPreferenceDivider()
+                            EtaPreference(
+                                title = runTimeText(record),
+                                summary = record.message.ifBlank { if (record.ok) "成功" else "失败" },
+                                startAction = {
+                                    EtaPreferenceIcon(
+                                        icon = if (record.ok) Icons.Rounded.CheckCircle
+                                        else Icons.Rounded.ErrorOutline,
+                                        tint = if (record.ok) EtaPreferenceColors.Green
+                                        else MiuixTheme.colorScheme.error,
+                                    )
+                                },
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
-                        // 第二行：最近执行。定时任务最怕"静默失败"，这条必须常驻可见。
-                        Text(
-                            text = runBriefText(latest),
-                            style = MiuixTheme.textStyles.subtitle,
-                            color = if (latest?.ok == false) MiuixTheme.colorScheme.error
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
                 }
             }
@@ -286,10 +288,6 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                     editing = task
                     showEditor = true
                 }
-                TaskMenuRow("执行历史") {
-                    longPressTask = null
-                    expandedTaskId = task.id
-                }
                 TaskMenuRow("立即执行一次", enabled = task.enabled) {
                     longPressTask = null
                     // 与定时触发走同一个入口（:schedule 进程里的 ScheduledTaskReceiver），
@@ -300,7 +298,6 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                                 .putExtra(ScheduledTaskScheduler.EXTRA_TASK_ID, task.id),
                         )
                     }
-                    expandedTaskId = null
                 }
                 TaskMenuRow("删除", danger = true) {
                     longPressTask = null
@@ -316,50 +313,6 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
         }
     }
 
-    // 历史展开：极简版不再占列表空间，用弹窗显示最近 5 次
-    expandedTaskId?.let { id ->
-        val task = tasks.firstOrNull { it.id == id }
-        if (task != null) {
-            val history = runs.filter { it.taskId == id }.take(5)
-            EtaWindowDialog(
-                show = true,
-                title = "最近执行",
-                summary = taskSummaryText(task),
-                onDismissRequest = { expandedTaskId = null },
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    if (history.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.scheduled_tasks_history_empty),
-                            style = MiuixTheme.textStyles.subtitle,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-                        )
-                    }
-                    history.forEach { record ->
-                        Text(
-                            text = runTimeText(record),
-                            style = MiuixTheme.textStyles.body2,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 0.dp),
-                        )
-                        Text(
-                            text = record.message.ifBlank { if (record.ok) "成功" else "失败" },
-                            style = MiuixTheme.textStyles.subtitle,
-                            color = if (record.ok) MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            else MiuixTheme.colorScheme.error,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 8.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    MiuixDialogActions(
-                        confirmText = "关闭",
-                        onCancel = { expandedTaskId = null },
-                        onConfirm = { expandedTaskId = null },
-                    )
-                }
-            }
-        }
-    }
 
     if (showEditor) {
         ScheduleEditorDialog(
