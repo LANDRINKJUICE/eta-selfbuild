@@ -89,6 +89,35 @@ class SkillErrorJournalTest {
         assertEquals(false, "TOOL_EXECUTION_FAILED" in SkillErrorJournal.IGNORED_CODES)
     }
 
+    /** terminal 的 ok=true 只表示命令跑起来了，成败要看 exit_code。 */
+    @Test
+    fun terminalNonZeroExitCodeIsFailure() {
+        val parsed = SkillErrorJournal.parseError(
+            """{"ok":true,"exit_code":1,"stdout":"","stderr":"can't cd to /workspace"}""",
+        )
+
+        assertNotNull(parsed)
+        // 真正的线索是 stderr，不是 "failed" —— 实测旧版只记 code，11 条记录全是废话。
+        assertEquals("can't cd to /workspace", parsed!!.second)
+    }
+
+    @Test
+    fun terminalZeroExitCodeIsSuccess() {
+        assertNull(SkillErrorJournal.parseError("""{"ok":true,"exit_code":0,"stdout":"ok","stderr":""}"""))
+    }
+
+    /** stderr 优先于 message：terminal 的 message 经常只是重复 code。 */
+    @Test
+    fun stderrTakesPrecedenceOverMessage() {
+        val parsed = SkillErrorJournal.parseError(
+            """{"ok":false,"code":"failed","message":"failed","stderr":"ls: /x: No such file or directory"}""",
+        )
+
+        assertNotNull(parsed)
+        assertEquals("failed", parsed!!.first)
+        assertEquals("ls: /x: No such file or directory", parsed.second)
+    }
+
     @Test
     fun malformedJsonReturnsNull() {
         assertNull(SkillErrorJournal.parseError("""{"ok":false,"code":"""))

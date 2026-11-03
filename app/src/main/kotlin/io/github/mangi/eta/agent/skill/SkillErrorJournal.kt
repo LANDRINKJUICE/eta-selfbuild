@@ -51,6 +51,9 @@ internal object SkillErrorJournal {
     private const val ERROR_FIELD = "error"
     private const val ERROR_MESSAGE_FIELD = "error_message"
     private const val STATUS_FIELD = "status"
+    /** terminal 类工具把真正的失败原因放在这里 */
+    private const val STDERR_FIELD = "stderr"
+    private const val EXIT_CODE_FIELD = "exit_code"
 
     private val lastLoggedAt = HashMap<String, Long>()
     private val writeLock = Any()
@@ -130,7 +133,12 @@ internal object SkillErrorJournal {
         if (trimmed.length > MAX_PARSE_CHARS) return null
         return runCatching {
             val json = org.json.JSONObject(trimmed)
-            if (json.optBoolean(OK_FIELD, true)) return null
+            if (json.optBoolean(OK_FIELD, true)) {
+                // terminal 的语义是 ok=true 表示「命令跑起来了」，成不成要看 exit_code。
+                // 之前只看 ok，导致「cd 到不存在的目录」这类失败完全记不进来（实测漏了 11 条）。
+                val exitCode = json.optInt(EXIT_CODE_FIELD, 0)
+                if (exitCode == 0) return null
+            }
             // 错误码优先取顶层的 code；取不到就用原始 envelope 的 code（如 terminal 用 tool/action 定位），
             // 都没有时才用 UNKNOWN —— 全塞 UNKNOWN 的话这条记录没有诊断价值。
             val code = json.optString(CODE_FIELD)
@@ -138,9 +146,15 @@ internal object SkillErrorJournal {
                 .ifBlank { json.optString(STATUS_FIELD) }
                 .ifBlank { "UNKNOWN" }
             // 消息绝不 fallback 到整段 JSON：实测那样会把几 KB 原始 envelope 抄进日志，把文件搞脏。
-            val message = json.optString(MESSAGE_FIELD)
-                .ifBlank { json.optString(ERROR_MESSAGE_FIELD) }
-                .ifBlank { code }
+            // 优先取 stderr —— terminal 类工具失败时真正的线索在这里（「can't cd to /workspace」
+            // 这类），只记 code 会得到一串毫无用处的 "failed"（实测 15 条记录里 11 条是这样）。
+            val stderr = json.optString(STDERR_FIELD).trim()
+            val message = when {
+                stderr.isNotBlank() -> stderr
+                json.optString(MESSAGE_FIELD).isNotBlank() -> json.optString(MESSAGE_FIELD)
+                json.optString(ERROR_MESSAGE_FIELD).isNotBlank() -> json.optString(ERROR_MESSAGE_FIELD)
+                else -> code
+            }
             code to message.replace(Regex("\\s+"), " ").take(MAX_MESSAGE_CHARS)
         }.getOrNull()
     }
