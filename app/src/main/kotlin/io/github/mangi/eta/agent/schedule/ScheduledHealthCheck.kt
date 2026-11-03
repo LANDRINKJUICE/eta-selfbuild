@@ -33,7 +33,10 @@ internal object ScheduledHealthCheck {
     private const val STATUS_UNKNOWN = "未验证"
 
     private const val MAX_NOTIFICATION_CHARS = 360
-    private const val SCRIPT_TIMEOUT_SECONDS = 30L
+    // 脚本类探针的超时。实测 skill-audit.sh 在本机 root 下约 17 秒跑完，
+    // 而 :schedule 进程冷启动时会明显更慢，30 秒会卡在边界上导致误报"超时"。
+    // 放宽到 90 秒：自检是低频任务，多等一会儿比误报异常好。
+    private const val SCRIPT_TIMEOUT_SECONDS = 90L
     private const val PROBE_TIMEOUT_SECONDS = 15L
 
     /** 超过这个体积就提醒用户收 tmp。 */
@@ -191,8 +194,13 @@ internal object ScheduledHealthCheck {
      * （本机实测：裸 grep 包名 28 行，真实闹钟 6 个）。这里用脚本自己的常量拼 tag，不写死字符串。
      */
     private fun alarmRegistration(pendingAlarms: Int): Finding {
+        // 只数「独立条目行」：dumpsys alarm 里同一个闹钟会出现两种形式——
+        //   1) 条目行：`tag=*walarm*:io.github.mangi.eta.action.RUN_SCHEDULED_TASK`（独占一行的开头）
+        //   2) 明细行：`type=RTC_WAKEUP tag=*walarm*:...`
+        // 只 grep tag 会把两种都数进去，条数直接翻倍（本机实测：真实 9 个，被数成 19 个，
+        // 于是每次自检都误报"异常"）。用 `^ *tag=` 锚定行首，只数独立条目行。
         val outcome = ScheduledShell.run(
-            command = "dumpsys alarm 2>/dev/null | grep -c 'tag=\\*walarm\\*:${ScheduledTaskScheduler.ACTION_RUN}'",
+            command = "dumpsys alarm 2>/dev/null | grep -cE '^[[:space:]]*tag=\\\\*walarm\\\\*:${ScheduledTaskScheduler.ACTION_RUN}'",
             timeoutSeconds = PROBE_TIMEOUT_SECONDS,
             asRoot = true,
         )
