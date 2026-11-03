@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import io.github.mangi.eta.agent.schedule.NotificationSample
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -80,6 +81,37 @@ internal class NotificationHistoryRepository(context: Context) {
             .put("retention_days", RETENTION_DAYS)
             .put("truncated", items.length() == limit)
             .toString()
+    }
+
+    /**
+     * 读最近的通知，供定时任务页的「建议」使用。
+     *
+     * 与 [search] 的差别：**不拼工具信封、不裁剪正文**，直接给结构化对象；
+     * 调用方拿到后交给 ScheduledSuggestionEngine 做纯函数统计。
+     */
+    fun recentSamples(maxAgeHours: Int = RETENTION_DAYS * 24, limit: Int = MAX_RECORDS): List<NotificationSample> {
+        val from = System.currentTimeMillis() - maxAgeHours * HOUR_MS
+        val result = ArrayList<NotificationSample>()
+        database.readableDatabase.query(
+            TABLE,
+            arrayOf("package_name", "title", "posted_at"),
+            "posted_at>=?",
+            arrayOf(from.toString()),
+            null,
+            null,
+            "posted_at DESC",
+            limit.toString(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val packageName = cursor.getString(0) ?: continue
+                result += NotificationSample(
+                    packageName = packageName,
+                    title = cursor.getString(1).orEmpty(),
+                    postedAtMillis = cursor.getLong(2),
+                )
+            }
+        }
+        return result
     }
 
     private fun SQLiteDatabase.transaction(block: SQLiteDatabase.() -> Unit) {

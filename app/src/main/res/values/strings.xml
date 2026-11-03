@@ -1462,6 +1462,15 @@
   <string name="settings_scheduled_tasks_summary">Let Eta do one thing on its own at the same time every day</string>
   <string name="scheduled_tasks_add">Add</string>
   <string name="scheduled_tasks_empty">No scheduled tasks yet</string>
+  <string name="scheduled_suggestions_title">Learned from notifications</string>
+  <string name="scheduled_suggestion_use">Use</string>
+  <string name="scheduled_suggestion_evidence">Seen on %1$d of the past 7 days</string>
+  <string name="scheduled_suggestion_daily_title">Every day at %1$s, handle %2$s</string>
+  <string name="scheduled_suggestion_daily_prompt">Check notifications and to-dos about %2$s around %1$s today. For each one, say whether I need to act and give one or two concrete steps; if there is nothing, one short line is enough.</string>
+  <string name="scheduled_suggestion_match_title">When a notification mentions %1$s, help me handle it</string>
+  <string name="scheduled_suggestion_match_prompt">A notification mentioning %1$s just arrived. Tell me what it is, whether I need to act, and if so give one or two concrete steps.</string>
+  <string name="scheduled_suggestion_keyword_separator">, </string>
+  <string name="scheduled_suggestion_cost_hint">Adopting a suggestion consumes model quota every time it runs.</string>
   <string name="scheduled_tasks_delete">Delete</string>
   <string name="scheduled_tasks_delete_confirm">Delete the task at %1$s? This cannot be undone.</string>
   <string name="scheduled_tasks_brief_never">Never run</string>

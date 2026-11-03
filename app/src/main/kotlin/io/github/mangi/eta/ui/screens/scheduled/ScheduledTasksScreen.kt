@@ -44,6 +44,9 @@ import io.github.mangi.eta.agent.schedule.ScheduledTaskSchedule
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
 import io.github.mangi.eta.agent.schedule.ScheduledTrigger
+import io.github.mangi.eta.agent.schedule.ScheduledSuggestion
+import io.github.mangi.eta.agent.schedule.ScheduledSuggestionEngine
+import io.github.mangi.eta.data.repository.NotificationHistoryRepository
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
@@ -113,6 +116,8 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     var editing by remember { mutableStateOf<ScheduledTask?>(null) }
     var pendingDelete by remember { mutableStateOf<ScheduledTask?>(null) }
     var runs by remember { mutableStateOf(emptyList<ScheduledRunLog.Record>()) }
+    /** 从通知历史推出来的候选规则；只在本地统计，不联网、不调模型，也不落库。 */
+    var suggestions by remember { mutableStateOf(emptyList<ScheduledSuggestion>()) }
     /** 已展开执行历史的任务 id；默认全部折叠。 */
     var expandedHistory by remember { mutableStateOf<Set<String>>(emptySet()) }
     /** 长按弹菜单的任务；极简版把编辑/历史/删除都收进这里。 */
@@ -153,6 +158,17 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
             runCatching { loadTokenUsageSnapshot(EtaDatabase.get(context.applicationContext)) }
                 .getOrDefault(TokenUsageSnapshot())
         }
+        // 建议：进页面现算一次（纯本地统计）。读的是最近 7 天通知 + 已有任务，
+        // 用来避免「已经加过的任务」被重复建议。算不出来就当没有，不影响页面。
+        suggestions = withContext(Dispatchers.IO) {
+            runCatching {
+                ScheduledSuggestionEngine.suggest(
+                    samples = NotificationHistoryRepository(context.applicationContext).recentSamples(),
+                    existingTasks = ScheduledTaskStore.load(context),
+                    nowMillis = System.currentTimeMillis(),
+                )
+            }.getOrDefault(emptyList())
+        }
     }
 
     // 页面停留期间定时重读：任务在 :schedule 进程里跑，写的是 SharedPreferences，
@@ -186,6 +202,70 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
             }
         },
     ) {
+        // 从通知里推出来的候选规则：只是可点的建议，不点「采用」不会创建任何东西。
+        if (suggestions.isNotEmpty()) {
+            item(key = "scheduled_suggestions_title") {
+                Column {
+                    EtaPreferenceGroupTitle(stringResource(R.string.scheduled_suggestions_title))
+                    EtaPreferenceGroupTitle(stringResource(R.string.scheduled_suggestion_cost_hint))
+                }
+            }
+            suggestions.forEach { suggestion ->
+                item(key = "scheduled_suggestion_${suggestion.id}") {
+                    val readable = "%02d:%02d".format(suggestion.hour, suggestion.minute)
+                    val separator = stringResource(R.string.scheduled_suggestion_keyword_separator)
+                    val keywords = suggestion.keywords.joinToString(separator)
+                    val isDaily = suggestion.trigger == ScheduledTrigger.DAILY_TIME
+                    val title = if (isDaily) {
+                        stringResource(R.string.scheduled_suggestion_daily_title, readable, keywords)
+                    } else {
+                        stringResource(R.string.scheduled_suggestion_match_title, suggestion.keyword)
+                    }
+                    val prompt = if (isDaily) {
+                        stringResource(R.string.scheduled_suggestion_daily_prompt, readable, keywords)
+                    } else {
+                        stringResource(R.string.scheduled_suggestion_match_prompt, suggestion.keyword)
+                    }
+                    EtaPreferenceGroup {
+                        EtaPreferenceRow(
+                            title = title,
+                            summary = stringResource(
+                                R.string.scheduled_suggestion_evidence,
+                                suggestion.evidenceDays,
+                            ),
+                            startAction = {
+                                EtaPreferenceIcon(
+                                    icon = Icons.Rounded.Schedule,
+                                    tint = EtaPreferenceColors.Blue,
+                                )
+                            },
+                            endActions = {
+                                EtaTextButton(
+                                    text = stringResource(R.string.scheduled_suggestion_use),
+                                    onClick = {
+                                        // 采用 = 落盘 + 注册闹钟 + 从建议里移除，同一条不会再出现。
+                                        persist(
+                                            ScheduledTask(
+                                                id = ScheduledTaskStore.newId(),
+                                                trigger = suggestion.trigger,
+                                                action = ScheduledActionKind.CUSTOM_PROMPT,
+                                                enabled = true,
+                                                hour = suggestion.hour,
+                                                minute = suggestion.minute,
+                                                keyword = suggestion.keyword,
+                                                prompt = prompt,
+                                            ),
+                                        )
+                                        suggestions = suggestions.filterNot { it.id == suggestion.id }
+                                    },
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
         if (tasks.isEmpty()) {
             item(key = "scheduled_tasks_empty") {
                 ListEmptyState(

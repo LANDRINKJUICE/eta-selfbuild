@@ -1358,6 +1358,15 @@
   <string name="settings_scheduled_tasks_summary">每天到點自動做一件事</string>
   <string name="scheduled_tasks_add">新增</string>
   <string name="scheduled_tasks_empty">還沒有定時任務</string>
+  <string name="scheduled_suggestions_title">從通知裡學到的</string>
+  <string name="scheduled_suggestion_use">採用</string>
+  <string name="scheduled_suggestion_evidence">過去 7 天有 %1$d 天</string>
+  <string name="scheduled_suggestion_daily_title">每天 %1$s 處理「%2$s」</string>
+  <string name="scheduled_suggestion_daily_prompt">檢查今天 %1$s 前後關於 %2$s 的通知和待辦，逐條判斷要不要我處理，需要的話給出一兩步具體操作；沒有就一句話帶過。</string>
+  <string name="scheduled_suggestion_match_title">收到含「%1$s」的通知時幫我處理</string>
+  <string name="scheduled_suggestion_match_prompt">剛收到含「%1$s」的通知，幫我判斷是什麼事、需不需要處理，需要的話給出一兩步具體操作。</string>
+  <string name="scheduled_suggestion_keyword_separator">、</string>
+  <string name="scheduled_suggestion_cost_hint">採用後每次觸發都會消耗模型額度。</string>
   <string name="scheduled_tasks_delete">刪除</string>
   <string name="scheduled_tasks_delete_confirm">刪除 %1$s 的任務？此操作無法復原。</string>
   <string name="scheduled_tasks_brief_never">從未執行</string>
