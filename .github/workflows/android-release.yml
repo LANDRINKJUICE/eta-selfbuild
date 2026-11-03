@@ -48,7 +48,7 @@ jobs:
           retention-days: 7
 
   build-apks:
-    name: 构建 Debug 与 Release APK
+    name: 构建 Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -91,22 +91,18 @@ jobs:
             metadata_arg=("-Peta.buildMetadata=${GITHUB_SHA::7}")
           fi
           ./gradlew --no-daemon --no-configuration-cache "${metadata_arg[@]}" \
-            :app:assembleDebug :app:assembleRelease
+            :app:assembleRelease
 
       - name: 验证并整理 APK
         id: apk
         run: |
-          # 文件名由 Gradle 按 versionName 生成，例如 Eta-vX.Y.Z.apk、Eta-vX.Y.Z-debug+<sha>.apk
+          # 只出 release：debug 包签名不同，装不上已装的正式版，构建它是纯浪费（省 1~2 分钟）。
+          # 文件名由 Gradle 按 versionName 生成，例如 Eta-vX.Y.Z.apk。
           shopt -s nullglob
-          debug_apks=(app/build/outputs/apk/debug/Eta-v*.apk)
           release_apks=(app/build/outputs/apk/release/Eta-v*.apk)
           apksigner_path="$(find "$ANDROID_HOME/build-tools" \
             -type f -name apksigner | sort -V | tail -n 1)"
 
-          if [[ ${#debug_apks[@]} -ne 1 ]]; then
-            echo "::error::Debug APK 数量异常（${#debug_apks[@]}）。"
-            exit 1
-          fi
           if [[ ${#release_apks[@]} -ne 1 ]]; then
             echo "::error::Release APK 数量异常（${#release_apks[@]}）。"
             exit 1
@@ -131,16 +127,7 @@ jobs:
               exit 1
             fi
           fi
-          echo "debug_path=${debug_apks[0]}" >> "$GITHUB_OUTPUT"
           echo "release_path=${release_apks[0]}" >> "$GITHUB_OUTPUT"
-
-      - name: 上传 Debug APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          path: ${{ steps.apk.outputs.debug_path }}
-          archive: false
-          if-no-files-found: error
-          retention-days: 14
 
       - name: 上传 Release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
