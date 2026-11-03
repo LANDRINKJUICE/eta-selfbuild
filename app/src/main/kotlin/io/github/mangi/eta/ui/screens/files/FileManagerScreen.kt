@@ -790,7 +790,7 @@ internal fun FileManagerScreen(
                         .fillMaxWidth()
                         .background(MiuixTheme.colorScheme.surfaceContainer)
                         .navigationBarsPadding()
-                        .height(52.dp),
+                        .height(48.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1528,58 +1528,60 @@ private fun PaneView(
                 else MiuixTheme.colorScheme.surfaceContainer
             ),
     ) {
-        // 路径行：对齐 MT —— 左侧「↑」、中间**大字路径**、下面小字「文件夹 N · 文件 M」。
-        // 之前把路径压成一行小字（还有「…/xx/yy」的省略写法），扫不出自己在哪；
-        // MT 的做法是路径用大字号、完整显示，项数用小字放第二行，信息一眼到位。
+        // 路径栏：**矮而紧凑**，一行放「↑ 路径 · 文件夹 N 文件 M」，右边是「＋」。
+        //
+        // 为什么这样改（看用户录屏后对照 MT 实体）：
+        // MT 的路径栏只有约 34dp 高、路径用小字、统计信息挤在同一行右侧 ——
+        // 信息密度全靠"字小行矮不留白"。我之前做成 76dp、路径用大字、统计另起一行，
+        // 反而比 MT 厚重，跟"简洁"背道而驰。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(36.dp)
                 .background(
-                    if (isActive) MiuixTheme.colorScheme.surfaceContainerHigh
-                    else MiuixTheme.colorScheme.surfaceContainer
+                    if (isActive) MiuixTheme.colorScheme.surfaceContainer
+                    else MiuixTheme.colorScheme.surfaceContainerHigh
                 )
                 .clickable { onGoPath() }
-                .padding(start = 4.dp, end = 2.dp),
+                .padding(start = 2.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onUp, minWidth = 36.dp, minHeight = 36.dp) {
+            IconButton(onClick = onUp, minWidth = 28.dp, minHeight = 28.dp) {
                 Icon(
                     Icons.Rounded.ArrowUpward,
                     contentDescription = "返回上一层",
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = if (isActive) MiuixTheme.colorScheme.onSurface
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayPath(pane.path),
-                    style = MiuixTheme.textStyles.body1,
-                    color = if (isActive) MiuixTheme.colorScheme.onSurface
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = when {
-                        pane.loading -> "…"
-                        pane.listing?.ok == false -> "无权限"
-                        else -> "文件夹 ${entries.count { it.isDirectory }} · 文件 ${entries.count { !it.isDirectory }}"
-                    },
-                    style = MiuixTheme.textStyles.subtitle,
-                    color = if (pane.listing?.ok == false) MiuixTheme.colorScheme.error
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            // 新建：这里放「＋」比藏进菜单顺手得多（用户反馈菜单里不好找）。
-            IconButton(onClick = onNew, minWidth = 36.dp, minHeight = 36.dp) {
+            Text(
+                text = displayPath(pane.path),
+                style = MiuixTheme.textStyles.subtitle,
+                color = if (isActive) MiuixTheme.colorScheme.onSurface
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = when {
+                    pane.loading -> "…"
+                    pane.listing?.ok == false -> "无权限"
+                    else -> "文件夹 ${entries.count { it.isDirectory }} · 文件 ${entries.count { !it.isDirectory }}"
+                },
+                style = MiuixTheme.textStyles.subtitle,
+                color = if (pane.listing?.ok == false) MiuixTheme.colorScheme.error
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onNew, minWidth = 28.dp, minHeight = 28.dp) {
                 Icon(
                     Icons.Rounded.Add,
                     contentDescription = "新建",
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = if (isActive) MiuixTheme.colorScheme.onSurface
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -1651,8 +1653,8 @@ private fun FileRow(
                 if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
                 else androidx.compose.ui.graphics.Color.Transparent
             )
-            .heightIn(min = 64.dp)
-            .padding(start = 10.dp, end = 6.dp),
+            .heightIn(min = 56.dp)
+            .padding(start = 8.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selectMode) {
@@ -1667,7 +1669,7 @@ private fun FileRow(
         Icon(
             imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
             contentDescription = null,
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier.size(26.dp),
             tint = if (entry.isDirectory) EtaPreferenceColors.Yellow
             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -1675,8 +1677,7 @@ private fun FileRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.name,
-                // 名称用 body1（比 body2 大一档）：MT 里名字是主体，时间只是辅助。
-                style = MiuixTheme.textStyles.body1,
+                style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1707,11 +1708,13 @@ private fun modifiedText(entry: FileManagerOps.Entry): String {
         return if (entry.isDirectory) "文件夹" else FileManagerOps.formatSize(entry.sizeBytes)
     }
     val c = java.util.Calendar.getInstance().apply { timeInMillis = entry.modifiedAtMillis }
+    val y = (c.get(java.util.Calendar.YEAR) % 100).toString().padStart(2, '0')
     val mo = (c.get(java.util.Calendar.MONTH) + 1).toString().padStart(2, '0')
     val d = c.get(java.util.Calendar.DAY_OF_MONTH).toString().padStart(2, '0')
     val h = c.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
     val mi = c.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
-    return "$mo-$d $h:$mi"
+    // MT 用「26-09-11 17:10」这种年份在前的写法，照抄，保持一致
+    return "$y-$mo-$d $h:$mi"
 }
 
 /** 底部操作栏里的一项（图标 + 文字，竖排）。 */
@@ -1793,9 +1796,10 @@ private fun ToolButton(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            modifier = Modifier.size(22.dp),
+            // MT 的工具栏图标是细线风格，视觉上更轻；配合 48dp 的条高更利落
+            modifier = Modifier.size(20.dp),
             tint = if (enabled) MiuixTheme.colorScheme.onSurface
-            else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.4f),
+            else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f),
         )
     }
 }
