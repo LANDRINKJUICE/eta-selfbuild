@@ -1432,4 +1432,5 @@
     <string name="scheduled_trigger_wifi_connected">連上 Wi-Fi 時</string>
     <string name="scheduled_trigger_wifi_disconnected">斷開 Wi-Fi 時</string>
     <string name="scheduled_tasks_keyword_any">任意通知</string>
+    <string name="scheduled_trigger_readonly_title">觸發條件</string>
 </resources>

@@ -518,6 +518,9 @@ private fun ScheduleEditorDialog(
     var dayOfMonth by remember(task?.id) { mutableStateOf(task?.dayOfMonth ?: 1) }
     var interval by remember(task?.id) { mutableStateOf(task?.interval ?: 1) }
 
+    /** 事件型任务（通知 / 充电 / 电量 / 解锁 / Wi-Fi）没有「几点」，编辑时不该出现时间滚轮。 */
+    val eventTask = task?.takeIf { !it.trigger.usesAlarm }
+
     EtaWindowDialog(
         show = true,
         title = stringResource(R.string.settings_scheduled_tasks_title),
@@ -532,6 +535,17 @@ private fun ScheduleEditorDialog(
                 .heightIn(max = EditorMaxContentHeight)
                 .verticalScroll(rememberScrollState()),
         ) {
+            if (eventTask != null) {
+                // 事件型任务：时间滚轮和「重复」对它毫无意义（默认值还会显示 00:00，用户实测觉得抽象）。
+                // 这里只读展示触发条件，改条件请去对应开关页。
+                EditorSectionLabel(stringResource(R.string.scheduled_trigger_readonly_title))
+                Text(
+                    text = taskTriggerText(eventTask),
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                )
+            } else {
             EditorSectionLabel(stringResource(R.string.scheduled_tasks_repeat_title))
             ScheduledRepeat.entries.forEach { option ->
                 EtaRadioButtonPreference(
@@ -620,6 +634,8 @@ private fun ScheduleEditorDialog(
                     visibleItemCount = 3,
                     wrapAround = true,
                 )
+            }
+
             }
 
             EditorSectionLabel(stringResource(R.string.scheduled_tasks_action_title))
