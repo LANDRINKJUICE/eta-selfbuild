@@ -48,6 +48,8 @@ internal object Prefs {
         const val AGENT_VIRTUAL_DISPLAY_ENABLED = "agent_virtual_display_enabled"
         /** 工具失败自动归档到 self-improving-agent/data/ERRORS.md，用于跨会话积累踩坑记录。 */
         const val AGENT_SKILL_ERROR_JOURNAL = "agent_skill_error_journal"
+        /** 后台命令失败后自动唤醒 Agent 处理；10 分钟内最多 2 次，防止「失败→唤醒→再失败」循环。 */
+        const val AGENT_JOB_WAKEUP = "agent_job_wakeup"
         const val AGENT_RUNTIME_CONFIG_JSON = "agent_runtime_config_json"
 
         /** 全部布尔开关及其默认值。 */
@@ -71,6 +73,7 @@ internal object Prefs {
             AGENT_SUBAGENT_ENABLED to true,
             AGENT_VIRTUAL_DISPLAY_ENABLED to true,
             AGENT_SKILL_ERROR_JOURNAL to true,
+            AGENT_JOB_WAKEUP to true,
         )
 
         /** 由 Eta Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
@@ -85,6 +88,7 @@ internal object Prefs {
             AGENT_SUBAGENT_ENABLED,
             AGENT_VIRTUAL_DISPLAY_ENABLED,
             AGENT_SKILL_ERROR_JOURNAL,
+            AGENT_JOB_WAKEUP,
         )
     }
 

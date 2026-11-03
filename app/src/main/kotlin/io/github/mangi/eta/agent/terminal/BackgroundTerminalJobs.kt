@@ -16,6 +16,8 @@ internal class BackgroundTerminalJobs(
     private val acquireLease: (() -> Unit) -> Boolean = { true },
     private val releaseLease: () -> Unit = {},
     private val onCompleted: (DetachedTask) -> Unit = {},
+    /** 完成回调的扩展：附带日志尾部，供失败唤醒判断原因；与 [onCompleted] 互不影响。 */
+    private val onCompletedWithLog: (DetachedTask, String) -> Unit = { _, _ -> },
     private val completionNotificationsEnabled: () -> Boolean = { true },
 ) : AutoCloseable {
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -114,6 +116,12 @@ internal class BackgroundTerminalJobs(
             tasks.filter { it.task.completedAt != null && !it.task.completionNotified }.forEach { status ->
                 try {
                     onCompleted(status.task)
+                    // 日志尾部随回调一起给出：失败唤醒要判断原因，避免让 Agent 再读一遍文件。
+                    val tail = runCatching {
+                        supervisor.readLogs(status.task.id, JobWakeUpController.LOG_TAIL_CHARS)
+                            .takeIf { it.ok }?.text.orEmpty()
+                    }.getOrDefault("")
+                    onCompletedWithLog(status.task, tail)
                     supervisor.markCompletionNotified(status.task.id)
                 } catch (failure: Exception) {
                     logger.warn("Background command notification failed: type=${failure.javaClass.simpleName}")

@@ -28,6 +28,9 @@ internal object TerminalRuntime {
             acquireLease = { onStop -> AgentExecutionService.acquire(app, "terminal-background-commands", onStop = onStop) },
             releaseLease = { AgentExecutionService.release("terminal-background-commands") },
             onCompleted = { BackgroundCommandNotification.show(app, it) },
+            onCompletedWithLog = { task, tail ->
+                JobWakeUpController.maybeWake(app, task, tail, AndroidAgentLogger)
+            },
             completionNotificationsEnabled = { app.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled() },
         ).also { backgroundJobs = it }
     }

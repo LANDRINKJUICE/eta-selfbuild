@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Code
@@ -459,6 +460,17 @@ private fun SettingsPageContent(
                         key = Prefs.Keys.AGENT_TERMINAL_TOOLS,
                         icon = Icons.Rounded.Terminal,
                         iconTint = EtaPreferenceColors.Green,
+                    )
+
+                    EtaPreferenceDivider()
+                    SwitchPref(
+                        context = context,
+                        prefs = agentPrefs,
+                        title = stringResource(R.string.ui_auto_handle_failed_background_commands_9f3c1a),
+                        summary = stringResource(R.string.ui_auto_handle_failed_background_commands_9f3c1a_summary),
+                        key = Prefs.Keys.AGENT_JOB_WAKEUP,
+                        icon = Icons.Rounded.Autorenew,
+                        iconTint = EtaPreferenceColors.Orange,
                     )
 
                     EtaPreferenceDivider()
