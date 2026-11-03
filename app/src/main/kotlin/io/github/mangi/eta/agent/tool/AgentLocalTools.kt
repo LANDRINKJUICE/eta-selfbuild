@@ -33,6 +33,7 @@ import io.github.mangi.eta.agent.runtime.GuiControlCoordinator
 import io.github.mangi.eta.agent.virtualdisplay.CanvasRoutingPolicy
 import io.github.mangi.eta.agent.virtualdisplay.VirtualDisplayController
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
+import io.github.mangi.eta.agent.skill.SkillErrorJournal
 import io.github.mangi.eta.agent.skill.SkillIndexService
 import io.github.mangi.eta.agent.skill.SkillInstallErrorCode
 import io.github.mangi.eta.agent.skill.SkillInstallResult
@@ -182,11 +183,30 @@ internal class AgentLocalTools(
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
         if (closed.get()) throw AgentRunCancelledException()
         val control = guiControl
-        return if (control != null && AgentToolRequirements.requiresGuiControl(toolCall.name)) {
+        val result = if (control != null && AgentToolRequirements.requiresGuiControl(toolCall.name)) {
             control.withAction { generation -> executeLocal(toolCall, generation) }
         } else {
             executeLocal(toolCall, null)
         }
+        // 失败自动归档：SKILL.md 承诺过「运行时自动记录」，但此前没实现。
+        // 放在这里而不是各个分支里，是为了覆盖所有失败路径，且绝不影响返回值。
+        recordFailureIfNeeded(toolCall, result)
+        return result
+    }
+
+    /** 只在结果确实是失败时写日志；[SkillErrorJournal] 内部自己判 ok/code 并做限流。 */
+    private fun recordFailureIfNeeded(
+        toolCall: AgentModelClient.ToolCall,
+        result: AgentModelClient.ToolResult,
+    ) {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_SKILL_ERROR_JOURNAL)) return
+        SkillErrorJournal.record(
+            context = context,
+            logger = logger,
+            toolName = toolCall.name,
+            argumentsJson = toolCall.argumentsJson,
+            rawResult = result.content,
+        )
     }
 
     private fun executeLocal(
