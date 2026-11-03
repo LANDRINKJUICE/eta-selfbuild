@@ -499,9 +499,10 @@ class AgentAccessibilityService : AccessibilityService() {
     ): NodeActionResult {
         if (first.ok || first.code !in refreshableStaleCodes) return first
         val target = snapshot.indexedNodes.firstOrNull { it.index == index } ?: return first
-        if (!target.hasStrongIdentity()) return first
+        if (!target.hasRelocationIdentity()) return first
         val refreshed = runCatching {
-            captureNodeSnapshot(snapshot.nodes.size.coerceIn(1, 120), snapshot.displayId)
+            // 固定按上限重抓：界面可能比原快照多了节点，按原数量抓会漏掉目标。
+            captureNodeSnapshot(120, snapshot.displayId)
         }.getOrNull() ?: return first
         val relocated = StaleTargetRelocator.relocate(
             targetKey = target.relocationKey(),
@@ -2347,16 +2348,25 @@ class AgentAccessibilityService : AccessibilityService() {
         fun hasStrongIdentity(): Boolean = identity().strong
 
         /**
-         * 重定位用的稳定键：有 `uniqueId` 用它，否则用语义指纹。
-         * 只给 [StaleTargetRelocator] 用 —— 它决定「快照过期后还能不能找回同一个控件」。
+         * 重定位用的稳定键。
+         *
+         * 优先级：`viewId`（来自 Compose testTag，跨快照稳定）→ `uniqueId` → 语义指纹。
+         * 之前只看 uniqueId，而 Compose 行的 text/desc 常常是空的（文字在子节点上），
+         * 结果「强身份」判定失败，重定位根本进不去。
          */
         fun relocationKey(): String =
-            if (uniqueId.isNotBlank()) {
-                StaleTargetRelocator.UNIQUE_ID_PREFIX + uniqueId
-            } else {
-                StaleTargetRelocator.SEMANTIC_PREFIX +
-                    "$windowId|$packageName|$className|$viewId|$text|$desc"
+            when {
+                viewId.isNotBlank() ->
+                    StaleTargetRelocator.UNIQUE_ID_PREFIX + "vid:$viewId|$text|$desc"
+                uniqueId.isNotBlank() ->
+                    StaleTargetRelocator.UNIQUE_ID_PREFIX + uniqueId
+                else ->
+                    StaleTargetRelocator.SEMANTIC_PREFIX +
+                        "$windowId|$packageName|$className|$viewId|$text|$desc"
             }
+
+        /** 重定位是否值得尝试：viewId 也算强身份（testTag 映射来的 id 比文本更稳）。 */
+        fun hasRelocationIdentity(): Boolean = hasStrongIdentity() || viewId.isNotBlank()
 
         fun sameSemanticIdentity(other: IndexedNode): Boolean =
             windowId == other.windowId &&

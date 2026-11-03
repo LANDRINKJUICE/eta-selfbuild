@@ -244,7 +244,7 @@ private fun MemorySettingsGroup(
             EtaPreference(
                 title = stringResource(R.string.memory_health_title),
                 summary = buildString {
-                    append(report.summary())
+                    append(report.sizeText())
                     val detail = report.detail()
                     if (detail.isNotBlank()) {
                         append("\n")

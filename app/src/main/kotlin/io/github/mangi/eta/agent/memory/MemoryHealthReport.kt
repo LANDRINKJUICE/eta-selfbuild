@@ -29,7 +29,13 @@ internal object MemoryHealthReport {
     ) {
         val staleCount: Int get() = staleTitles.size
 
-        /** 一句话结论，卡片标题用。 */
+        /**
+         * 只报体积。UI 卡片用它，因为「核心段是否截断」在 `contextWindow = null` 下算不出真实值
+         * （会被当成小窗口截断），而页面上另一行「核心记忆状态」已经有准确数字。
+         */
+        fun sizeText(): String = String.format(Locale.US, "记忆文件 %.1f KB", sizeKb)
+
+        /** 一句话结论，定时任务通知用（那里没有别的行可以参照，所以连核心段一起报）。 */
         fun summary(): String {
             val suffix = when {
                 !enabled -> "记忆未初始化"

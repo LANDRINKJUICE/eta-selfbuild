@@ -59,6 +59,9 @@ class MemoryHealthReportTest {
         )
         assertTrue(full.summary().contains("完整注入"))
         assertTrue(full.summary().contains("41.3 KB"))
+        // 卡片只报体积：核心段是否截断由页面上另一行给出，避免两行说法打架。
+        assertTrue(full.sizeText().contains("41.3 KB"))
+        assertTrue(!full.sizeText().contains("截断"))
         assertEquals("", full.detail())
 
         val missing = full.copy(coreChars = 0, missingCore = true)
