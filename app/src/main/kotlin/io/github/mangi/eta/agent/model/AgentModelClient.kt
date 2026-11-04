@@ -161,6 +161,7 @@ internal object AgentModelClient {
                 memoryWritable = roleplayContext == null,
                 capabilities = capabilities,
                 localWebSearch = !config.usesHostedWebSearch,
+                interactionTools = config.interactionTools,
             )
             for (index in 0 until additionalTools.length()) {
                 tools.put(additionalTools.opt(index))
@@ -325,6 +326,14 @@ internal object AgentModelClient {
         val deviceDirectTools: Boolean = true,
         val deviceSensitiveReadTools: Boolean = false,
         val deviceSensitiveActionTools: Boolean = false,
+        /**
+         * 是否允许「会动手」的工具（打开应用／点屏／输入／按键）。
+         *
+         * 与 [deviceDirectTools] 不同：那三个开关管的是「设备能力工具」，这一项管的是
+         * GUI 交互那一组（`launch_app`、`open_uri`、`tap*`、`type_text`、`press_key`…）。
+         * 只读场景必须把它关掉，否则 Agent 照样能打开应用并点按（2026-11-04 真机事故）。
+         */
+        val interactionTools: Boolean = true,
         val thinkingEnabled: Boolean = false,
         val reasoningEffort: ReasoningEffort? = null,
         val reasoningCapabilities: ModelReasoningCapabilities? = null,

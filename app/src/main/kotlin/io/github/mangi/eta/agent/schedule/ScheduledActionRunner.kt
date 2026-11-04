@@ -33,21 +33,16 @@ internal object ScheduledActionRunner {
     private const val NOTIFICATION_ID = 1188
     private const val HISTORY_MESSAGE_CHARS = 200
 
-    /** 这些前缀代表「没跑成」，历史和通知都要按失败处理（见 [looksLikeFailure]）。 */
-    private val FAILURE_PREFIXES = listOf("执行失败", "执行超时", "没有可用的模型配置", "指令为空")
-
     fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null) {
         val startedAt = System.currentTimeMillis()
-        var ok = true
-        val summary = runCatching { describe(context, task, event) }
+        // 成败由执行方直接给出（[ScheduledOutcome]），不再靠摘要文案猜。
+        // 猜前缀踩过三次：超时、模型 401、脚本「未执行：找不到脚本」全被记成成功。
+        val outcome = runCatching { describe(context, task, event) }
             .getOrElse { failure ->
-                ok = false
-                "执行失败（${failure.javaClass.simpleName}）"
+                ScheduledOutcome(false, "执行失败（${failure.javaClass.simpleName}）")
             }
-        // 自定义指令返回的是失败/超时描述时，也要按失败记账，否则历史里会看起来一切正常。
-        // 2026-11-04：原来只认「执行失败」前缀，结果「执行超时（300 秒未返回结果）」被记成 ok=true，
-        // 通知显示「定时任务完成」但正文是超时——用户一眼就看出不对劲。这里统一按前缀判。
-        if (looksLikeFailure(summary)) ok = false
+        val ok = outcome.ok
+        val summary = outcome.summary
         val duration = System.currentTimeMillis() - startedAt
         // 先落历史再发通知：通知可能被用户关掉，历史不会。
         val runRecord = ScheduledRunLog.Record(
@@ -61,32 +56,23 @@ internal object ScheduledActionRunner {
         notify(context, task, summary, ok, runRecord)
     }
 
-    /**
-     * 结果摘要是不是「失败」。
-     *
-     * 自定义指令这条路上，失败不是靠异常表达的，而是靠固定前缀的文本：
-     * [ScheduledAgentRunner] 会返回「执行失败…」「执行超时…」「没有可用的模型配置…」「指令为空，已跳过」。
-     * 历史和通知都必须据此标红，否则会出现「显示完成、正文却是超时」这种错位
-     * （2026-11-04 真机上就是这样：通知写「定时任务完成 · 派送」，正文却是「执行超时」）。
-     */
-    private fun looksLikeFailure(summary: String): Boolean =
-        FAILURE_PREFIXES.any { summary.startsWith(it) }
-
     private fun describe(
         context: Context,
         task: ScheduledTask,
         event: ScheduledEvent? = null,
-    ): String = when (task.action) {
-        ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)
-        ScheduledActionKind.MEMORY_STATUS -> memoryStatus(context)
-        ScheduledActionKind.PERMISSIONS_CHECK -> permissionStatus(context)
+    ): ScheduledOutcome = when (task.action) {
+        ScheduledActionKind.DEVICE_STATUS -> ScheduledOutcome.of(deviceStatus(context))
+        ScheduledActionKind.MEMORY_STATUS -> ScheduledOutcome.of(memoryStatus(context))
+        ScheduledActionKind.PERMISSIONS_CHECK -> ScheduledOutcome.of(permissionStatus(context))
         // 自我体检：跑工作区脚本、看闹钟注册、量 tmp 与负载。不需要模型，但会起 shell。
-        ScheduledActionKind.SELF_CHECK -> ScheduledHealthCheck.report(context, pendingAlarmCount(context))
+        ScheduledActionKind.SELF_CHECK ->
+            ScheduledOutcome.of(ScheduledHealthCheck.report(context, pendingAlarmCount(context)))
         // 下面四个都要跑工作区脚本，统一收在 ScheduledWorkspaceActions 里。
-        ScheduledActionKind.SNAPSHOT -> ScheduledWorkspaceActions.snapshot(context)
-        ScheduledActionKind.BRAIN_BACKUP -> ScheduledWorkspaceActions.brainBackup(context)
-        ScheduledActionKind.CLEAN_TMP -> ScheduledWorkspaceActions.cleanTmp()
-        ScheduledActionKind.DRIFT_CHECK -> ScheduledWorkspaceActions.driftCheck()
+        ScheduledActionKind.SNAPSHOT -> ScheduledOutcome.of(ScheduledWorkspaceActions.snapshot(context))
+        ScheduledActionKind.BRAIN_BACKUP ->
+            ScheduledOutcome.of(ScheduledWorkspaceActions.brainBackup(context))
+        ScheduledActionKind.CLEAN_TMP -> ScheduledOutcome.of(ScheduledWorkspaceActions.cleanTmp())
+        ScheduledActionKind.DRIFT_CHECK -> ScheduledOutcome.of(ScheduledWorkspaceActions.driftCheck())
         // 自定义指令：交给 Agent 跑一次，结果摘要进通知。
         // 事件要一起传：通知匹配类任务靠它把「哪条通知」带进 prompt，
         // 否则 Agent 只能自己去打开通知栏看，把用户正在用的界面顶掉。

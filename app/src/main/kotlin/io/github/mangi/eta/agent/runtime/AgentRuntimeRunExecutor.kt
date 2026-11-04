@@ -197,6 +197,7 @@ internal class AgentRuntimeRunExecutor(
                     request.config.deviceSensitiveActionTools &&
                         currentPermissions().deviceSensitiveActionTools
                 },
+                interactionToolsEnabled = { request.config.interactionTools },
                 memoryToolsEnabled = {
                     runBlocking { AgentMemoryRepository.isEnabled() }
                 },

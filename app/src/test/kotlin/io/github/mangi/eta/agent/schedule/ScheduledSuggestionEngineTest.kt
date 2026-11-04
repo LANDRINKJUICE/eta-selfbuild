@@ -226,9 +226,10 @@ class ScheduledSuggestionEngineTest {
     }
 
     @Test
-    fun `被已有任务吃掉的定时建议不会连带屏蔽通知匹配`() {
-        // 真机场景：已有 09:35 打卡任务把 09:35 的签到定时建议吃掉后，
-        // 旧代码仍把「打卡」标成已覆盖，规则二也不给 → 一条建议都没有。
+    fun `已有任务覆盖同词族时连通知匹配建议也不给`() {
+        // 真机场景（2026-11-04 用户反馈）：已有「09:35 打卡」自定义指令后，
+        // 系统仍单独推「收到含『签到』的通知就处理」—— 同一件事占了两个名额。
+        // 新判据按词族覆盖：打卡/考勤/签到同族，所以一条都不该再给。
         val samples = (1..4).map { sample("com.eg.android.AlipayGphone", "支付宝会员签到提醒", it, 9, 31) }
         val existing = listOf(
             ScheduledTask(
@@ -244,7 +245,84 @@ class ScheduledSuggestionEngineTest {
 
         val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
 
-        assertTrue(result.none { it.trigger == ScheduledTrigger.DAILY_TIME })
-        assertEquals("签到", result.single { it.trigger == ScheduledTrigger.NOTIFICATION_MATCH }.keyword)
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `关掉的账单还款任务仍然抑制账单建议`() {
+        // 用户原话：「我有账单还款虽然是关闭的，但是没必要跳采用了，在分组里就没必要跳了，
+        // 分组里没有的东西才跳采用」。关闭 ≠ 不存在。
+        val samples = (1..4).map { sample("com.sankuai.meituan", "【美团月付】账单已出", it, 9, 28) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-bill",
+                trigger = ScheduledTrigger.DAILY_TIME,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
+                enabled = false,
+                hour = 9,
+                minute = 20,
+                name = "账单、还款",
+                prompt = "看看今天有没有账单要还，还款日临近就提醒我。",
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `通知匹配形态的打卡签到任务抑制每天的打卡定时建议`() {
+        // 用户原话：「我已经有了打卡签到，他还会跳打卡，这算重复」。
+        // 已有任务是 NOTIFICATION_MATCH + keyword「签到」，建议是 DAILY_TIME「打卡」——
+        // 旧实现只拿同类触发方式比对，所以拦不住。
+        val samples = (1..4).map { sample("com.alibaba.android.rimet", "考勤打卡提醒", it, 9, 25) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-checkin",
+                trigger = ScheduledTrigger.NOTIFICATION_MATCH,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
+                enabled = true,
+                keyword = "签到",
+                name = "打卡签到",
+                prompt = "通知含签到就提醒我打卡。",
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `删掉任务后建议重新出现`() {
+        // 覆盖判定只来自当前任务列表：删了就该重新提议，不能记在别处。
+        val samples = (1..4).map { sample("com.alibaba.android.rimet", "考勤打卡提醒", it, 9, 25) }
+
+        val result = ScheduledSuggestionEngine.suggest(samples, emptyList(), nowMillis = now(), zone = zone)
+
+        assertTrue(result.isNotEmpty())
+        assertEquals("打卡", result.first().keywords.first())
+    }
+
+    @Test
+    fun `关闭的同分钟任务不占时段`() {
+        // 关闭的任务不会真的跑模型，同分钟不算浪费；但它仍会按词族覆盖（上一条测试锁着）。
+        val samples = (1..4).map { sample("com.sankuai.meituan", "【美团月付】账单已出", it, 9, 28) }
+        val existing = listOf(
+            ScheduledTask(
+                id = "eta-1",
+                trigger = ScheduledTrigger.DAILY_TIME,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
+                enabled = false,
+                hour = 9,
+                minute = 20,
+                prompt = "看一眼天气",
+            ),
+        )
+
+        val result = ScheduledSuggestionEngine.suggest(samples, existing, nowMillis = now(), zone = zone)
+
+        assertTrue(result.any { it.trigger == ScheduledTrigger.DAILY_TIME })
     }
 }

@@ -1,9 +1,11 @@
 package io.github.mangi.eta.agent.schedule
 
 import android.content.Context
-import android.content.SharedPreferences
+import io.github.mangi.eta.core.AndroidAgentLogger
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.RandomAccessFile
 
 /**
  * 定时任务的执行历史（最近 N 次）。
@@ -11,12 +13,20 @@ import org.json.JSONObject
  * 为什么必须有它：定时任务最大的风险是"静默失败"——你以为它每天在跑，其实早就断了。
  * 有了历史，界面能显示"上次执行时间 / 成功还是失败 / 失败原因 / 连续失败次数"。
  *
- * 存储：SharedPreferences 里存一个 JSON 数组，只保留最近 [MAX_RECORDS] 条，避免无限增长。
- * 由 `:schedule` 进程写入、主进程读取；两边都只做 append/read，不需要强一致。
+ * **存储为什么从 SharedPreferences 换成文件（2026-11-04）**
+ * 历史由 `:schedule` 进程写、主进程读。`SharedPreferences` 按进程缓存，主进程读不到
+ * 另一个进程刚写的记录 —— 表现为「任务刚跑完，页面上还是空的 / 上次执行时间不动」，
+ * 用户实测过（页面为此加了 5 秒轮询，但轮询读的还是缓存，白轮）。
+ * 现在改成单一 JSON 文件 + 跨进程文件锁，读永远读磁盘。
  */
 internal object ScheduledRunLog {
-    private const val PREFS_NAME = "eta_scheduled_runs"
+    private const val FILE_NAME = "scheduled_runs.json"
+    private const val LOCK_NAME = "scheduled_runs.lock"
+
+    /** 旧版存储位置：只用于一次性迁移。 */
+    private const val LEGACY_PREFS = "eta_scheduled_runs"
     private const val KEY_RECORDS = "records"
+
     private const val MAX_RECORDS = 100
 
     /** 一次执行的结果。 */
@@ -50,27 +60,19 @@ internal object ScheduledRunLog {
         }
     }
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun file(context: Context): File =
+        File(context.applicationContext.filesDir, FILE_NAME)
+
+    private fun lockFile(context: Context): File =
+        File(context.applicationContext.filesDir, LOCK_NAME)
 
     fun record(context: Context, record: Record) {
-        val existing = load(context).toMutableList()
-        existing.add(0, record) // 最新的放最前
-        val trimmed = existing.take(MAX_RECORDS)
-        val array = JSONArray()
-        trimmed.forEach { array.put(it.toJson()) }
-        prefs(context).edit().putString(KEY_RECORDS, array.toString()).apply()
+        update(context) { records ->
+            (listOf(record) + records).take(MAX_RECORDS)
+        }
     }
 
-    fun load(context: Context): List<Record> {
-        val raw = prefs(context).getString(KEY_RECORDS, null) ?: return emptyList()
-        return runCatching {
-            val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { index ->
-                array.optJSONObject(index)?.let(Record::fromJson)
-            }
-        }.getOrDefault(emptyList())
-    }
+    fun load(context: Context): List<Record> = withLock(context) { readUnlocked(context) }
 
     /** 某条任务最近一次执行记录（没有则 null）。 */
     fun latestFor(context: Context, taskId: String): Record? =
@@ -88,7 +90,7 @@ internal object ScheduledRunLog {
     }
 
     fun clear(context: Context) {
-        prefs(context).edit().remove(KEY_RECORDS).apply()
+        update(context) { emptyList() }
     }
 
     /**
@@ -97,13 +99,73 @@ internal object ScheduledRunLog {
      * 用户 2026-11-04 提的：执行历史只能看不能删，跑多了会一直挂在卡片下面。
      */
     fun removeForTask(context: Context, taskId: String) {
-        val remaining = load(context).filterNot { it.taskId == taskId }
-        if (remaining.isEmpty()) {
-            prefs(context).edit().remove(KEY_RECORDS).apply()
-            return
-        }
-        val array = JSONArray()
-        remaining.forEach { array.put(it.toJson()) }
-        prefs(context).edit().putString(KEY_RECORDS, array.toString()).apply()
+        update(context) { records -> records.filterNot { it.taskId == taskId } }
     }
+
+    @Synchronized
+    private fun update(context: Context, transform: (List<Record>) -> List<Record>) {
+        val appContext = context.applicationContext
+        withLock(appContext) {
+            writeUnlocked(appContext, transform(readUnlocked(appContext)))
+        }
+    }
+
+    private fun <T> withLock(context: Context, block: () -> T): T =
+        runCatching {
+            RandomAccessFile(lockFile(context), "rw").use { handle ->
+                handle.channel.lock().use { block() }
+            }
+        }.getOrElse { failure ->
+            AndroidAgentLogger.warn(
+                "Scheduled run log lock failed: type=${failure.javaClass.simpleName}"
+            )
+            block()
+        }
+
+    private fun readUnlocked(context: Context): List<Record> {
+        val target = file(context)
+        if (!target.exists()) return migrateLegacy(context)
+        return runCatching {
+            parse(JSONArray(target.readText()))
+        }.getOrElse { failure ->
+            AndroidAgentLogger.warn(
+                "Scheduled run log read failed: type=${failure.javaClass.simpleName}"
+            )
+            emptyList()
+        }
+    }
+
+    /** 从旧版 SharedPreferences 迁移一次；没有旧数据就不写文件。 */
+    private fun migrateLegacy(context: Context): List<Record> {
+        val legacy = runCatching {
+            context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        }.getOrNull()
+        val raw = legacy?.getString(KEY_RECORDS, null) ?: return emptyList()
+        val records = runCatching { parse(JSONArray(raw)) }.getOrDefault(emptyList())
+        if (records.isNotEmpty()) writeUnlocked(context, records)
+        return records
+    }
+
+    private fun writeUnlocked(context: Context, records: List<Record>) {
+        val target = file(context)
+        val temp = File(target.parentFile, "$FILE_NAME.tmp")
+        runCatching {
+            val array = JSONArray()
+            records.forEach { array.put(it.toJson()) }
+            temp.writeText(array.toString())
+            if (!temp.renameTo(target)) {
+                target.writeText(temp.readText())
+                temp.delete()
+            }
+        }.onFailure { failure ->
+            AndroidAgentLogger.warn(
+                "Scheduled run log write failed: type=${failure.javaClass.simpleName}"
+            )
+        }
+    }
+
+    private fun parse(array: JSONArray): List<Record> =
+        (0 until array.length()).mapNotNull { index ->
+            array.optJSONObject(index)?.let(Record::fromJson)
+        }
 }

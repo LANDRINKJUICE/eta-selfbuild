@@ -450,12 +450,26 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                     longPressTask = null
                     // 与定时触发走同一个入口（:schedule 进程里的 ScheduledTaskReceiver），
                     // 不另写一套执行逻辑，避免"手动能跑、定时不能跑"这种分叉。
-                    runCatching {
+                    //
+                    // force = true：用户主动点的就该跑，绕过 2 分钟去重。
+                    // 以前手动执行也过闸门，2 分钟内刚跑过就静默跳过、点完毫无反应（2026-11-04 审查发现）。
+                    // 启动失败也要说一声，不能再被 runCatching 悄悄吞掉。
+                    val started = runCatching {
                         context.startService(
                             android.content.Intent(context, ScheduledTaskReceiver::class.java)
-                                .putExtra(ScheduledTaskScheduler.EXTRA_TASK_ID, task.id),
+                                .putExtra(ScheduledTaskScheduler.EXTRA_TASK_ID, task.id)
+                                .putExtra(ScheduledTaskScheduler.EXTRA_FORCE, true),
                         )
-                    }
+                    }.getOrNull()
+                    android.widget.Toast.makeText(
+                        context,
+                        if (started != null) {
+                            "已开始执行，结果会出现在执行历史里"
+                        } else {
+                            "启动失败：可能被系统的后台限制拦住了"
+                        },
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
                 }
                 // 只清这条任务的历史，别的任务不动；跑多了那串记录会一直挂在卡片下面。
                 if (runs.any { it.taskId == task.id }) {
@@ -551,6 +565,17 @@ private fun ScheduleEditorDialog(
     var readOnly by remember(task?.id) {
         mutableStateOf(task?.readOnly ?: (task?.trigger == ScheduledTrigger.NOTIFICATION_MATCH))
     }
+    /**
+     * 用户有没有手动点过「执行权限」。
+     *
+     * 没点过时，切换触发方式要跟着自动改默认值（选了「收到通知就执行」就该自动变只读）；
+     * 点过就尊重用户的选择，不再自动覆盖。
+     * 2026-11-04 审查发现：新建任务时 `task == null` → 默认 `false`，点通知类预设也不改，
+     * 保存时把 `false` 写死，`ScheduledAgentRunner` 里「按触发方式推断」的兜底永远不生效。
+     */
+    var readOnlyTouched by remember(task?.id) { mutableStateOf(task?.readOnly != null) }
+    /** 关键词为空却被点了保存：显示一行错误，别让用户存下一个永不触发的任务。 */
+    var keywordMissing by remember(task?.id) { mutableStateOf(false) }
 
     /**
      * 没有编辑 UI 的触发方式（充电 / 电量 / 解锁 / Wi-Fi）：只读展示原条件，不提供修改。
@@ -594,6 +619,11 @@ private fun ScheduleEditorDialog(
                                 keyword = preset.keyword
                                 prompt = preset.prompt
                                 action = ScheduledActionKind.CUSTOM_PROMPT
+                                // 预设可能把触发方式切成「收到通知就执行」，
+                                // 权限默认值要跟着走，否则保存下来的是「完全开放」。
+                                if (!readOnlyTouched) {
+                                    readOnly = preset.trigger == ScheduledTrigger.NOTIFICATION_MATCH
+                                }
                             },
                         )
                     }
@@ -625,12 +655,18 @@ private fun ScheduleEditorDialog(
             EtaRadioButtonPreference(
                 title = stringResource(R.string.scheduled_editor_trigger_daily),
                 selected = trigger == ScheduledTrigger.DAILY_TIME,
-                onClick = { trigger = ScheduledTrigger.DAILY_TIME },
+                onClick = {
+                    trigger = ScheduledTrigger.DAILY_TIME
+                    if (!readOnlyTouched) readOnly = false
+                },
             )
             EtaRadioButtonPreference(
                 title = stringResource(R.string.scheduled_editor_trigger_notification),
                 selected = trigger == ScheduledTrigger.NOTIFICATION_MATCH,
-                onClick = { trigger = ScheduledTrigger.NOTIFICATION_MATCH },
+                onClick = {
+                    trigger = ScheduledTrigger.NOTIFICATION_MATCH
+                    if (!readOnlyTouched) readOnly = true
+                },
             )
 
             // ── 执行权限 ──
@@ -640,12 +676,18 @@ private fun ScheduleEditorDialog(
             EtaRadioButtonPreference(
                 title = stringResource(R.string.scheduled_editor_access_readonly),
                 selected = readOnly,
-                onClick = { readOnly = true },
+                onClick = {
+                    readOnly = true
+                    readOnlyTouched = true
+                },
             )
             EtaRadioButtonPreference(
                 title = stringResource(R.string.scheduled_editor_access_full),
                 selected = !readOnly,
-                onClick = { readOnly = false },
+                onClick = {
+                    readOnly = false
+                    readOnlyTouched = true
+                },
             )
 
             if (trigger == ScheduledTrigger.NOTIFICATION_MATCH) {
@@ -667,6 +709,18 @@ private fun ScheduleEditorDialog(
                         top = 4.dp,
                     ),
                 )
+                if (keywordMissing && keyword.isBlank()) {
+                    Text(
+                        text = stringResource(R.string.scheduled_editor_keyword_required),
+                        style = MiuixTheme.textStyles.subtitle,
+                        color = MiuixTheme.colorScheme.error,
+                        modifier = Modifier.padding(
+                            start = EtaPreferenceDefaults.SidePadding,
+                            end = EtaPreferenceDefaults.SidePadding,
+                            top = 4.dp,
+                        ),
+                    )
+                }
             }
 
             if (eventTask != null) {
@@ -810,31 +864,38 @@ private fun ScheduleEditorDialog(
                 cancelText = stringResource(R.string.scheduled_tasks_cancel),
                 onCancel = onDismiss,
                 onConfirm = {
-                    onSave(
-                        ScheduledTask(
-                            id = task?.id ?: ScheduledTaskStore.newId(),
-                            // trigger / keyword / name 现在都能在弹窗里改，直接用当前状态。
-                            // 只有 threshold（电量阈值）没有编辑 UI，仍原样带回 —— 漏了它会
-                            // 被静默重置成 20，等于改坏用户配的告警线。
-                            // （历史坑：早先版本漏带 keyword，把「通知含签到」存成「通知含空串」，
-                            //   matchesEvent 里空关键词直接 false，任务从此永不触发。）
-                            trigger = trigger,
-                            hour = hour,
-                            minute = minute,
-                            action = action,
-                            enabled = task?.enabled ?: true,
-                            lastRunAtMillis = task?.lastRunAtMillis,
-                            keyword = keyword.trim(),
-                            threshold = task?.threshold ?: 20,
-                            name = name.trim(),
-                            readOnly = readOnly,
-                            prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
-                            repeat = repeat,
-                            dayOfWeek = dayOfWeek,
-                            dayOfMonth = dayOfMonth,
-                            interval = interval,
-                        ),
-                    )
+                    if (trigger == ScheduledTrigger.NOTIFICATION_MATCH && keyword.isBlank()) {
+                        // 空关键词的通知任务永远不会触发（matchesEvent 里 keyword 为空直接 false），
+                        // 界面上还照样显示「已启用」，等于一个静默死任务。保存前拦下并说明原因。
+                        keywordMissing = true
+                    } else {
+                        keywordMissing = false
+                        onSave(
+                            ScheduledTask(
+                                id = task?.id ?: ScheduledTaskStore.newId(),
+                                // trigger / keyword / name 现在都能在弹窗里改，直接用当前状态。
+                                // 只有 threshold（电量阈值）没有编辑 UI，仍原样带回 —— 漏了它会
+                                // 被静默重置成 20，等于改坏用户配的告警线。
+                                // （历史坑：早先版本漏带 keyword，把「通知含签到」存成「通知含空串」，
+                                //   matchesEvent 里空关键词直接 false，任务从此永不触发。）
+                                trigger = trigger,
+                                hour = hour,
+                                minute = minute,
+                                action = action,
+                                enabled = task?.enabled ?: true,
+                                lastRunAtMillis = task?.lastRunAtMillis,
+                                keyword = keyword.trim(),
+                                threshold = task?.threshold ?: 20,
+                                name = name.trim(),
+                                readOnly = readOnly,
+                                prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
+                                repeat = repeat,
+                                dayOfWeek = dayOfWeek,
+                                dayOfMonth = dayOfMonth,
+                                interval = interval,
+                            ),
+                        )
+                    }
                 },
             )
         }

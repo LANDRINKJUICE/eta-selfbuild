@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import io.github.mangi.eta.core.AndroidAgentLogger
 
@@ -24,7 +26,7 @@ internal class DeviceEventReceiver : BroadcastReceiver() {
             Intent.ACTION_SCREEN_ON -> return // 只关心解锁，亮屏不算
             Intent.ACTION_USER_PRESENT -> ScheduledEvent.ScreenUnlocked
             Intent.ACTION_BATTERY_CHANGED -> batteryEvent(intent) ?: return
-            "android.net.wifi.WIFI_STATE_CHANGED" -> wifiEvent(intent) ?: return
+            "android.net.wifi.WIFI_STATE_CHANGED" -> wifiEvent(context, intent) ?: return
             else -> return
         }
         runCatching { ScheduledTaskScheduler.dispatchEvent(context, event) }
@@ -44,13 +46,29 @@ internal class DeviceEventReceiver : BroadcastReceiver() {
         return ScheduledEvent.BatteryChanged(percent, charging)
     }
 
-    private fun wifiEvent(intent: Intent): ScheduledEvent.WifiChanged? {
+    /**
+     * Wi-Fi「连上」必须是真的能上网。
+     *
+     * `WIFI_STATE_CHANGED` 给的是 Wi-Fi **开关**状态（3 = 已打开），不是网络连通状态。
+     * 原来直接把它当成「连上了」，于是用户只开了开关、没连任何 AP，或连着一个没有外网的热点，
+     * 也会触发「Wi-Fi 连接」任务，白跑一次模型（2026-11-04 审查发现）。
+     */
+    private fun wifiEvent(context: Context, intent: Intent): ScheduledEvent.WifiChanged? {
         val state = intent.getIntExtra("wifi_state", -1)
         return when (state) {
-            3 -> ScheduledEvent.WifiChanged(true)   // WIFI_STATE_ENABLED
-            1 -> ScheduledEvent.WifiChanged(false)  // WIFI_STATE_DISABLED
+            3 -> if (isWifiOnline(context)) ScheduledEvent.WifiChanged(true) else null
+            1 -> ScheduledEvent.WifiChanged(false)
             else -> null
         }
+    }
+
+    /** 当前活动网络是不是「Wi-Fi 且具备互联网能力」。 */
+    private fun isWifiOnline(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /** 电量只有跨过 5% 台阶才放行，避免充电过程中反复触发。 */

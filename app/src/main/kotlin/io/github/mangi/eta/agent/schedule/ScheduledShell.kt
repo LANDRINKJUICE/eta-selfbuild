@@ -103,6 +103,24 @@ internal object ScheduledShell {
                 .redirectErrorStream(false)
                 .start()
             process.outputStream.close()
+            // 必须先并行把 stdout / stderr 抽干，再 waitFor。
+            // 原实现先 waitFor 后读管道：子进程输出超过管道缓冲（约 64KB）时会阻塞在写，
+            // 于是 waitFor 等到超时、报「超时」并把已经写好的快照当失败删掉
+            // （2026-11-04 审查发现：du 大目录、体检 verbose 输出都可能触发）。
+            val stdoutRef = java.util.concurrent.atomic.AtomicReference("")
+            val stderrRef = java.util.concurrent.atomic.AtomicReference("")
+            val stdoutReader = Thread {
+                stdoutRef.set(
+                    runCatching { process.inputStream.bufferedReader().use { it.readText() } }
+                        .getOrDefault("")
+                )
+            }.apply { isDaemon = true; start() }
+            val stderrReader = Thread {
+                stderrRef.set(
+                    runCatching { process.errorStream.bufferedReader().use { it.readText() } }
+                        .getOrDefault("")
+                )
+            }.apply { isDaemon = true; start() }
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 runCatching { process.destroyForcibly() }
                 return Outcome(
@@ -111,9 +129,11 @@ internal object ScheduledShell {
                     durationMs = System.currentTimeMillis() - startedAt,
                 )
             }
-            // 进程已结束，管道里剩下的内容可以直接读，不会再阻塞。
-            val stdout = runCatching { process.inputStream.bufferedReader().use { it.readText() } }.getOrDefault("")
-            val stderr = runCatching { process.errorStream.bufferedReader().use { it.readText() } }.getOrDefault("")
+            // 进程已退出，读线程最多再等 2 秒收尾（管道已关闭，正常会立即返回）。
+            stdoutReader.join(2_000L)
+            stderrReader.join(2_000L)
+            val stdout = stdoutRef.get()
+            val stderr = stderrRef.get()
             Outcome(
                 exitCode = process.exitValue(),
                 stdout = stdout,

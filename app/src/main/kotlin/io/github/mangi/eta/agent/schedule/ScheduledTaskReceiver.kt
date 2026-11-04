@@ -29,6 +29,8 @@ internal class ScheduledTaskReceiver : Service() {
             return START_NOT_STICKY
         }
         val appContext = applicationContext
+        // 手动「立即执行一次」带 force：用户主动点的就该跑，不再被 2 分钟去重挡掉。
+        val force = intent?.getBooleanExtra(ScheduledTaskScheduler.EXTRA_FORCE, false) ?: false
         Thread {
             try {
                 val task = ScheduledTaskStore.load(appContext).firstOrNull { it.id == taskId }
@@ -36,7 +38,9 @@ internal class ScheduledTaskReceiver : Service() {
                     AndroidAgentLogger.warn("Scheduled task missing, skip")
                 } else if (!task.enabled) {
                     // 已停用，什么都不做
-                } else if (!ScheduledRunGate.shouldRun(task.lastRunAtMillis, System.currentTimeMillis())) {
+                } else if (!force &&
+                    !ScheduledRunGate.shouldRun(task.lastRunAtMillis, System.currentTimeMillis())
+                ) {
                     // 同一任务刚跑过：这是重排闹钟/系统补发导致的重复触发。
                     // 只跳过执行，下面 finally 里仍会续排下一次，不影响后续日程。
                     AndroidAgentLogger.warn("Scheduled task duplicated, skip: ${task.id}")

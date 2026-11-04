@@ -17,8 +17,21 @@ internal object AgentToolCatalog {
         memoryWritable: Boolean = true,
         capabilities: AgentToolCapabilities = AgentToolCapabilities(rootAvailable = true),
         localWebSearch: Boolean = true,
-    ): JSONArray =
-        capabilities.project(JSONArray().also { tools ->
+        /**
+         * 是否允许「会动手」的工具（打开应用、点屏幕、输入文字、按键）。
+         *
+         * 为什么单独一个开关：只读场景（定时任务里的「只读分析」）原来只关
+         * `deviceDirectTools` / `deviceSensitiveActionTools`，但 `launch_app`、`open_uri`、
+         * `tap*`、`type_text`、`press_key` 这几组是**无条件**加进工具表的 ——
+         * 于是「只读」任务照样能 `launch_app(支付宝) → observe_screen → tap`。
+         * 2026-11-04 真机事故就是这个：用户明明设了只读，Agent 还是打开了支付宝并操作。
+         *
+         * 置 false 时保留纯读工具（`get_current_context`、`search_apps`、`observe_screen`、
+         * `save_screenshot`、`wait*`、`get_clipboard`），摘掉 [INTERACTION_TOOL_NAMES]。
+         */
+        interactionTools: Boolean = true,
+    ): JSONArray {
+        val tools = capabilities.project(JSONArray().also { tools ->
             AgentContextAppToolCatalog.appendTo(tools)
             AgentScreenshotToolCatalog.appendTo(tools)
             AgentGestureToolCatalog.appendTo(tools)
@@ -45,4 +58,42 @@ internal object AgentToolCatalog {
                 AgentFileToolCatalog.appendTo(tools)
             }
         })
+        return if (interactionTools) tools else tools.withoutTools(INTERACTION_TOOL_NAMES)
+    }
+
+    /**
+     * 「会动手」的工具名单：打开应用／交出画面／打开链接／点、长按、滑、滚／输入、按键、改剪贴板。
+     *
+     * 只读模式把它们从工具表里摘掉。执行层 [io.github.mangi.eta.agent.tool.AgentLocalTools]
+     * 还有一层同样的拦截 —— 目录层让模型看不见，执行层防止别的路径（历史工具名、MCP、子代理）绕过。
+     */
+    internal val INTERACTION_TOOL_NAMES: Set<String> = setOf(
+        "launch_app",
+        "open_uri",
+        "present_to_user",
+        "tap",
+        "tap_area",
+        "tap_element",
+        "long_press",
+        "long_press_element",
+        "swipe",
+        "scroll",
+        "scroll_element",
+        "type_text",
+        "set_clipboard",
+        "press_key",
+        "open_system_panel",
+    )
+
+    /** 按工具名摘除条目，保持原有顺序。 */
+    private fun JSONArray.withoutTools(names: Set<String>): JSONArray {
+        val kept = JSONArray()
+        for (index in 0 until length()) {
+            val item = optJSONObject(index) ?: continue
+            val name = item.optJSONObject("function")?.optString("name").orEmpty()
+            if (name in names) continue
+            kept.put(item)
+        }
+        return kept
+    }
 }

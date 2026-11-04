@@ -95,6 +95,13 @@ internal class AgentLocalTools(
     private val deviceSensitiveActionToolsEnabled: () -> Boolean = {
         Prefs.isEnabled(Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS)
     },
+    /**
+     * 「会动手」的 GUI 工具是否可用（打开应用／点屏／输入／按键）。
+     *
+     * 只读场景（定时任务的「只读分析」）会传 false：目录层已经把工具摘掉，
+     * 这里再拦一次，防止模型凭历史工具名、MCP 或子代理绕过去。
+     */
+    private val interactionToolsEnabled: () -> Boolean = { true },
     private val memoryToolsEnabled: () -> Boolean = {
         runBlocking { AgentMemoryRepository.isEnabled() }
     },
@@ -391,6 +398,9 @@ internal class AgentLocalTools(
                 "DEVICE_SENSITIVE_READ_TOOLS_DISABLED" to "请先允许读取敏感设备信息"
             toolName in DEVICE_SENSITIVE_ACTION_TOOL_NAMES && !deviceSensitiveActionToolsEnabled() ->
                 "DEVICE_SENSITIVE_ACTION_TOOLS_DISABLED" to "请先允许敏感设备操作"
+            toolName in io.github.mangi.eta.agent.model.AgentToolCatalog.INTERACTION_TOOL_NAMES &&
+                !interactionToolsEnabled() ->
+                "INTERACTION_TOOLS_DISABLED" to "当前为只读模式：不能打开应用、点击屏幕或输入文字"
             else -> null
         } ?: return null
         return AgentModelClient.ToolResult(

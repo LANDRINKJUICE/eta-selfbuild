@@ -51,9 +51,9 @@ internal object ScheduledAgentRunner {
         }.trim()
     }
 
-    fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null): String {
+    fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null): ScheduledOutcome {
         val basePrompt = task.prompt.trim()
-        if (basePrompt.isEmpty()) return "指令为空，已跳过"
+        if (basePrompt.isEmpty()) return ScheduledOutcome(false, "指令为空，已跳过")
         // 把触发事件（通知原文）拼进去：Agent 就不用为了看"是哪条通知"去打开通知栏。
         val prompt = withEventContext(basePrompt, event)
 
@@ -67,7 +67,7 @@ internal object ScheduledAgentRunner {
                 )
             }
             .getOrNull()
-            ?: return "没有可用的模型配置，请先在设置里配置模型提供商"
+            ?: return ScheduledOutcome(false, "没有可用的模型配置，请先在设置里配置模型提供商")
 
         // 权限按触发方式区分（用户 2026-11-04 的要求）：
         //
@@ -87,6 +87,10 @@ internal object ScheduledAgentRunner {
                 terminalTools = false,
                 browserTools = false,
                 subagentTools = false,
+                // 关键：GUI 交互那一组（launch_app / open_uri / tap / type_text / press_key）
+                // 以前不受任何开关控制，所以「只读」照样能打开支付宝并点按
+                // （2026-11-04 用户实测：设了只读分析还是被打开支付宝）。
+                interactionTools = false,
             )
         } else {
             config
@@ -98,8 +102,14 @@ internal object ScheduledAgentRunner {
         val acquired = runCatching {
             AgentExecutionService.acquire(appContext, leaseId, allowBoundFallback = false) { }
         }.getOrDefault(false)
+        // 前台服务没拿到就别硬跑：一次 run 最长 300 秒，没有前台服务保护，
+        // 进程被 ColorOS 回收后既不成功也不失败，通知永远不来（2026-11-04 审查发现）。
+        if (!acquired) {
+            AndroidAgentLogger.warn("Scheduled run aborted: foreground service unavailable")
+            return ScheduledOutcome(false, "执行失败（无法启动前台服务，可能被系统限制）")
+        }
 
-        val summary = try {
+        val outcome = try {
             val client = AgentRuntimeClient(appContext, AndroidAgentLogger)
             val result = client.run(
                 request = AgentRuntimeWire.RunRequest(
@@ -117,21 +127,24 @@ internal object ScheduledAgentRunner {
                 "Scheduled run done: ok=${result.ok} chars=${result.content.length} " +
                     "err=${result.error?.take(60).orEmpty()}"
             )
-            when {
-                result.ok -> result.content.trim().ifEmpty { "已完成（无文字输出）" }
-                else -> result.error?.takeIf { it.isNotBlank() } ?: "执行失败"
+            if (result.ok) {
+                ScheduledOutcome(true, result.content.trim().ifEmpty { "已完成（无文字输出）" })
+            } else {
+                // 模型的错误原文（`HTTP 401`、`模型返回为空`、`上下文超长`…）直接当失败摘要。
+                // 以前这里返回纯文本，外层再靠前缀猜成败 —— 这些文案都不在表里，于是记成成功。
+                ScheduledOutcome(false, result.error?.takeIf { it.isNotBlank() } ?: "执行失败")
             }
         } catch (failure: Exception) {
             AndroidAgentLogger.warn("Scheduled prompt failed: type=${failure.javaClass.simpleName}")
-            "执行失败（${failure.javaClass.simpleName}）"
+            ScheduledOutcome(false, "执行失败（${failure.javaClass.simpleName}）")
         } finally {
             if (acquired) runCatching { AgentExecutionService.release(leaseId) }
         }
 
-        return if (summary.length <= MAX_NOTIFICATION_CHARS) {
-            summary
+        return if (outcome.summary.length <= MAX_NOTIFICATION_CHARS) {
+            outcome
         } else {
-            summary.take(MAX_NOTIFICATION_CHARS) + "…"
+            outcome.copy(summary = outcome.summary.take(MAX_NOTIFICATION_CHARS) + "…")
         }
     }
 }

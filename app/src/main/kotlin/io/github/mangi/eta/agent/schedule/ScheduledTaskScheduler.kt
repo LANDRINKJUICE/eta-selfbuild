@@ -23,6 +23,14 @@ internal object ScheduledTaskScheduler {
     const val EXTRA_TASK_ID = "task_id"
     const val EXTRA_EVENT = "event_json"
 
+    /**
+     * 「立即执行一次」用：绕过 [ScheduledRunGate] 的 2 分钟去重。
+     *
+     * 用户主动点的就该跑。以前手动执行也过闸门，2 分钟内刚跑过就静默跳过，
+     * 点完毫无反应（2026-11-04 审查发现）。
+     */
+    const val EXTRA_FORCE = "force_run"
+
     /** 固定基址 + id 哈希，保证同一任务始终复用同一个 PendingIntent（重复注册即覆盖，不会堆积）。 */
     private const val REQUEST_CODE_BASE = 0x5C4E0000
 

@@ -1501,6 +1501,7 @@
   <string name="scheduled_editor_access_full">Full access</string>
   <string name="scheduled_editor_keyword_title">Notification keyword</string>
   <string name="scheduled_editor_keyword_hint">Fires when the notification title, text, or package name contains this word. Case-insensitive.</string>
+  <string name="scheduled_editor_keyword_required">Enter a keyword to match notifications, otherwise the task never fires.</string>
   <string name="scheduled_tasks_action_title">Action</string>
   <string name="scheduled_tasks_save">Save</string>
   <string name="scheduled_tasks_cancel">Cancel</string>

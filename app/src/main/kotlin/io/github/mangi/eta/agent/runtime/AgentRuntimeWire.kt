@@ -119,6 +119,9 @@ internal object AgentRuntimeWire {
     private const val KEY_DEVICE_DIRECT_TOOLS = "device_direct_tools"
     private const val KEY_DEVICE_SENSITIVE_READ_TOOLS = "device_sensitive_read_tools"
     private const val KEY_DEVICE_SENSITIVE_ACTION_TOOLS = "device_sensitive_action_tools"
+
+    /** 「会动手」的 GUI 工具开关（打开应用／点屏／输入／按键）。缺省为 true，兼容旧客户端。 */
+    private const val KEY_INTERACTION_TOOLS = "interaction_tools"
     private const val KEY_SUBAGENT_TOOLS = "subagent_tools"
     private const val KEY_THINKING_ENABLED = "thinking_enabled"
     private const val KEY_REASONING_EFFORT = "reasoning_effort"
@@ -343,6 +346,7 @@ internal object AgentRuntimeWire {
         putBoolean(KEY_DEVICE_DIRECT_TOOLS, request.config.deviceDirectTools)
         putBoolean(KEY_DEVICE_SENSITIVE_READ_TOOLS, request.config.deviceSensitiveReadTools)
         putBoolean(KEY_DEVICE_SENSITIVE_ACTION_TOOLS, request.config.deviceSensitiveActionTools)
+        putBoolean(KEY_INTERACTION_TOOLS, request.config.interactionTools)
         putBoolean(KEY_SUBAGENT_TOOLS, request.config.subagentTools)
         putBoolean(KEY_THINKING_ENABLED, request.config.effectiveReasoningEffort.enablesReasoning)
         putString(KEY_REASONING_EFFORT, request.config.effectiveReasoningEffort.wireValue)
@@ -495,6 +499,11 @@ internal object AgentRuntimeWire {
                     bundle.getBoolean(KEY_DEVICE_SENSITIVE_READ_TOOLS, false),
                 deviceSensitiveActionTools =
                     bundle.getBoolean(KEY_DEVICE_SENSITIVE_ACTION_TOOLS, false),
+                interactionTools = if (bundle.containsKey(KEY_INTERACTION_TOOLS)) {
+                    bundle.getBoolean(KEY_INTERACTION_TOOLS)
+                } else {
+                    true
+                },
                 subagentTools = bundle.getBoolean(
                     KEY_SUBAGENT_TOOLS,
                     Prefs.Keys.BOOLEAN_DEFAULTS.getValue(Prefs.Keys.AGENT_SUBAGENT_ENABLED),
