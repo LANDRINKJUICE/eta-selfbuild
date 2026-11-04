@@ -29,9 +29,33 @@ internal object ScheduledAgentRunner {
      */
     private const val SCHEDULED_RUN_TIMEOUT_SECONDS = 300L
 
-    fun run(context: Context, task: ScheduledTask): String {
-        val prompt = task.prompt.trim()
-        if (prompt.isEmpty()) return "指令为空，已跳过"
+    /**
+     * 把触发事件里的关键信息塞进指令正文。
+     *
+     * 为什么必须这么做：通知匹配任务的 prompt 只写了「刚收到含「签到」的通知」，
+     * 没写是哪条、哪个 App。Agent 想知道细节只能调 GUI 去打开通知栏 —— 那是 systemui，
+     * 被 `CanvasRoutingPolicy` 强制走主屏，用户正在用的界面就被顶掉。
+     * 把通知原文直接交给它，它就不需要看屏幕（2026-11-04 用户反馈「sub 会抢我焦点」）。
+     */
+    private fun withEventContext(basePrompt: String, event: ScheduledEvent?): String {
+        val note = event as? ScheduledEvent.NotificationPosted ?: return basePrompt
+        return buildString {
+            appendLine("触发这条任务的通知：")
+            appendLine("应用：${note.packageName.ifBlank { "未知应用" }}")
+            if (note.title.isNotBlank()) appendLine("标题：${note.title}")
+            if (note.text.isNotBlank()) appendLine("正文：${note.text}")
+            appendLine()
+            appendLine("上面就是通知原文，不用再去打开通知栏或看屏幕。")
+            appendLine()
+            appendLine(basePrompt)
+        }.trim()
+    }
+
+    fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null): String {
+        val basePrompt = task.prompt.trim()
+        if (basePrompt.isEmpty()) return "指令为空，已跳过"
+        // 把触发事件（通知原文）拼进去：Agent 就不用为了看"是哪条通知"去打开通知栏。
+        val prompt = withEventContext(basePrompt, event)
 
         val appContext = context.applicationContext
         val config = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }

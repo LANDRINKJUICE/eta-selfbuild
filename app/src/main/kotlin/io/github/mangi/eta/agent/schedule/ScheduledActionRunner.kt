@@ -36,10 +36,10 @@ internal object ScheduledActionRunner {
     /** 这些前缀代表「没跑成」，历史和通知都要按失败处理（见 [looksLikeFailure]）。 */
     private val FAILURE_PREFIXES = listOf("执行失败", "执行超时", "没有可用的模型配置", "指令为空")
 
-    fun run(context: Context, task: ScheduledTask) {
+    fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null) {
         val startedAt = System.currentTimeMillis()
         var ok = true
-        val summary = runCatching { describe(context, task) }
+        val summary = runCatching { describe(context, task, event) }
             .getOrElse { failure ->
                 ok = false
                 "执行失败（${failure.javaClass.simpleName}）"
@@ -72,7 +72,11 @@ internal object ScheduledActionRunner {
     private fun looksLikeFailure(summary: String): Boolean =
         FAILURE_PREFIXES.any { summary.startsWith(it) }
 
-    private fun describe(context: Context, task: ScheduledTask): String = when (task.action) {
+    private fun describe(
+        context: Context,
+        task: ScheduledTask,
+        event: ScheduledEvent? = null,
+    ): String = when (task.action) {
         ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)
         ScheduledActionKind.MEMORY_STATUS -> memoryStatus(context)
         ScheduledActionKind.PERMISSIONS_CHECK -> permissionStatus(context)
@@ -84,7 +88,9 @@ internal object ScheduledActionRunner {
         ScheduledActionKind.CLEAN_TMP -> ScheduledWorkspaceActions.cleanTmp()
         ScheduledActionKind.DRIFT_CHECK -> ScheduledWorkspaceActions.driftCheck()
         // 自定义指令：交给 Agent 跑一次，结果摘要进通知。
-        ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task)
+        // 事件要一起传：通知匹配类任务靠它把「哪条通知」带进 prompt，
+        // 否则 Agent 只能自己去打开通知栏看，把用户正在用的界面顶掉。
+        ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task, event)
     }
 
     /**

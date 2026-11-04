@@ -41,7 +41,16 @@ internal class ScheduledTaskReceiver : Service() {
                     // 只跳过执行，下面 finally 里仍会续排下一次，不影响后续日程。
                     AndroidAgentLogger.warn("Scheduled task duplicated, skip: ${task.id}")
                 } else {
-                    ScheduledActionRunner.run(appContext, task)
+                    // 把触发这次任务的事件一起带上。
+                    //
+                    // 2026-11-04 修：通知匹配类任务以前只传 task，Agent 拿不到通知的
+                    // 标题/正文/包名，只能**自己去打开通知栏看** —— 而通知栏属于 systemui，
+                    // CanvasRoutingPolicy 把它列为必须主屏的包，于是用户正在用的界面被顶掉。
+                    // 用户原话：「sub 识别到了，自己识屏然后打开通知栏…这就是直接抢我焦点了」。
+                    val event = ScheduledEvent.decode(
+                        intent?.getStringExtra(ScheduledTaskScheduler.EXTRA_EVENT)
+                    )
+                    ScheduledActionRunner.run(appContext, task, event)
                     ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
                 }
             } catch (failure: Exception) {
