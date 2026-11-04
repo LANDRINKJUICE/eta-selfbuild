@@ -3,7 +3,9 @@ package io.github.mangi.eta.ui.screens.skills
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,6 +46,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import kotlin.math.abs
 import io.github.mangi.eta.ui.components.EtaCard
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
@@ -416,31 +419,40 @@ private fun SkillGroupRow(
                     contentDescription = stringResource(R.string.skills_group_drag),
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
                     modifier = Modifier
-                        .size(24.dp)
-                        // 长按把手才进拖动：整行拖动会和「点击折叠」「列表滚动」打架。
-                        .pointerInput(Unit) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { onDragStart() },
-                                onDrag = { change, amount ->
+                        .size(30.dp)
+                        // 自己接管手势，而不是 detectDragGesturesAfterLongPress：
+                        // 后者检测到的「长按」会和整行 combinedClickable 的长按（重命名）同时成立，
+                        // 结果一拖就把重命名弹窗顶出来（用户实测）。
+                        // 这里第一件事就是 consume 掉 down 事件 —— 父级收不到，根本不会判定长按。
+                        .pointerInput(group.id) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+                                var accumulated = 0f
+                                var started = false
+                                drag(down.id) { change ->
                                     change.consume()
-                                    offsetY += amount.y
-                                    if (offsetY > rowHeightPx) {
-                                        onDragStep(1)
-                                        offsetY -= rowHeightPx
-                                    } else if (offsetY < -rowHeightPx) {
-                                        onDragStep(-1)
-                                        offsetY += rowHeightPx
+                                    accumulated += change.position.y - change.previousPosition.y
+                                    if (!started && abs(accumulated) > rowHeightPx / 3f) {
+                                        started = true
+                                        onDragStart()
                                     }
-                                },
-                                onDragEnd = {
-                                    offsetY = 0f
-                                    onDragEnd()
-                                },
-                                onDragCancel = {
-                                    offsetY = 0f
-                                    onDragEnd()
-                                },
-                            )
+                                    if (started) {
+                                        // 跨过一行高度就换位，并把累计位移减掉一行的量，
+                                        // 这样连续拖动可以一格一格往下走。
+                                        if (accumulated > rowHeightPx) {
+                                            onDragStep(1)
+                                            accumulated -= rowHeightPx
+                                        } else if (accumulated < -rowHeightPx) {
+                                            onDragStep(-1)
+                                            accumulated += rowHeightPx
+                                        }
+                                        offsetY = accumulated
+                                    }
+                                }
+                                offsetY = 0f
+                                if (started) onDragEnd()
+                            }
                         },
                 )
                 Spacer(Modifier.width(6.dp))
