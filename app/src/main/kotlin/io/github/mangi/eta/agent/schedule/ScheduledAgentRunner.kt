@@ -69,18 +69,25 @@ internal object ScheduledAgentRunner {
             .getOrNull()
             ?: return "没有可用的模型配置，请先在设置里配置模型提供商"
 
-        // 后台任务无人监督，绝不能让它动界面或做写操作。
+        // 权限按触发方式区分（用户 2026-11-04 的要求）：
         //
-        // 2026-11-04 真机事故：通知匹配任务为了"看看签到没"，直接打开并操作了支付宝。
-        // 定时任务只该「读信息 + 给建议」，所以这里把 GUI、敏感操作、终端、浏览器、
-        // 子代理全部关掉；`deviceSensitiveReadTools` 保留——读通知/账单正是任务本身要做的事。
-        val backgroundConfig = config.copy(
-            deviceDirectTools = false,
-            deviceSensitiveActionTools = false,
-            terminalTools = false,
-            browserTools = false,
-            subagentTools = false,
-        )
+        // - **通知匹配**：它只是「某条通知来了，看看是什么、要不要处理」，只该读信息 + 给建议。
+        //   2026-11-04 真机事故：通知匹配任务为了"看看签到没"，直接打开并操作了支付宝。
+        //   所以 GUI、敏感操作、终端、浏览器、子代理全部关掉；
+        //   `deviceSensitiveReadTools` 保留——读通知/账单正是它要做的事。
+        // - **用户自己建的定时任务**：保留完整能力。用户明确让它「每天帮我做某件事」时，
+        //   操作能力就是他要的，不该一刀切砍掉。
+        val backgroundConfig = if (task.trigger == ScheduledTrigger.NOTIFICATION_MATCH) {
+            config.copy(
+                deviceDirectTools = false,
+                deviceSensitiveActionTools = false,
+                terminalTools = false,
+                browserTools = false,
+                subagentTools = false,
+            )
+        } else {
+            config
+        }
 
         // 诊断：这条日志能区分「配置没拿到」和「拿到配置但 run 没返回」两种情况。
         AndroidAgentLogger.warn("Scheduled run start: task=${task.id}")
