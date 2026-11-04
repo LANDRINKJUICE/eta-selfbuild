@@ -541,6 +541,16 @@ private fun ScheduleEditorDialog(
     var trigger by remember(task?.id) { mutableStateOf(task?.trigger ?: ScheduledTrigger.DAILY_TIME) }
     /** 通知关键词，仅「收到通知就执行」使用。 */
     var keyword by remember(task?.id) { mutableStateOf(task?.keyword.orEmpty()) }
+    /**
+     * 后台执行的权限级别。
+     *
+     * 默认按触发方式推断：通知匹配 → 只读（它只是看看通知说了啥），
+     * 用户自建定时 → 完全开放（可能就是要它帮忙做事）。
+     * 2026-11-04：通知匹配任务曾为了"看看签到没"直接操作支付宝，所以这个默认值很关键。
+     */
+    var readOnly by remember(task?.id) {
+        mutableStateOf(task?.readOnly ?: (task?.trigger == ScheduledTrigger.NOTIFICATION_MATCH))
+    }
 
     /**
      * 没有编辑 UI 的触发方式（充电 / 电量 / 解锁 / Wi-Fi）：只读展示原条件，不提供修改。
@@ -621,6 +631,21 @@ private fun ScheduleEditorDialog(
                 title = stringResource(R.string.scheduled_editor_trigger_notification),
                 selected = trigger == ScheduledTrigger.NOTIFICATION_MATCH,
                 onClick = { trigger = ScheduledTrigger.NOTIFICATION_MATCH },
+            )
+
+            // ── 执行权限 ──
+            // 通知匹配默认只读（它只是看看通知说了啥）；用户自建定时默认完全开放。
+            // 2026-11-04：通知匹配任务曾为了"看看签到没"直接操作支付宝，这个开关就是为它加的。
+            EditorSectionLabel(stringResource(R.string.scheduled_editor_access_title))
+            EtaRadioButtonPreference(
+                title = stringResource(R.string.scheduled_editor_access_readonly),
+                selected = readOnly,
+                onClick = { readOnly = true },
+            )
+            EtaRadioButtonPreference(
+                title = stringResource(R.string.scheduled_editor_access_full),
+                selected = !readOnly,
+                onClick = { readOnly = false },
             )
 
             if (trigger == ScheduledTrigger.NOTIFICATION_MATCH) {
@@ -802,6 +827,7 @@ private fun ScheduleEditorDialog(
                             keyword = keyword.trim(),
                             threshold = task?.threshold ?: 20,
                             name = name.trim(),
+                            readOnly = readOnly,
                             prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
                             repeat = repeat,
                             dayOfWeek = dayOfWeek,

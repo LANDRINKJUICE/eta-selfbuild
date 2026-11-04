@@ -1477,6 +1477,9 @@
   <string name="scheduled_editor_trigger_title">什么时候执行</string>
   <string name="scheduled_editor_trigger_daily">每天到点执行</string>
   <string name="scheduled_editor_trigger_notification">收到指定通知时</string>
+  <string name="scheduled_editor_access_title">执行权限</string>
+  <string name="scheduled_editor_access_readonly">只读分析</string>
+  <string name="scheduled_editor_access_full">完全开放</string>
   <string name="scheduled_editor_keyword_title">通知关键词</string>
   <string name="scheduled_editor_keyword_hint">通知的标题、正文或应用包名里含这个词就触发，不区分大小写。</string>
   <string name="scheduled_tasks_action_title">动作</string>

@@ -77,7 +77,10 @@ internal object ScheduledAgentRunner {
         //   `deviceSensitiveReadTools` 保留——读通知/账单正是它要做的事。
         // - **用户自己建的定时任务**：保留完整能力。用户明确让它「每天帮我做某件事」时，
         //   操作能力就是他要的，不该一刀切砍掉。
-        val backgroundConfig = if (task.trigger == ScheduledTrigger.NOTIFICATION_MATCH) {
+        // 权限级别：任务自己设的优先，没设就按触发方式推断
+        // （通知匹配 → 只读；用户自建定时 → 完全开放）。
+        val readOnly = task.readOnly ?: (task.trigger == ScheduledTrigger.NOTIFICATION_MATCH)
+        val backgroundConfig = if (readOnly) {
             config.copy(
                 deviceDirectTools = false,
                 deviceSensitiveActionTools = false,
