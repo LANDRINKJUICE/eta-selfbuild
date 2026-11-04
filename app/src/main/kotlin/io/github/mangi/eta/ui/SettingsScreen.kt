@@ -373,6 +373,18 @@ private fun SettingsPageContent(
 
                     EtaPreferenceDivider()
                     EtaArrowPreference(
+                        title = stringResource(R.string.speech_style_title),
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Palette,
+                                tint = EtaPreferenceColors.Orange,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.SpeechStyle) },
+                    )
+
+                    EtaPreferenceDivider()
+                    EtaArrowPreference(
                         title = "Subagent",
                         startAction = {
                             EtaPreferenceIcon(
@@ -409,7 +421,7 @@ private fun SettingsPageContent(
 
                     EtaPreferenceDivider()
                     EtaArrowPreference(
-                        title = "角色",
+                        title = "对话角色",
                         startAction = {
                             EtaPreferenceIcon(
                                 icon = Icons.Rounded.SportsBar,

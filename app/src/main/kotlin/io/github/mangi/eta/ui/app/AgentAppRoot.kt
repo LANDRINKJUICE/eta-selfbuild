@@ -484,6 +484,9 @@ fun AgentAppRoot(
             entry<AppRoute.GitHubAccount>(swipeDismiss = swipeDismiss) {
                 io.github.mangi.eta.ui.screens.accounts.GitHubAccountScreen(onBack = ::popRoute)
             }
+            entry<AppRoute.SpeechStyle>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.screens.style.SpeechStyleScreen(onBack = ::popRoute)
+            }
             entry<AppRoute.Skills>(swipeDismiss = swipeDismiss) {
                 LaunchedEffect(Unit) {
                     skills.refreshSkills()
@@ -826,7 +829,7 @@ fun AgentAppRoot(
     characterStore.notice?.let { notice ->
         WindowDialog(
             show = true,
-            title = "角色",
+            title = "对话角色",
             summary = notice,
             cornerRadius = DialogDefaults.CornerRadius,
             onDismissRequest = characterStore::dismissNotice,

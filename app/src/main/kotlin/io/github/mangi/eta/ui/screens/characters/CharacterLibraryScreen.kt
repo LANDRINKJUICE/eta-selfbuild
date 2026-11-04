@@ -60,7 +60,7 @@ internal fun CharacterLibraryScreen(
         onNavigate(AppRoute.CharacterEditor())
     }
     MiuixScaffoldPage(
-        title = "角色",
+        title = "对话角色",
         onBack = onBack,
         actions = {
             IconButton(onClick = importCard, enabled = !store.busy) {
