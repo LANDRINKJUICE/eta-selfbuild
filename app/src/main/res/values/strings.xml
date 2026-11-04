@@ -1110,6 +1110,7 @@
   <string name="skills_groups_title">Skill groups</string>
   <string name="skills_groups_hint">tap a title to collapse, long-press to drag</string>
   <string name="skills_group_menu">Group menu</string>
+  <string name="skills_group_drag">Drag to reorder</string>
   <string name="skills_group_menu_summary">Rename, move, or restore automatic grouping</string>
   <string name="skills_group_rename">Rename group</string>
   <string name="skills_group_rename_hint">This name is only for display; it does not affect how skills are matched.</string>

@@ -1092,6 +1092,7 @@
   <string name="skills_groups_title">技能分组</string>
   <string name="skills_groups_hint">点标题折叠，长按拖动排序</string>
   <string name="skills_group_menu">分组菜单</string>
+  <string name="skills_group_drag">拖动排序</string>
   <string name="skills_group_menu_summary">改名、移动，或恢复自动分类</string>
   <string name="skills_group_rename">重命名分组</string>
   <string name="skills_group_rename_hint">名字只用于显示，不影响技能怎么被匹配和调用。</string>

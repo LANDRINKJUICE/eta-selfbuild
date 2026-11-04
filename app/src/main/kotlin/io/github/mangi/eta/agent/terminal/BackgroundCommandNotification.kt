@@ -49,16 +49,15 @@ internal object BackgroundCommandNotification {
         val open = PendingIntent.getActivity(context, 0,
             Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_TERMINAL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        // 正文必须分清「命令本身失败」和「自动处理这一步失败」：
-        // 以前正文直接放唤醒 run 的结果，用户会看到「后台命令失败 · 模型接口返回 HTTP 503」，
-        // 误以为是命令因为 503 失败（2026-11-04 真实反馈）。现在加前缀把两件事分开。
+        // 折叠态只留一句直白的话；完整输出放展开态，避免长文案被系统截断得看不出重点。
         val outcome = if (ok) "已自动处理" else "自动处理失败"
-        val detail = summary.trim().replace('\n', ' ').take(110)
-            .ifEmpty { if (ok) "详情见会话" else "详情见会话" }
+        val short = BackgroundCommandSummary.shortReason(summary)
+        val long = summary.trim().ifEmpty { detailFallback(ok) }.take(400)
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (ok) "后台命令失败，已自动处理" else "后台命令失败，自动处理未完成")
-            .setContentText("$outcome：$detail")
+            .setContentText(if (short.isEmpty()) "$outcome，详情见会话" else "$outcome：$short")
+            .setStyle(Notification.BigTextStyle().bigText(long))
             .setSubText(
                 buildString {
                     append(task.description.ifBlank { "后台命令" })
@@ -72,4 +71,8 @@ internal object BackgroundCommandNotification {
             .build()
         if (manager.areNotificationsEnabled()) manager.notify(task.id, NOTIFICATION_ID, notification)
     }
+
+    /** 展开态没内容时的兜底文案。 */
+    private fun detailFallback(ok: Boolean): String =
+        if (ok) "已自动处理完成，详情见会话" else "自动处理未完成，详情见会话"
 }

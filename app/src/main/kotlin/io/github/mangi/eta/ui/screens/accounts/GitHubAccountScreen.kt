@@ -49,6 +49,9 @@ private val SidePadding = 16.dp
 @Composable
 internal fun GitHubAccountScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    // 预取文案：在 Composable 作用域取字符串才感知配置变化（LocalContext 的 getString 会被 Lint 拦）。
+    val avatarFailedText = stringResource(R.string.accounts_avatar_failed)
+    val genericErrorText = stringResource(R.string.github_error_generic)
     val scope = rememberCoroutineScope()
     var account by remember { mutableStateOf(GitHubCredentialStore.cached(context)) }
     var connected by remember { mutableStateOf(GitHubCredentialStore.isConnected(context)) }
@@ -65,7 +68,7 @@ internal fun GitHubAccountScreen(onBack: () -> Unit) {
                 avatarPath = saved
                 error = null
             } else {
-                error = context.getString(R.string.accounts_avatar_failed)
+                error = avatarFailedText
             }
         }
     }
@@ -85,7 +88,7 @@ internal fun GitHubAccountScreen(onBack: () -> Unit) {
                     token = ""
                 }
                 .onFailure { failure ->
-                    error = failure.message ?: context.getString(R.string.github_error_generic)
+                    error = failure.message ?: genericErrorText
                 }
         }
     }
