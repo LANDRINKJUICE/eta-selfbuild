@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import io.github.mangi.eta.agent.schedule.ScheduledRunLog
 import io.github.mangi.eta.agent.schedule.ScheduledTask
+import io.github.mangi.eta.agent.schedule.ScheduledTaskNaming
 import java.util.Locale
 
 /**
@@ -65,16 +66,26 @@ internal object ScheduledNotificationBuilder {
         return builder.build()
     }
 
-    private fun actionTitle(task: ScheduledTask): String = when (task.action) {
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.DEVICE_STATUS -> "设备状态"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.MEMORY_STATUS -> "记忆状态"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.PERMISSIONS_CHECK -> "权限体检"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.SELF_CHECK -> "自我体检"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.SNAPSHOT -> "系统快照"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.BRAIN_BACKUP -> "大脑备份"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.CLEAN_TMP -> "清理临时文件"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.DRIFT_CHECK -> "系统漂移检测"
-        io.github.mangi.eta.agent.schedule.ScheduledActionKind.CUSTOM_PROMPT -> "自定义指令"
+    /**
+     * 通知栏标题里的那件事叫什么。
+     *
+     * 优先用任务自己的名字（用户填的 → 关键词 → 指令正文里能看出来的事），取不到才回退到动作名。
+     * **自定义指令类不再显示「自定义指令」**——用户 2026-11-04 反馈这样「怪怪的」，
+     * 而且所有自定义任务在通知栏里长得一模一样，根本分不清谁是谁。
+     */
+    private fun actionTitle(task: ScheduledTask): String {
+        ScheduledTaskNaming.nameCandidate(task).takeIf { it.isNotEmpty() }?.let { return it }
+        return when (task.action) {
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.DEVICE_STATUS -> "设备状态"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.MEMORY_STATUS -> "记忆状态"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.PERMISSIONS_CHECK -> "权限体检"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.SELF_CHECK -> "自我体检"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.SNAPSHOT -> "系统快照"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.BRAIN_BACKUP -> "大脑备份"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.CLEAN_TMP -> "清理临时文件"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.DRIFT_CHECK -> "系统漂移检测"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.CUSTOM_PROMPT -> "定时提醒"
+        }
     }
 
     private const val NOTIFICATION_ID_BASE = 2100

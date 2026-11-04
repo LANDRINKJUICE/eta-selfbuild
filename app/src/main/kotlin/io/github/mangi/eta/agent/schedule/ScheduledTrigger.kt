@@ -64,6 +64,13 @@ internal data class ScheduledTask(
     val threshold: Int = 20,
     /** 通知关键词，仅 NOTIFICATION_MATCH 使用；大小写不敏感。 */
     val keyword: String = "",
+    /**
+     * 任务名称：列表与通知栏的头衔（「账单」「快递派送」这种人话）。
+     *
+     * 留空时按 关键词 → 指令正文 → 动作名 回退，见 [ScheduledTaskNaming]。
+     * 这个字段是后加的，老任务读出来是空串，不会破坏既有数据。
+     */
+    val name: String = "",
     val lastRunAtMillis: Long? = null,
     /** 仅 [ScheduledActionKind.CUSTOM_PROMPT] 使用：交给 Agent 执行的指令内容。 */
     val prompt: String = "",
@@ -87,6 +94,7 @@ internal data class ScheduledTask(
         .put("minute", minute)
         .put("threshold", threshold)
         .put("keyword", keyword)
+        .put("name", name)
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
         .put("prompt", prompt)
         .put("conversation_id", conversationId)
@@ -145,6 +153,7 @@ internal data class ScheduledTask(
                 minute = json.optInt("minute", 0).coerceIn(0, 59),
                 threshold = json.optInt("threshold", 20).coerceIn(1, 99),
                 keyword = json.optString("keyword", ""),
+                name = json.optString("name", ""),
                 lastRunAtMillis = lastRun,
                 prompt = json.optString("prompt", ""),
                 conversationId = json.optString("conversation_id", ""),

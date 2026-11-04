@@ -1471,6 +1471,14 @@
   <string name="scheduled_tasks_action_clean_tmp">清理临时文件</string>
   <string name="scheduled_tasks_action_drift_check">漂移检测</string>
   <string name="scheduled_tasks_time_title">时间</string>
+  <string name="scheduled_editor_preset_title">常用场景</string>
+  <string name="scheduled_editor_name_title">名称</string>
+  <string name="scheduled_editor_name_hint">列表和通知栏显示这个名字；留空就按关键词或指令自动取。</string>
+  <string name="scheduled_editor_trigger_title">什么时候执行</string>
+  <string name="scheduled_editor_trigger_daily">每天到点执行</string>
+  <string name="scheduled_editor_trigger_notification">收到指定通知时</string>
+  <string name="scheduled_editor_keyword_title">通知关键词</string>
+  <string name="scheduled_editor_keyword_hint">通知的标题、正文或应用包名里含这个词就触发，不区分大小写。</string>
   <string name="scheduled_tasks_action_title">动作</string>
   <string name="scheduled_tasks_save">保存</string>
   <string name="scheduled_tasks_cancel">取消</string>

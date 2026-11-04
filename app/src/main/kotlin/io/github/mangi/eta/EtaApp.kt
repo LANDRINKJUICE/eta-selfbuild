@@ -52,9 +52,16 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         // 定时任务的 :schedule 进程只需要最基础的 SharedPreferences（读任务表）；
         // 完整运行时（终端、Root、仓库）在主进程初始化，两者互不干扰。
         if (processName != null && processName.endsWith(":schedule")) {
-            // 定时任务进程只补 RootAccess 这一项：判定"能否执行需要 root 的动作"要用它；
-            // 其余完整运行时（终端、仓库、数据存储）仍然只在主进程初始化。
+            // 定时任务进程只补必需项，其余完整运行时（终端、后台任务、MCP）仍只在主进程初始化。
             RootAccess.initialize(this)
+            // 「自定义指令」类任务要在本进程解析当前模型配置（ScheduledAgentRunner 调
+            // RuntimeConfigRepository.currentRuntimeConfig()），所以这两项也得初始化。
+            // 2026-11-04 修复：原先只初始化 RootAccess，一访问 ProviderRepository 就抛
+            // IllegalStateException（"ProviderRepository.init(context) must be called in
+            // Application.onCreate()"），被 ScheduledAgentRunner 的 runCatching 吞成
+            // 「没有可用的模型配置」——自定义指令类定时任务因此从未成功执行过。
+            SettingsDataStore.init(this)
+            ProviderRepository.init(this)
             return
         }
         if (!AppProcessPolicy.shouldInitializeFullRuntime(processName, packageName)) {

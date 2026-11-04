@@ -1490,6 +1490,14 @@
   <string name="scheduled_tasks_action_clean_tmp">Clean temp files</string>
   <string name="scheduled_tasks_action_drift_check">Drift check</string>
   <string name="scheduled_tasks_time_title">Time</string>
+  <string name="scheduled_editor_preset_title">Presets</string>
+  <string name="scheduled_editor_name_title">Name</string>
+  <string name="scheduled_editor_name_hint">Shown in the task list and in notifications. Leave empty to derive it from the keyword or the instruction.</string>
+  <string name="scheduled_editor_trigger_title">When to run</string>
+  <string name="scheduled_editor_trigger_daily">At a fixed time</string>
+  <string name="scheduled_editor_trigger_notification">When a matching notification arrives</string>
+  <string name="scheduled_editor_keyword_title">Notification keyword</string>
+  <string name="scheduled_editor_keyword_hint">Fires when the notification title, text, or package name contains this word. Case-insensitive.</string>
   <string name="scheduled_tasks_action_title">Action</string>
   <string name="scheduled_tasks_save">Save</string>
   <string name="scheduled_tasks_cancel">Cancel</string>

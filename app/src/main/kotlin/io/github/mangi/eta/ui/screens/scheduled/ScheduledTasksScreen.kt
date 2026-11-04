@@ -44,8 +44,10 @@ import io.github.mangi.eta.agent.schedule.ScheduledTaskSchedule
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
 import io.github.mangi.eta.agent.schedule.ScheduledTrigger
+import io.github.mangi.eta.agent.schedule.ScheduledPresets
 import io.github.mangi.eta.agent.schedule.ScheduledSuggestion
 import io.github.mangi.eta.agent.schedule.ScheduledSuggestionEngine
+import io.github.mangi.eta.agent.schedule.ScheduledTaskNaming
 import io.github.mangi.eta.data.repository.NotificationHistoryRepository
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.ui.components.EtaPreference
@@ -139,7 +141,12 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     val locale = LocalConfiguration.current.locales[0]
 
     val reloadTasks = {
-        tasks = ScheduledTaskStore.load(context).sortedWith(TaskOrder)
+        val loaded = ScheduledTaskStore.load(context)
+        // 老任务没有名称：按 关键词 → 指令正文 补一次并落盘，用户进编辑就能看到名字已经填好。
+        // backfill 只补空的，绝不覆盖用户自己填过的名字。
+        val named = ScheduledTaskNaming.backfill(loaded)
+        if (named != loaded) ScheduledTaskStore.save(context, named)
+        tasks = named.sortedWith(TaskOrder)
         runs = ScheduledRunLog.load(context)
     }
 
@@ -277,6 +284,9 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                                                     hour = suggestion.hour,
                                                     minute = suggestion.minute,
                                                     keyword = suggestion.keyword,
+                                                    // 名称直接用建议里的人类可读标签（「快递」「账单」），
+                                                    // 落盘时就带好，不靠显示时的回退去猜。
+                                                    name = suggestion.keywords.joinToString("、"),
                                                     prompt = prompt,
                                                 ),
                                             )
@@ -517,9 +527,21 @@ private fun ScheduleEditorDialog(
     var dayOfWeek by remember(task?.id) { mutableStateOf(task?.dayOfWeek ?: java.util.Calendar.MONDAY) }
     var dayOfMonth by remember(task?.id) { mutableStateOf(task?.dayOfMonth ?: 1) }
     var interval by remember(task?.id) { mutableStateOf(task?.interval ?: 1) }
+    /** 名称：列表和通知栏的头衔（「账单」「快递派送」）；留空则按 关键词 → 指令正文 回退。 */
+    var name by remember(task?.id) { mutableStateOf(task?.name.orEmpty()) }
+    /** 触发方式。新建默认「每天到点」；点通知类预设会自动切成「收到通知就执行」。 */
+    var trigger by remember(task?.id) { mutableStateOf(task?.trigger ?: ScheduledTrigger.DAILY_TIME) }
+    /** 通知关键词，仅「收到通知就执行」使用。 */
+    var keyword by remember(task?.id) { mutableStateOf(task?.keyword.orEmpty()) }
 
-    /** 事件型任务（通知 / 充电 / 电量 / 解锁 / Wi-Fi）没有「几点」，编辑时不该出现时间滚轮。 */
-    val eventTask = task?.takeIf { !it.trigger.usesAlarm }
+    /**
+     * 没有编辑 UI 的触发方式（充电 / 电量 / 解锁 / Wi-Fi）：只读展示原条件，不提供修改。
+     *
+     * 通知匹配**不在**此列 —— 它现在有关键词输入框了，用户可以自己建「收到通知就处理」的任务。
+     */
+    val eventTask = task?.takeIf {
+        !it.trigger.usesAlarm && it.trigger != ScheduledTrigger.NOTIFICATION_MATCH
+    }
 
     EtaWindowDialog(
         show = true,
@@ -535,6 +557,85 @@ private fun ScheduleEditorDialog(
                 .heightIn(max = EditorMaxContentHeight)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // ── 常用场景：点一下把名称 / 触发方式 / 关键词 / 指令一次填好 ──
+            // 只是起点，不是模板锁死：填完随便改，改坏了重选一个就是。
+            EditorSectionLabel(stringResource(R.string.scheduled_editor_preset_title))
+            ScheduledPresets.all.chunked(3).forEach { presetRow ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    presetRow.forEach { preset ->
+                        EtaTextButton(
+                            text = preset.name,
+                            onClick = {
+                                name = preset.name
+                                trigger = preset.trigger
+                                keyword = preset.keyword
+                                prompt = preset.prompt
+                                action = ScheduledActionKind.CUSTOM_PROMPT
+                            },
+                        )
+                    }
+                }
+            }
+
+            // ── 名称：列表和通知栏显示的头衔 ──
+            EditorSectionLabel(stringResource(R.string.scheduled_editor_name_title))
+            TextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = EtaPreferenceDefaults.SidePadding),
+            )
+            Text(
+                text = stringResource(R.string.scheduled_editor_name_hint),
+                style = MiuixTheme.textStyles.subtitle,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(
+                    start = EtaPreferenceDefaults.SidePadding,
+                    end = EtaPreferenceDefaults.SidePadding,
+                    top = 4.dp,
+                ),
+            )
+
+            // ── 什么时候执行 ──
+            EditorSectionLabel(stringResource(R.string.scheduled_editor_trigger_title))
+            EtaRadioButtonPreference(
+                title = stringResource(R.string.scheduled_editor_trigger_daily),
+                selected = trigger == ScheduledTrigger.DAILY_TIME,
+                onClick = { trigger = ScheduledTrigger.DAILY_TIME },
+            )
+            EtaRadioButtonPreference(
+                title = stringResource(R.string.scheduled_editor_trigger_notification),
+                selected = trigger == ScheduledTrigger.NOTIFICATION_MATCH,
+                onClick = { trigger = ScheduledTrigger.NOTIFICATION_MATCH },
+            )
+
+            if (trigger == ScheduledTrigger.NOTIFICATION_MATCH) {
+                EditorSectionLabel(stringResource(R.string.scheduled_editor_keyword_title))
+                TextField(
+                    value = keyword,
+                    onValueChange = { keyword = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                )
+                Text(
+                    text = stringResource(R.string.scheduled_editor_keyword_hint),
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(
+                        start = EtaPreferenceDefaults.SidePadding,
+                        end = EtaPreferenceDefaults.SidePadding,
+                        top = 4.dp,
+                    ),
+                )
+            }
+
             if (eventTask != null) {
                 // 事件型任务：时间滚轮和「重复」对它毫无意义（默认值还会显示 00:00，用户实测觉得抽象）。
                 // 这里只读展示触发条件，改条件请去对应开关页。
@@ -545,7 +646,8 @@ private fun ScheduleEditorDialog(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding),
                 )
-            } else {
+            } else if (trigger != ScheduledTrigger.NOTIFICATION_MATCH) {
+            // 通知类任务没有「几点、多久一次」，时间滚轮和周期选择整块藏起来。
             EditorSectionLabel(stringResource(R.string.scheduled_tasks_repeat_title))
             ScheduledRepeat.entries.forEach { option ->
                 EtaRadioButtonPreference(
@@ -678,18 +780,20 @@ private fun ScheduleEditorDialog(
                     onSave(
                         ScheduledTask(
                             id = task?.id ?: ScheduledTaskStore.newId(),
-                            // 当前界面只做「每天定时」；事件型任务的编辑入口下一版补 UI。
-                            // 但**必须原样带回 trigger / keyword / threshold**：漏了 keyword
-                            // 会把「通知含签到」存成「通知含空串」，matchesEvent 里 keyword
-                            // 为空直接返回 false，任务从此永不触发（2026-11-04 发现）。
-                            trigger = task?.trigger ?: ScheduledTrigger.DAILY_TIME,
+                            // trigger / keyword / name 现在都能在弹窗里改，直接用当前状态。
+                            // 只有 threshold（电量阈值）没有编辑 UI，仍原样带回 —— 漏了它会
+                            // 被静默重置成 20，等于改坏用户配的告警线。
+                            // （历史坑：早先版本漏带 keyword，把「通知含签到」存成「通知含空串」，
+                            //   matchesEvent 里空关键词直接 false，任务从此永不触发。）
+                            trigger = trigger,
                             hour = hour,
                             minute = minute,
                             action = action,
                             enabled = task?.enabled ?: true,
                             lastRunAtMillis = task?.lastRunAtMillis,
-                            keyword = task?.keyword ?: "",
+                            keyword = keyword.trim(),
                             threshold = task?.threshold ?: 20,
+                            name = name.trim(),
                             prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
                             repeat = repeat,
                             dayOfWeek = dayOfWeek,
@@ -785,15 +889,17 @@ private fun taskTriggerText(task: ScheduledTask): String = when (task.trigger) {
     ScheduledTrigger.WIFI_DISCONNECTED -> stringResource(R.string.scheduled_trigger_wifi_disconnected)
 }
 
-/** 列表摘要：内置动作显示动作名；自定义指令显示指令内容（截断，太长会把这一行撑爆）。 */
+/**
+ * 列表摘要：优先用任务自己的名字（用户填的 → 关键词 → 指令正文里能看出来的事），
+ * 取不到才回退到动作名。
+ *
+ * 以前自定义指令是把整段 prompt 截 60 字糊在列表上，又长又技术。用户 2026-11-04 要求
+ * 「就显示个简单的账单、快递，指令藏起来」——所以列表只留头衔，
+ * 指令正文去编辑弹窗里看。
+ */
 @Composable
-private fun taskSummaryText(task: ScheduledTask): String = when (task.action) {
-    ScheduledActionKind.CUSTOM_PROMPT -> {
-        val text = task.prompt.trim().ifEmpty { stringResource(R.string.scheduled_tasks_kind_custom) }
-        stringResource(R.string.scheduled_tasks_prompt_summary_prefix, text.take(60))
-    }
-    else -> stringResource(actionLabelRes(task.action))
-}
+private fun taskSummaryText(task: ScheduledTask): String =
+    ScheduledTaskNaming.nameCandidate(task).ifEmpty { stringResource(actionLabelRes(task.action)) }
 
 @Composable
 private fun repeatLabel(repeat: ScheduledRepeat): String = when (repeat) {

@@ -27,6 +27,13 @@ internal object ScheduledAgentRunner {
 
         val appContext = context.applicationContext
         val config = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
+            .onFailure { failure ->
+                // 2026-11-04：以前这里静默吞异常，只报「没有可用的模型配置」，看不出真因
+                // （实际是 :schedule 进程没初始化 ProviderRepository）。失败必须留痕。
+                AndroidAgentLogger.warn(
+                    "Scheduled model config failed: type=${failure.javaClass.simpleName}"
+                )
+            }
             .getOrNull()
             ?: return "没有可用的模型配置，请先在设置里配置模型提供商"
 
