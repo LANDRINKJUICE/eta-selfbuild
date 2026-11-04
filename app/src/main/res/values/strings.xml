@@ -287,6 +287,8 @@
   <string name="tool_terminal">Terminal</string>
   <string name="tool_terminal_job">异步命令</string>
   <string name="tool_terminal_job_description">启动、查看和停止后台命令；回复结束后继续运行，完成时通知</string>
+  <string name="tool_share_folder">共享文件夹</string>
+  <string name="tool_share_folder_description">管理 Linux 环境的共享文件夹：把 Android 目录挂到 /workspace/mounts/&lt;name&gt;，默认只读。</string>
   <string name="tool_terminal_daemon">后台服务</string>
   <string name="tool_terminal_daemon_description">启动、查看和停止可跨 Agent 任务运行的后台服务</string>
   <string name="tool_run_command">Run command</string>

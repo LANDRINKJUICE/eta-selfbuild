@@ -6,6 +6,9 @@ import io.github.mangi.eta.data.datastore.SettingsDataStore
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 
 internal data class AgentMemorySnapshot(
@@ -60,6 +63,7 @@ internal class AgentMemoryStore(
     rootDir: File,
 ) {
     private val memoryDir = File(rootDir, DIRECTORY_NAME)
+    private val historyDir = File(memoryDir, HISTORY_DIR_NAME)
     private val atomicFile = AtomicFile(File(memoryDir, FILE_NAME))
     private val lock = Any()
 
@@ -134,7 +138,7 @@ internal class AgentMemoryStore(
         if (bytes.size > MAX_FILE_BYTES) {
             throw AgentMemoryException(
                 code = "MEMORY_TOO_LARGE",
-                message = "记忆文件不能超过 1 MiB UTF-8 字节",
+                message = "记忆文件不能超过 8 MiB UTF-8 字节",
             )
         }
         if (!memoryDir.exists() && !memoryDir.mkdirs() && !memoryDir.isDirectory) {
@@ -143,6 +147,7 @@ internal class AgentMemoryStore(
                 message = "无法创建记忆目录",
             )
         }
+        archiveCurrentLocked(bytes)
         val output = try {
             atomicFile.startWrite()
         } catch (throwable: IOException) {
@@ -163,6 +168,37 @@ internal class AgentMemoryStore(
                 cause = throwable,
             )
         }
+    }
+
+    /**
+     * 覆盖写之前把当前 MEMORY.md 复制一份到 memory/history/，只保留最近 [MAX_HISTORY_FILES] 份。
+     *
+     * 动机：memory_write 是覆盖式的，revision 只能发现「文件被外部改过」，发现不了「内容被自己写错」。
+     * 留一份写前快照，写坏了可以手工 cp 回来（自签改造 eta5）。
+     *
+     * 失败一律吞掉：留档是保险，不是写入的前提，任何异常都不该让正常保存失败。
+     */
+    private fun archiveCurrentLocked(nextBytes: ByteArray) {
+        runCatching {
+            val source = atomicFile.baseFile
+            if (!source.isFile) return@runCatching
+            val previous = source.readBytes()
+            if (previous.isEmpty() || previous.contentEquals(nextBytes)) return@runCatching
+            if (!historyDir.exists() && !historyDir.mkdirs() && !historyDir.isDirectory) return@runCatching
+            val stamp = SimpleDateFormat(HISTORY_STAMP_PATTERN, Locale.US).format(Date())
+            File(historyDir, HISTORY_FILE_PREFIX + stamp + HISTORY_FILE_SUFFIX).writeBytes(previous)
+            pruneHistoryLocked()
+        }
+    }
+
+    /** 历史快照按文件名（时间戳）排序，只留最新的 [MAX_HISTORY_FILES] 份。 */
+    private fun pruneHistoryLocked() {
+        val stale = historyDir
+            .listFiles { file -> file.isFile && file.name.startsWith(HISTORY_FILE_PREFIX) }
+            ?.sortedBy { it.name }
+            ?.dropLast(MAX_HISTORY_FILES)
+            ?: return
+        stale.forEach { it.delete() }
     }
 
     private fun replaceRange(
@@ -299,6 +335,12 @@ internal class AgentMemoryStore(
         const val MAX_WRITE_CONTENT_CHARS = 16_000
         private const val DIRECTORY_NAME = "memory"
         private const val FILE_NAME = "MEMORY.md"
+        private const val HISTORY_DIR_NAME = "history"
+        private const val HISTORY_FILE_PREFIX = "MEMORY-"
+        private const val HISTORY_FILE_SUFFIX = ".md"
+        private const val HISTORY_STAMP_PATTERN = "yyyyMMdd-HHmmss-SSS"
+        /** 写前快照保留份数：够回滚，又不会把手机塞满。 */
+        private const val MAX_HISTORY_FILES = 10
         private const val DEFAULT_START_LINE = 1
         private const val SEARCH_CONTEXT_LINES = 1
     }

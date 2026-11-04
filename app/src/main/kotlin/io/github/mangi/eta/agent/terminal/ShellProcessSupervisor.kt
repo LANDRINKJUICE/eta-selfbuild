@@ -329,7 +329,13 @@ internal class ShellProcessSupervisor(
                 return 0
               }
               if [ "${'$'}eta_readonly" = ro ]; then
-                "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_target" 2>/dev/null ||
+                # /data/user/0 是指向 /data/data 的符号链接。内核在 /proc/mounts 里按解析后的路径
+                # 记录挂载点，而 busybox mount 的 remount 是按字符串查表的 —— 直接传未解析的路径
+                # 会报 "can't find <path> in /proc/mounts"，只读静默失效（2026-11-04 实测踩坑）。
+                # 先 readlink -f 解析出挂载表里的真名再 remount；解析不出就退回原路径。
+                eta_real=${'$'}("${'$'}eta_busybox" readlink -f "${'$'}eta_target")
+                [ -n "${'$'}eta_real" ] || eta_real=${'$'}eta_target
+                "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_real" 2>/dev/null ||
                   echo "ETA_MOUNT_NOT_READONLY ${'$'}eta_target" >&2
               fi
             }
