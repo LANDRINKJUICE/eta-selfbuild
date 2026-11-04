@@ -117,8 +117,29 @@ internal object SpeechStyleStore {
         // 追加一句「适用范围」：定时任务的通知正文也是模型写的，
         // 如果只说一次语气要求，模型在「处理任务」场景会自作主张恢复正式口吻（真机实测）。
         return PREFIX + body +
-            "\n（上面的语气要求适用于**所有**回复，包括定时任务的结果和通知正文；" +
-            "但仍然不能改变事实、不能省略风险提示。）"
+            "\n（这是硬要求，不是建议：对话回复、定时任务的结果、写进通知的正文都要保持上面的语气，" +
+            "不能因为正在执行任务就切回公文口吻；但事实、报错、金额、隐私和安全提示必须严肃准确。）"
+    }
+
+    /**
+     * 给「定时任务」这类后台 run 用的短提醒，追加在用户消息末尾。
+     *
+     * 为什么还要单独一份：system 里那段离生成位置太远，实测 flash 模型在执行任务时
+     * 会直接忽略它、切回公文口吻（2026-11-04 模拟钉钉通知实测：412 字输出没有一个语气词）。
+     * 指令离输出越近越容易被遵守，所以这里在用户消息末尾再压一次。
+     *
+     * 没选角色时返回空串，调用方不要拼任何东西。
+     */
+    fun taskReminder(): String {
+        ensureFresh()
+        val style = cachedSelected.takeIf { it.isNotBlank() }
+            ?.let { id -> cachedStyles.firstOrNull { it.id == id } } ?: return ""
+        val body = style.instruction.trim()
+        return buildString {
+            append("（语气：上面的答复和写进通知的正文都要保持「").append(style.name).append("」的语气")
+            if (body.isNotEmpty()) append("，即 ").append(body)
+            append("。事实、报错、金额、隐私和安全提示仍然要严肃准确。）")
+        }
     }
 
     /** 文件被别的进程改过就重读。 */

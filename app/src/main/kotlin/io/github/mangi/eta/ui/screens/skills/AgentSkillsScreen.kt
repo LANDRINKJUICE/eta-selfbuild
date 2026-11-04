@@ -32,9 +32,11 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -108,7 +111,11 @@ fun AgentSkillsScreen(
 
     /** 正在拖动的分组 id（用于高亮）；拖动状态放在 Composable 作用域，LazyListScope 里不能用 remember。 */
     var draggingSkillGroupId by remember { mutableStateOf<String?>(null) }
-    val skillGroupRowHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
+    // 行高用实测值而不是写死 72dp：换位阈值必须和真实行高一致，否则「拖一点就跳两格」
+    // 或者「拖了半屏还不换位」（2026-11-04 用户反馈拖动不跟手）。
+    // 72dp 只作为第一帧测量出来之前的兜底值。
+    val rowHeightFallbackPx = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
+    var skillGroupRowHeightPx by remember { mutableFloatStateOf(rowHeightFallbackPx) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_skills),
@@ -169,28 +176,42 @@ fun AgentSkillsScreen(
                 ) {
                     state.groups.forEachIndexed { groupIndex, group ->
                         if (groupIndex > 0) EtaPreferenceDivider()
-                        SkillGroupRow(
-                            group = group,
-                            count = group.skillIds.count { byId.containsKey(it) },
-                            dragging = draggingSkillGroupId == group.id,
-                            rowHeightPx = skillGroupRowHeightPx,
-                            onToggle = { onAction(AgentSkillsAction.ToggleSkillGroup(group.id)) },
-                            onRename = {
-                                renameDraft = group.name
-                                renameGroup = group
-                            },
-                            onDragStart = { draggingSkillGroupId = group.id },
-                            onDragEnd = { draggingSkillGroupId = null },
-                            onDragStep = { delta ->
-                                val target = (groupIndex + delta).coerceIn(0, state.groups.lastIndex)
-                                if (target != groupIndex) {
+                        // key 必须给：重排后 Compose 才能把「同一个分组」的组合状态搬过去。
+                        // 没有 key 时按位置复用，行内的拖动位移会留在原来的槽上，视觉错位。
+                        key(group.id) {
+                            SkillGroupRow(
+                                group = group,
+                                count = group.skillIds.count { byId.containsKey(it) },
+                                dragging = draggingSkillGroupId == group.id,
+                                rowHeightPx = skillGroupRowHeightPx,
+                                onMeasured = { height ->
+                                    // 只在真的变了才写 state，避免布局阶段反复触发重组。
+                                    if (abs(height - skillGroupRowHeightPx) > 0.5f) {
+                                        skillGroupRowHeightPx = height
+                                    }
+                                },
+                                onToggle = { onAction(AgentSkillsAction.ToggleSkillGroup(group.id)) },
+                                onRename = {
+                                    renameDraft = group.name
+                                    renameGroup = group
+                                },
+                                onDragStart = { draggingSkillGroupId = group.id },
+                                onDragEnd = { draggingSkillGroupId = null },
+                                onDragStep = step@{ groupId, delta ->
+                                    // 按 id 现查索引：拖动过程中分组顺序已经变了，
+                                    // 闭包里捕获的 groupIndex 是拖动开始那一刻的旧值。
+                                    val current = state.groups.indexOfFirst { it.id == groupId }
+                                    if (current < 0) return@step false
+                                    val target = (current + delta).coerceIn(0, state.groups.lastIndex)
+                                    if (target == current) return@step false
                                     val ids = state.groups.map { it.id }.toMutableList()
-                                    ids.removeAt(groupIndex)
-                                    ids.add(target, group.id)
+                                    ids.removeAt(current)
+                                    ids.add(target, groupId)
                                     onAction(AgentSkillsAction.ReorderSkillGroups(ids))
-                                }
-                            },
-                        )
+                                    true
+                                },
+                            )
+                        }
                         if (!group.collapsed) {
                             group.skillIds.mapNotNull(byId::get).forEach { skill ->
                                 EtaPreferenceDivider()
@@ -382,19 +403,28 @@ private fun SkillGroupRow(
     count: Int,
     dragging: Boolean,
     rowHeightPx: Float,
+    onMeasured: (Float) -> Unit,
     onToggle: () -> Unit,
     onRename: () -> Unit,
     onDragStart: () -> Unit,
     onDragEnd: () -> Unit,
-    onDragStep: (Int) -> Unit,
+    onDragStep: (String, Int) -> Boolean,
 ) {
-    var offsetY by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember(group.id) { mutableFloatStateOf(0f) }
+    // 手势协程一旦启动就是长生命周期：直接读参数会一直用「拖动开始那一刻」的闭包
+    // （旧的顺序、旧的行高）。rememberUpdatedState 让协程每次拿到最新回调。
+    val currentStep by rememberUpdatedState(onDragStep)
+    val currentRowHeight by rememberUpdatedState(rowHeightPx)
+    val currentStart by rememberUpdatedState(onDragStart)
+    val currentEnd by rememberUpdatedState(onDragEnd)
     EtaPreferenceRow(
         title = group.name,
-        modifier = Modifier.graphicsLayer {
-            translationY = offsetY
-            alpha = if (dragging) 0.9f else 1f
-        },
+        modifier = Modifier
+            .onGloballyPositioned { coordinates -> onMeasured(coordinates.size.height.toFloat()) }
+            .graphicsLayer {
+                translationY = offsetY
+                alpha = if (dragging) 0.9f else 1f
+            },
         startAction = {
             EtaPreferenceIcon(
                 icon = skillGroupIcon(group.icon),
@@ -433,26 +463,33 @@ private fun SkillGroupRow(
                                 var started = false
                                 drag(down.id) { change ->
                                     change.consume()
+                                    // 行高还没测出来（0）就别判换位，否则第一个像素就触发。
+                                    val rowHeight = currentRowHeight.takeIf { it > 1f } ?: return@drag
                                     accumulated += change.position.y - change.previousPosition.y
-                                    if (!started && abs(accumulated) > rowHeightPx / 3f) {
+                                    if (!started && abs(accumulated) > rowHeight / 3f) {
                                         started = true
-                                        onDragStart()
+                                        currentStart()
                                     }
-                                    if (started) {
-                                        // 跨过一行高度就换位，并把累计位移减掉一行的量，
-                                        // 这样连续拖动可以一格一格往下走。
-                                        if (accumulated > rowHeightPx) {
-                                            onDragStep(1)
-                                            accumulated -= rowHeightPx
-                                        } else if (accumulated < -rowHeightPx) {
-                                            onDragStep(-1)
-                                            accumulated += rowHeightPx
+                                    if (!started) return@drag
+                                    // 真的移动成功了才扣掉一行的量；到顶/到底时夹住位移，
+                                    // 否则手指继续拖会让 offsetY 越跑越远、行飞出去。
+                                    if (accumulated > rowHeight) {
+                                        accumulated = if (currentStep(group.id, 1)) {
+                                            accumulated - rowHeight
+                                        } else {
+                                            rowHeight
                                         }
-                                        offsetY = accumulated
+                                    } else if (accumulated < -rowHeight) {
+                                        accumulated = if (currentStep(group.id, -1)) {
+                                            accumulated + rowHeight
+                                        } else {
+                                            -rowHeight
+                                        }
                                     }
+                                    offsetY = accumulated
                                 }
                                 offsetY = 0f
-                                if (started) onDragEnd()
+                                if (started) currentEnd()
                             }
                         },
                 )

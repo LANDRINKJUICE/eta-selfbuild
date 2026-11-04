@@ -98,4 +98,48 @@ class SkillAutoClassifierTest {
 
         assertEquals(listOf("系统与设备"), merged.map { it.id })
     }
+
+    @Test
+    fun `早期落盘的 other 图标在合并时自动修正`() {
+        // 真机数据就长这样：组名是规则名、auto=false，但 icon 全是 other（字段是后加的）。
+        // 不自愈的话界面就是一排黑文件夹（2026-11-04 用户实测反馈）。
+        val existing = listOf(
+            SkillGroupUi(id = "开发与构建", name = "开发与构建", skillIds = listOf("a"), auto = false, icon = "other"),
+            SkillGroupUi(id = "系统与设备", name = "系统与设备", skillIds = listOf("b"), auto = false, icon = "other"),
+            SkillGroupUi(id = "自我维护", name = "自我维护", skillIds = listOf("c"), auto = false, icon = "other"),
+        )
+
+        val merged = SkillAutoClassifier.mergeWithExisting(
+            existing,
+            listOf(skill("a"), skill("b"), skill("c")),
+        )
+
+        assertEquals(listOf("dev", "system", "self"), merged.map { it.icon })
+    }
+
+    @Test
+    fun `用户改过组名时仍然按 id 修好图标`() {
+        val existing = listOf(
+            SkillGroupUi(id = "网络与代理", name = "我的工具箱", skillIds = listOf("a"), auto = false, icon = "other"),
+        )
+
+        val merged = SkillAutoClassifier.mergeWithExisting(existing, listOf(skill("a")))
+
+        assertEquals("network", merged.single().icon)
+    }
+
+    @Test
+    fun `模型新建分组没给合法类别时按组名关键词补图标`() {
+        // 模型漏给 / 给了不认识的类别，就按组名里的关键词再兜一次。
+        assertEquals("network", SkillAutoClassifier.normalizeIcon("other", "代理工具", "代理工具"))
+        assertEquals("doc", SkillAutoClassifier.normalizeIcon("", "写作助手", "写作助手"))
+        // 什么都判断不出来的仍然落 other（界面用文件夹图标），但绝不能是空串。
+        assertEquals("other", SkillAutoClassifier.normalizeIcon("", "随手一放", "随手一放"))
+    }
+
+    @Test
+    fun `已经是合法类别的不被覆盖`() {
+        assertEquals("doc", SkillAutoClassifier.normalizeIcon("doc", "开发与构建", "开发与构建"))
+        assertEquals("media", SkillAutoClassifier.normalizeIcon("media", "随便什么", "随便什么"))
+    }
 }

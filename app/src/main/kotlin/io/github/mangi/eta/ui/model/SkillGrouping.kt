@@ -96,9 +96,41 @@ internal object SkillAutoClassifier {
     /** 兜底组名：什么关键词都没命中的放这里，避免技能凭空消失。 */
     const val FALLBACK_LABEL = "其他"
 
+    /** 界面能画的图标类别（与 SkillGroupClassifier.ICON_KEYS 一致）；不在这里的一律当成「没设」。 */
+    private val SUPPORTED_ICONS = setOf("dev", "system", "network", "media", "doc", "self")
+
+    /** 兜底类别：界面回落作者那套文件夹图标，语义上正好是「其他」。 */
+    const val OTHER_ICON = "other"
+
     /** 某个组名对应的图标类别；未知组名一律 other（界面回落文件夹图标）。 */
     fun iconOf(label: String): String =
-        RULES.firstOrNull { it.label == label }?.icon ?: "other"
+        RULES.firstOrNull { it.label == label }?.icon ?: OTHER_ICON
+
+    /**
+     * 修正分组图标的类别。
+     *
+     * 为什么需要：图标类别是后加的字段，早期版本落盘的分组（以及模型给不出类别的新分组）
+     * 会存成 `other`，界面就全是一排黑文件夹 —— 2026-11-04 用户实测反馈「不是原作者那套图标」。
+     * 与其让用户手动点一遍「恢复自动分类」，不如每次读取时按 id / 组名自愈。
+     *
+     * 顺序：已经是合法类别的原样保留 → 按分组 id（自动组的 id 就是规则名）→ 按显示名
+     * （用户改过名的情况）→ 再按 id 里的关键词 → 最后才是 other。
+     */
+    fun normalizeIcon(icon: String, groupId: String, groupName: String): String {
+        val current = icon.trim().lowercase()
+        if (current in SUPPORTED_ICONS) return current
+        return iconOf(groupId).takeIf { it in SUPPORTED_ICONS }
+            ?: iconByText(groupName)
+            ?: iconByText(groupId)
+            ?: OTHER_ICON
+    }
+
+    /** 按一段文字里的关键词猜图标类别；模型新建的组名（如「视频下载」）也能落进合适的类。 */
+    private fun iconByText(text: String): String? {
+        val haystack = text.lowercase().trim()
+        if (haystack.isEmpty()) return null
+        return RULES.firstOrNull { rule -> rule.keywords.any { haystack.contains(it) } }?.icon
+    }
 
     /** 单条技能归到哪个组。 */
     fun classify(skill: SkillItemUi): String {
@@ -143,7 +175,15 @@ internal object SkillAutoClassifier {
         val taken = existing.flatMap { it.skillIds }.toSet()
         val result = existing.mapNotNull { group ->
             val kept = group.skillIds.filter { it in installedIds }
-            if (kept.isEmpty()) null else group.copy(skillIds = kept)
+            if (kept.isEmpty()) {
+                null
+            } else {
+                // 顺带修图标：早期版本存下的 other 在这里一次性补成彩色类别（见 normalizeIcon）。
+                group.copy(
+                    skillIds = kept,
+                    icon = normalizeIcon(group.icon, group.id, group.name),
+                )
+            }
         }.toMutableList()
         // 新技能（或之前没被任何组收录的）按规则就位。
         val pending = skills.filter { it.id !in taken }

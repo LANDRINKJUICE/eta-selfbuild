@@ -29,6 +29,13 @@ internal object SkillGroupStore {
                 array.optJSONObject(index)?.let(::fromJson)
             }
         }.getOrDefault(emptyList())
+            // 读出来先修一遍图标：早期落盘的分组没有 icon 字段，或者模型没给出类别，
+            // 到界面上就是一排黑文件夹。自愈成本只有几次字符串比较。
+            .map { group ->
+                group.copy(
+                    icon = SkillAutoClassifier.normalizeIcon(group.icon, group.id, group.name),
+                )
+            }
     }
 
     fun save(context: Context, groups: List<SkillGroupUi>) {
@@ -89,7 +96,8 @@ internal object SkillGroupStore {
                     id = result.group,
                     name = result.group,
                     skillIds = listOf(skillId),
-                    icon = result.icon,
+                    // 模型新建的分组也要有图标：它给的类别不合法就按组名关键词兜一次。
+                    icon = SkillAutoClassifier.normalizeIcon(result.icon, result.group, result.group),
                 )
             }
         }

@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
 import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
+import io.github.mangi.eta.agent.style.SpeechStyleStore
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import kotlinx.coroutines.runBlocking
@@ -55,7 +56,15 @@ internal object ScheduledAgentRunner {
         val basePrompt = task.prompt.trim()
         if (basePrompt.isEmpty()) return ScheduledOutcome(false, "指令为空，已跳过")
         // 把触发事件（通知原文）拼进去：Agent 就不用为了看"是哪条通知"去打开通知栏。
-        val prompt = withEventContext(basePrompt, event)
+        val eventPrompt = withEventContext(basePrompt, event)
+        // 语气提醒放在整段 prompt 的最后：指令离输出越近越容易被遵守，
+        // 只靠 system 里那句实测会被模型忽略（见 SpeechStyleStore.taskReminder）。
+        val styleReminder = runCatching { SpeechStyleStore.taskReminder() }.getOrDefault("")
+        val prompt = if (styleReminder.isBlank()) {
+            eventPrompt
+        } else {
+            eventPrompt + "\n\n" + styleReminder
+        }
 
         val appContext = context.applicationContext
         val config = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
