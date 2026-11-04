@@ -62,6 +62,8 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
             // 「没有可用的模型配置」——自定义指令类定时任务因此从未成功执行过。
             SettingsDataStore.init(this)
             ProviderRepository.init(this)
+            // 定时任务也要知道「自己是哪个版本的 Eta」：注入系统提示的身份段来自这里。
+            io.github.mangi.eta.agent.model.AgentRuntimeIdentity.init(this)
             return
         }
         if (!AppProcessPolicy.shouldInitializeFullRuntime(processName, packageName)) {
@@ -78,6 +80,9 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         AgentMemoryRepository.init(this)
         ProviderRepository.init(this)
         McpServerRepository.init(this)
+        // 「我是谁、装的是哪一版」：读 PackageManager 注入系统提示（versionName 里的 +commit
+        // 就是这份 APK 的源码提交号）。放在这里而不是每次 run 现读，省一次 IPC。
+        io.github.mangi.eta.agent.model.AgentRuntimeIdentity.init(this)
         // 定时任务：AlarmManager 的闹钟不跨重启存活，进程起来后按当前配置重建。
         ScheduledTaskScheduler.rescheduleAll(this)
         // 通知渠道：跑完要弹窗提示的渠道必须是 HIGH + 声音，这里统一建好并做版本升级。
