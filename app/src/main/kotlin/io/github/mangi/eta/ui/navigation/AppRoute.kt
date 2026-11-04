@@ -27,6 +27,10 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object Subagents : AppRoute
 
+    /** GitHub 账号：连 token / 看限速 / 断开。以后加其他服务时再抽一级「账号」列表。 */
+    @Serializable
+    data object GitHubAccount : AppRoute
+
     @Serializable
     data object Characters : AppRoute
 

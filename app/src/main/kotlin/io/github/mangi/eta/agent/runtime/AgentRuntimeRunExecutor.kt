@@ -103,6 +103,10 @@ internal class AgentRuntimeRunExecutor(
             val githubSkillSource = PublicGitHubSkillSource(
                 cacheRoot = appContext.cacheDir,
                 baseClient = AgentHttpClient.client,
+                // 配了 GitHub 账号就带上 token（限速 60 → 5000 次/小时）；没配保持匿名。
+                tokenProvider = {
+                    io.github.mangi.eta.agent.github.GitHubCredentialStore.token(appContext)
+                },
             )
             val skillContext = SkillContext(
                 installedSkills = skillIndexService.listInstalledSkills()

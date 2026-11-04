@@ -184,6 +184,12 @@ internal object GitHubSkillRepositoryParser {
 internal class PublicGitHubSkillSource(
     cacheRoot: File,
     baseClient: OkHttpClient,
+    /**
+     * GitHub token 提供者：配了就用它（限速 5000 次/小时），没配就匿名（60 次/小时）。
+     *
+     * 用回调而不是在构造时取字符串：token 可能在运行期才填上，每次请求现取最省心。
+     */
+    private val tokenProvider: () -> String = { "" },
 ) : Closeable {
     private val client = baseClient.newBuilder()
         .followRedirects(false)
@@ -387,11 +393,14 @@ internal class PublicGitHubSkillSource(
         block: (okhttp3.Response) -> T,
     ): T {
         ensureOpen()
+        val token = runCatching { tokenProvider() }.getOrDefault("").trim()
         val request = Request.Builder()
             .url(url)
             .header("Accept", accept)
             .header("User-Agent", USER_AGENT)
             .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+            // 配了 GitHub 账号才带凭据：匿名访问限速 60 次/小时，带 token 是 5000。
+            .apply { if (token.isNotEmpty()) header("Authorization", "Bearer $token") }
             .build()
         val call = client.newCall(request)
         activeCalls += call

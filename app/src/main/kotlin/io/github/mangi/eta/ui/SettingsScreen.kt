@@ -106,6 +106,8 @@ import io.github.mangi.eta.ui.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponentColors
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -253,6 +255,45 @@ private fun SettingsPageContent(
         title = stringResource(R.string.ui_set_up_7debf9),
         onBack = onBack,
     ) {
+            // ── 账号 ────────────────────────────────────────────────────
+            // 放在第一屏最上面：账号是「这台设备属于谁」的入口，配一次就长期有效，
+            // 但又不是高频操作，所以不做成底部导航的一个 tab。
+            item(key = "section_accounts") {
+                EtaPreferenceGroupTitle(stringResource(R.string.accounts_title))
+                EtaPreferenceGroup {
+                    val githubConnected = remember(context) {
+                        io.github.mangi.eta.agent.github.GitHubCredentialStore.isConnected(context)
+                    }
+                    val githubAccount = remember(context) {
+                        io.github.mangi.eta.agent.github.GitHubCredentialStore.cached(context)
+                    }
+                    EtaArrowPreference(
+                        title = stringResource(R.string.accounts_github),
+                        summary = githubAccount?.login?.let { "@$it" },
+                        titleColor = if (githubConnected) {
+                            BasicComponentColors(
+                                color = EtaPreferenceColors.Blue,
+                                disabledColor = MiuixTheme.colorScheme.disabledOnSurface,
+                            )
+                        } else {
+                            BasicComponentDefaults.titleColor()
+                        },
+                        startAction = {
+                            // 头像用「登录名首字母」而不是网络图片：项目没有图片加载库，
+                            // 为一个 24dp 的图标引 Coil 不划算，而且永远渲染得出来。
+                            io.github.mangi.eta.ui.screens.accounts.GitHubAvatar(
+                                login = githubAccount?.login,
+                                connected = githubConnected,
+                                avatarPath = io.github.mangi.eta.ui.screens.accounts.LocalAvatarStore
+                                    .path(context),
+                                size = EtaPreferenceDefaults.IconSize,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.GitHubAccount) },
+                    )
+                }
+            }
+
             // ── LLM 提供商 ──────────────────────────────────────────────
             item(key = "section_agent") {
                 EtaPreferenceGroupTitle(stringResource(R.string.settings_llm_providers))

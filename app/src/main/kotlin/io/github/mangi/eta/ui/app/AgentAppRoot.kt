@@ -481,6 +481,9 @@ fun AgentAppRoot(
             entry<AppRoute.Subagents>(swipeDismiss = swipeDismiss) {
                 SubagentSettingsScreen(onBack = ::popRoute)
             }
+            entry<AppRoute.GitHubAccount>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.screens.accounts.GitHubAccountScreen(onBack = ::popRoute)
+            }
             entry<AppRoute.Skills>(swipeDismiss = swipeDismiss) {
                 LaunchedEffect(Unit) {
                     skills.refreshSkills()
