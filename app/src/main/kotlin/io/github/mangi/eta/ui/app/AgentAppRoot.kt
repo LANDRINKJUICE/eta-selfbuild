@@ -497,6 +497,12 @@ fun AgentAppRoot(
                             is AgentSkillsAction.ToggleSkill -> skills.toggleSkill(action.skillId, action.enabled)
                             is AgentSkillsAction.DeleteSkill -> skills.deleteSkill(action.skillId)
                             is AgentSkillsAction.ReinstallBuiltin -> skills.reinstallBuiltin(action.skillId)
+                            is AgentSkillsAction.ToggleSkillGroup -> skills.toggleSkillGroup(action.groupId)
+                            is AgentSkillsAction.RenameSkillGroup ->
+                                skills.renameSkillGroup(action.groupId, action.name)
+                            is AgentSkillsAction.ReorderSkillGroups ->
+                                skills.reorderSkillGroups(action.orderedGroupIds)
+                            AgentSkillsAction.ResetSkillGroups -> skills.resetSkillGroups()
                         }
                     },
                 )

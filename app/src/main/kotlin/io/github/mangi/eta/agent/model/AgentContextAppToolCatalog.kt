@@ -165,5 +165,43 @@ internal object AgentContextAppToolCatalog {
                         .put("additionalProperties", false),
                 )
             )
+            .put(
+                AgentToolSchema.function(
+                    name = "read_app_logs",
+                    description = "读取 Eta 自己落盘的诊断日志（info/warn/error，最多保留 3 天）。" +
+                        "排查「任务为什么没执行」「工具为什么被拒」「崩溃原因」时用；不需要 root，不看别人应用的数据。",
+                    parameters = JSONObject()
+                        .put("type", "object")
+                        .put(
+                            "properties",
+                            JSONObject()
+                                .put(
+                                    "level",
+                                    JSONObject()
+                                        .put("type", "string")
+                                        .put("enum", JSONArray().put("I").put("W").put("E").put("F"))
+                                        .put("description", "最低级别，默认 W（警告及以上）")
+                                )
+                                .put(
+                                    "minutes",
+                                    JSONObject()
+                                        .put("type", "integer")
+                                        .put("description", "回溯多少分钟，默认 60，最多 10080（7 天）")
+                                )
+                                .put(
+                                    "query",
+                                    JSONObject()
+                                        .put("type", "string")
+                                        .put("description", "可选，按关键词过滤，不区分大小写")
+                                )
+                                .put(
+                                    "max_lines",
+                                    JSONObject()
+                                        .put("type", "integer")
+                                        .put("description", "最多返回多少行，默认 100，上限 500")
+                                )
+                        )
+                )
+            )
     }
 }

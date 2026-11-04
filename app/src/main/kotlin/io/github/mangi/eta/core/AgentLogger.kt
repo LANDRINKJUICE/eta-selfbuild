@@ -24,10 +24,13 @@ internal object AndroidAgentLogger : AgentLogger {
 
     override fun info(message: String) {
         Log.i(ModuleConfig.TAG, message)
+        // 同时落盘：logcat 环形缓冲只留一分钟左右，出问题时回头就看不到证据了。
+        DiagnosticLogFiles.append("I", ModuleConfig.TAG, message)
     }
 
     override fun warn(message: String) {
         Log.w(ModuleConfig.TAG, message)
+        DiagnosticLogFiles.append("W", ModuleConfig.TAG, message)
     }
 
     fun warnThrottled(
@@ -46,6 +49,7 @@ internal object AndroidAgentLogger : AgentLogger {
         } else {
             Log.e(ModuleConfig.TAG, message, throwable)
         }
+        DiagnosticLogFiles.append("E", ModuleConfig.TAG, message, throwable)
     }
 
     fun errorThrottled(

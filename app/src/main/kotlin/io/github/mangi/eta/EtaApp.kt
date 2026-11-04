@@ -48,6 +48,10 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
         Prefs.initLocal(this)
+        // 最先接通诊断日志落盘：之后任何一步初始化失败都能留下证据。
+        // （logcat 环形缓冲真机上只保留一分钟左右，出了问题回头就看不到。）
+        io.github.mangi.eta.core.DiagnosticLogFiles.init(this)
+        io.github.mangi.eta.core.DiagnosticLogFiles.installCrashHandler()
         val processName = Application.getProcessName()
         // 定时任务的 :schedule 进程只需要最基础的 SharedPreferences（读任务表）；
         // 完整运行时（终端、Root、仓库）在主进程初始化，两者互不干扰。

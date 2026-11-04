@@ -49,13 +49,22 @@ internal object BackgroundCommandNotification {
         val open = PendingIntent.getActivity(context, 0,
             Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_TERMINAL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val text = summary.trim().replace('\n', ' ').take(140)
-            .ifEmpty { if (ok) "已自动处理，详情见会话" else "自动处理未完成，详情见会话" }
+        // 正文必须分清「命令本身失败」和「自动处理这一步失败」：
+        // 以前正文直接放唤醒 run 的结果，用户会看到「后台命令失败 · 模型接口返回 HTTP 503」，
+        // 误以为是命令因为 503 失败（2026-11-04 真实反馈）。现在加前缀把两件事分开。
+        val outcome = if (ok) "已自动处理" else "自动处理失败"
+        val detail = summary.trim().replace('\n', ' ').take(110)
+            .ifEmpty { if (ok) "详情见会话" else "详情见会话" }
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (ok) "后台命令失败，已自动处理" else "后台命令失败，自动处理未完成")
-            .setContentText(text)
-            .setSubText(task.description.ifBlank { null })
+            .setContentText("$outcome：$detail")
+            .setSubText(
+                buildString {
+                    append(task.description.ifBlank { "后台命令" })
+                    task.exitCode?.let { append(" · 退出码 ").append(it) }
+                }
+            )
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setContentIntent(open)
             .setAutoCancel(true)

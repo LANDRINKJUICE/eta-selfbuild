@@ -9,6 +9,9 @@ import androidx.compose.runtime.setValue
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
+import io.github.mangi.eta.ui.model.SkillAutoClassifier
+import io.github.mangi.eta.ui.model.SkillGroupStore
+import io.github.mangi.eta.ui.model.SkillGroupUi
 import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.SkillNoticeUi
 import io.github.mangi.eta.ui.model.SkillReplacementUi
@@ -68,14 +71,70 @@ internal class AgentSkillsStore(
                     capabilities = capabilities,
                 )
             }
+            val existingGroups = runCatching { SkillGroupStore.load(appContext) }
+                .getOrDefault(emptyList())
+            val mergedGroups = if (existingGroups.isEmpty()) {
+                // 第一次进来：按关键词自动分类并落盘；之后用户怎么改就怎么存。
+                SkillAutoClassifier.group(items).map { (label, ids) ->
+                    SkillGroupUi(id = label, name = label, skillIds = ids)
+                }
+            } else {
+                // 新装的技能按规则塞进对应组，卸载的移出，空组自动删掉。
+                SkillAutoClassifier.mergeWithExisting(existingGroups, items)
+            }
+            runCatching { SkillGroupStore.save(appContext, mergedGroups) }
             withContext(Dispatchers.Main) {
-                skillsState = skillsState.copy(skills = items, isLoading = false)
+                skillsState = skillsState.copy(
+                    skills = items,
+                    isLoading = false,
+                    groups = mergedGroups,
+                )
             }
         }
     }
 
-    fun toggleSkill(skillId: String, enabled: Boolean) {
-        if (skillsState.isImporting || skillsState.busySkillId != null) return
+    /** 折叠/展开分组。折叠状态也落盘：收起来的分组下次进来还是收起的。 */
+    fun toggleSkillGroup(groupId: String) {
+        val groups = skillsState.groups.map { group ->
+            if (group.id == groupId) group.copy(collapsed = !group.collapsed) else group
+        }
+        persistGroups(groups)
+    }
+
+    /** 给分组改名。改过之后这一组不再被自动分类的顺序/名字覆盖。 */
+    fun renameSkillGroup(groupId: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val groups = skillsState.groups.map { group ->
+            if (group.id == groupId) group.copy(name = trimmed, auto = false) else group
+        }
+        persistGroups(SkillGroupStore.markManual(groups))
+    }
+
+    /** 重排分组：传完整 id 列表（拖动/上移下移都由 UI 算好顺序）。 */
+    fun reorderSkillGroups(orderedGroupIds: List<String>) {
+        val byId = skillsState.groups.associateBy { it.id }
+        val ordered = orderedGroupIds.mapNotNull { byId[it] } +
+            skillsState.groups.filter { it.id !in orderedGroupIds }
+        persistGroups(SkillGroupStore.markManual(ordered))
+    }
+
+    /** 恢复自动分类：清掉用户改过的名字与顺序（折叠状态也一起重置）。 */
+    fun resetSkillGroups() {
+        val groups = SkillAutoClassifier.group(skillsState.skills).map { (label, ids) ->
+            SkillGroupUi(id = label, name = label, skillIds = ids)
+        }
+        persistGroups(groups)
+    }
+
+    private fun persistGroups(groups: List<SkillGroupUi>) {
+        skillsState = skillsState.copy(groups = groups)
+        scope.launch(Dispatchers.IO) {
+            runCatching { SkillGroupStore.save(appContext, groups) }
+        }
+    }
+
+    fun toggleSkill(skillId: String, enabled: Boolean) {        if (skillsState.isImporting || skillsState.busySkillId != null) return
         skillsState = skillsState.copy(busySkillId = skillId)
         scope.launch(Dispatchers.IO) {
             val succeeded = runCatching {

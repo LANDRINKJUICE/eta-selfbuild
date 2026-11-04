@@ -119,6 +119,7 @@ internal data class SubagentProfile(
             "top_storage_apps",
             "get_setting",
             "get_logcat",
+            "read_app_logs",
             "get_current_location",
             "get_device_environment",
             "list_alarms",

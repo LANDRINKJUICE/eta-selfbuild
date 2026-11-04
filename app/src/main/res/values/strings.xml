@@ -1107,6 +1107,16 @@
   <string name="provider_set_current">Set as default</string>
   <string name="skills_checking_package">Checking skill package</string>
   <string name="skills_import_zip">Import from ZIP</string>
+  <string name="skills_groups_title">Skill groups</string>
+  <string name="skills_groups_hint">tap a title to collapse, long-press to drag</string>
+  <string name="skills_group_menu">Group menu</string>
+  <string name="skills_group_menu_summary">Rename, move, or restore automatic grouping</string>
+  <string name="skills_group_rename">Rename group</string>
+  <string name="skills_group_rename_hint">This name is only for display; it does not affect how skills are matched.</string>
+  <string name="skills_group_save">Save</string>
+  <string name="skills_group_move_up">Move up</string>
+  <string name="skills_group_move_down">Move down</string>
+  <string name="skills_group_reset">Restore automatic grouping</string>
   <string name="skills_installing_package">Verifying and installing. Please wait</string>
   <string name="skills_choose_package">Choose a skill package containing SKILL.md</string>
   <string name="skills_choose_zip">Choose ZIP skill package</string>

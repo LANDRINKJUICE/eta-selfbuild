@@ -10,6 +10,11 @@ data class AgentSkillsUiState(
     val busySkillId: String? = null,
     val replacement: SkillReplacementUi? = null,
     val notice: SkillNoticeUi? = null,
+    /**
+     * 技能分组（顺序即显示顺序）。用户可折叠、改名、拖动；
+     * 首次进入按 [SkillAutoClassifier] 自动分好。
+     */
+    val groups: List<SkillGroupUi> = emptyList(),
 )
 
 @Immutable

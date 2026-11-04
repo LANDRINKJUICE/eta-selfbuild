@@ -60,6 +60,18 @@ sealed interface AgentSkillsAction {
     data class ToggleSkill(val skillId: String, val enabled: Boolean) : AgentSkillsAction
     data class DeleteSkill(val skillId: String) : AgentSkillsAction
     data class ReinstallBuiltin(val skillId: String) : AgentSkillsAction
+
+    /** 折叠/展开一个分组（状态持久化，下次进来还是收起的）。 */
+    data class ToggleSkillGroup(val groupId: String) : AgentSkillsAction
+
+    /** 给分组改名。 */
+    data class RenameSkillGroup(val groupId: String, val name: String) : AgentSkillsAction
+
+    /** 分组拖动/上移下移后的新顺序（传完整 id 列表）。 */
+    data class ReorderSkillGroups(val orderedGroupIds: List<String>) : AgentSkillsAction
+
+    /** 恢复自动分类（清掉用户改的名字与顺序）。 */
+    data object ResetSkillGroups : AgentSkillsAction
 }
 
 sealed interface AgentSystemEnhanceAction {

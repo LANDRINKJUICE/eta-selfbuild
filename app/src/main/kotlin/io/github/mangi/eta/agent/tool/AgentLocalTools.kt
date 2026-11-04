@@ -330,6 +330,7 @@ internal class AgentLocalTools(
                     structuredDeviceTools.execute(toolCall.name, args)
                         ?: textResult(errorResult("UNKNOWN_TOOL", "未知设备工具"))
                 "suggest_scheduled_tasks" -> textResult(suggestScheduledTasks())
+                "read_app_logs" -> textResult(readAppLogs(args))
                 "share_folder" -> textResult(shareFolder(args))
                 "read_image" -> fileVisionTool { imageTools.readImage(args) }
                 "save_screenshot" -> screenshotTools.saveScreenshot(args)
@@ -903,8 +904,55 @@ internal class AgentLocalTools(
      * 纯本地统计：不联网、不调模型、**不创建任何任务**。只返回结构化字段，
      * 文案交给模型自己组织（引擎刻意不产出展示文本，避免中文硬编码进英文界面）。
      */
-    private fun suggestScheduledTasks(): String {
-        val suggestions = runCatching {
+    /**
+     * 读 Eta 自己落盘的诊断日志。
+     *
+     * 为什么要有这个工具：logcat 的环形缓冲在真机上只留一分钟左右（实测 3201 行 ≈ 56 秒），
+     * 出问题回头去看证据早就没了 —— 只能靠 `dumpsys` 快照猜，或者读源码猜路径。
+     * 日志文件由 [io.github.mangi.eta.core.DiagnosticLogFiles] 写：最多 6 份、单份 2MB、写了脱敏。
+     */
+    private fun readAppLogs(args: JSONObject): String {
+        val dir = io.github.mangi.eta.core.DiagnosticLogFiles.directoryPath()
+        if (dir.isBlank()) {
+            return errorResult("LOGS_UNAVAILABLE", "诊断日志还没就绪（进程刚启动或初始化失败）")
+        }
+        val level = args.optString("level", "W").trim().uppercase().takeIf { it.isNotEmpty() && it[0] in "IWEF" }
+            ?.take(1) ?: "W"
+        val minutes = args.optInt("minutes", 60).coerceIn(1, 7 * 24 * 60)
+        val query = args.optString("query").trim()
+        val maxLines = args.optInt("max_lines", 100).coerceIn(1, 500)
+        val minRank = "IWEF".indexOf(level).coerceAtLeast(0)
+        val since = System.currentTimeMillis() - minutes * 60_000L
+
+        val builder = StringBuilder()
+        builder.append("诊断日志目录：").append(dir).append('\n')
+        builder.append("筛选：级别 ≥").append(level).append("，最近 ").append(minutes).append(" 分钟")
+        if (query.isNotEmpty()) builder.append("，关键词「").append(query).append('」')
+        builder.append('\n')
+
+        var collected = 0
+        io.github.mangi.eta.core.DiagnosticLogFiles.files().forEach { file ->
+            if (collected >= maxLines) return@forEach
+            if (file.lastModified() < since) return@forEach
+            val lines = runCatching { file.readLines() }.getOrDefault(emptyList())
+            val picked = ArrayList<String>()
+            for (line in lines.asReversed()) {
+                if (collected + picked.size >= maxLines) break
+                val lineLevel = LOG_LINE_LEVEL.find(line)?.groupValues?.getOrNull(1) ?: continue
+                if ("IWEF".indexOf(lineLevel) < minRank) continue
+                if (query.isNotEmpty() && !line.contains(query, ignoreCase = true)) continue
+                picked += line
+            }
+            if (picked.isEmpty()) return@forEach
+            builder.append('\n').append(file.name).append('\n')
+            picked.asReversed().forEach { line -> builder.append("  ").append(line).append('\n') }
+            collected += picked.size
+        }
+        if (collected == 0) builder.append("\n没有匹配的日志行（可能刚装好还没产生日志）")
+        return builder.toString()
+    }
+
+    private fun suggestScheduledTasks(): String {        val suggestions = runCatching {
             ScheduledSuggestionEngine.suggest(
                 samples = NotificationHistoryRepository(context).recentSamples(),
                 existingTasks = ScheduledTaskStore.load(context),
@@ -1884,8 +1932,10 @@ internal class AgentLocalTools(
     )
 
     private companion object {
-        val DEVICE_DIRECT_TOOL_NAMES = io.github.mangi.eta.agent.model.AgentPhoneToolCatalog.direct + setOf(
-            "set_alarm",
+        /** 诊断日志行的级别位：`11-04 17:41:33.123 W TAG: msg` → `W`。 */
+        private val LOG_LINE_LEVEL = Regex("^\\S+ \\S+ ([IWEF]) ")
+
+        val DEVICE_DIRECT_TOOL_NAMES = io.github.mangi.eta.agent.model.AgentPhoneToolCatalog.direct + setOf(            "set_alarm",
             "set_timer",
             "device_status",
             "inspect_app",

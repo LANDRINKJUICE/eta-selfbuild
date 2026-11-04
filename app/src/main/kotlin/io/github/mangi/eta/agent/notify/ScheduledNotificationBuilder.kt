@@ -30,7 +30,15 @@ internal object ScheduledNotificationBuilder {
         record: ScheduledRunLog.Record?,
         conversationId: String?,
     ): Notification {
-        val time = String.format(Locale.US, "%02d:%02d", task.hour, task.minute)
+        // 事件型任务（收到通知／充电／电量／Wi-Fi／解锁）没有「几点」的概念：
+        // task.hour/minute 只是默认值 0/0，以前直接当 subText 印在通知上，
+        // 结果「收到含『签到』的通知就处理」这条任务的通知显示成「09:00」，
+        // 用户以为是计划时间（2026-11-04 真机反馈）。这里按触发方式分开取。
+        val time = if (task.trigger.usesAlarm) {
+            String.format(Locale.US, "%02d:%02d", task.hour, task.minute)
+        } else {
+            task.triggerSummary().text
+        }
         val title = if (ok) {
             "定时任务完成 · ${actionTitle(task)}"
         } else {
