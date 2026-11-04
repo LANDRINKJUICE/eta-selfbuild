@@ -33,6 +33,9 @@ internal object ScheduledActionRunner {
     private const val NOTIFICATION_ID = 1188
     private const val HISTORY_MESSAGE_CHARS = 200
 
+    /** 这些前缀代表「没跑成」，历史和通知都要按失败处理（见 [looksLikeFailure]）。 */
+    private val FAILURE_PREFIXES = listOf("执行失败", "执行超时", "没有可用的模型配置", "指令为空")
+
     fun run(context: Context, task: ScheduledTask) {
         val startedAt = System.currentTimeMillis()
         var ok = true
@@ -41,8 +44,10 @@ internal object ScheduledActionRunner {
                 ok = false
                 "执行失败（${failure.javaClass.simpleName}）"
             }
-        // 自定义指令返回的是"执行失败…"文本时，也要按失败记账，否则历史里会看起来一切正常。
-        if (summary.startsWith("执行失败")) ok = false
+        // 自定义指令返回的是失败/超时描述时，也要按失败记账，否则历史里会看起来一切正常。
+        // 2026-11-04：原来只认「执行失败」前缀，结果「执行超时（300 秒未返回结果）」被记成 ok=true，
+        // 通知显示「定时任务完成」但正文是超时——用户一眼就看出不对劲。这里统一按前缀判。
+        if (looksLikeFailure(summary)) ok = false
         val duration = System.currentTimeMillis() - startedAt
         // 先落历史再发通知：通知可能被用户关掉，历史不会。
         val runRecord = ScheduledRunLog.Record(
@@ -55,6 +60,17 @@ internal object ScheduledActionRunner {
         runCatching { ScheduledRunLog.record(context, runRecord) }
         notify(context, task, summary, ok, runRecord)
     }
+
+    /**
+     * 结果摘要是不是「失败」。
+     *
+     * 自定义指令这条路上，失败不是靠异常表达的，而是靠固定前缀的文本：
+     * [ScheduledAgentRunner] 会返回「执行失败…」「执行超时…」「没有可用的模型配置…」「指令为空，已跳过」。
+     * 历史和通知都必须据此标红，否则会出现「显示完成、正文却是超时」这种错位
+     * （2026-11-04 真机上就是这样：通知写「定时任务完成 · 派送」，正文却是「执行超时」）。
+     */
+    private fun looksLikeFailure(summary: String): Boolean =
+        FAILURE_PREFIXES.any { summary.startsWith(it) }
 
     private fun describe(context: Context, task: ScheduledTask): String = when (task.action) {
         ScheduledActionKind.DEVICE_STATUS -> deviceStatus(context)

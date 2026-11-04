@@ -22,6 +22,9 @@ internal class ScheduledTaskReceiver : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val taskId = intent?.getStringExtra(ScheduledTaskScheduler.EXTRA_TASK_ID)
         if (taskId == null) {
+            // 2026-11-04 加：`am startservice` 或系统重建 Service 时 intent 可能为 null，
+            // 以前这里静默 stopSelf，排查时完全看不出"任务根本没开始"。
+            AndroidAgentLogger.warn("Scheduled receiver got null task id, skip")
             stopSelf(startId)
             return START_NOT_STICKY
         }

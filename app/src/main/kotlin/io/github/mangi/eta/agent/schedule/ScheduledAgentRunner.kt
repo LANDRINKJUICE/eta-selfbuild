@@ -45,6 +45,8 @@ internal object ScheduledAgentRunner {
             .getOrNull()
             ?: return "没有可用的模型配置，请先在设置里配置模型提供商"
 
+        // 诊断：这条日志能区分「配置没拿到」和「拿到配置但 run 没返回」两种情况。
+        AndroidAgentLogger.warn("Scheduled run start: task=${task.id}")
         val leaseId = "scheduled:${task.id}"
         val acquired = runCatching {
             AgentExecutionService.acquire(appContext, leaseId, allowBoundFallback = false) { }
@@ -63,6 +65,10 @@ internal object ScheduledAgentRunner {
                 // 后台入口必须带超时：主进程忙或被 ColorOS 杀掉时，没超时就会永久挂在
                 // CountDownLatch 上，任务既不成功也不失败、通知永远不来（2026-11-04 实测）。
                 timeoutSeconds = SCHEDULED_RUN_TIMEOUT_SECONDS,
+            )
+            AndroidAgentLogger.warn(
+                "Scheduled run done: ok=${result.ok} chars=${result.content.length} " +
+                    "err=${result.error?.take(60).orEmpty()}"
             )
             when {
                 result.ok -> result.content.trim().ifEmpty { "已完成（无文字输出）" }
