@@ -1480,6 +1480,7 @@
   <string name="scheduled_tasks_delete">Delete</string>
   <string name="scheduled_tasks_delete_confirm">Delete the task at %1$s? This cannot be undone.</string>
   <string name="scheduled_tasks_brief_never">Never run</string>
+  <string name="scheduled_tasks_consecutive_failures">failed %1$d times in a row</string>
   <string name="scheduled_tasks_enabled">Enabled</string>
   <string name="scheduled_tasks_action_device_status">Device status</string>
   <string name="scheduled_tasks_action_memory_status">Memory status</string>

@@ -94,9 +94,19 @@ internal object ScheduledRunLog {
         load(context).firstOrNull { it.taskId == taskId }
 
     /** 某条任务连续失败次数（从最新往前数，遇到成功就停）。 */
-    fun consecutiveFailures(context: Context, taskId: String): Int {
+    fun consecutiveFailures(context: Context, taskId: String): Int =
+        consecutiveFailuresOf(load(context), taskId)
+
+    /**
+     * 纯函数版本：直接用已经读出来的历史算，UI 每帧渲染时不必再读一次文件。
+     *
+     * 这个数字是「定时任务静默失败」最早能被发现的信号 —— 一条任务连着失败三次，
+     * 界面应该直接告诉用户，而不是等人自己去翻执行历史（原作者写了计数却没接上，
+     * 2026-11-04 补上）。
+     */
+    fun consecutiveFailuresOf(records: List<Record>, taskId: String): Int {
         var count = 0
-        for (record in load(context)) {
+        for (record in records) {
             if (record.taskId != taskId) continue
             if (record.ok) break
             count++

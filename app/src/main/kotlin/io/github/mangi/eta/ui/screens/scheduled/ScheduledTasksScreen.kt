@@ -333,7 +333,10 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         // 左边整行归我控制，点=编辑、长按=菜单，两个都不丢。
                         EtaPreferenceRow(
                             title = taskSummaryText(task),
-                            summary = taskTriggerText(task),
+                            // 连续失败要在列表上直接看得见：这是「任务悄悄断了」最早的信号。
+                            // 只提示 ≥2 次 —— 偶发一次失败（网络抖动、模型 429）不值得占版面。
+                            summary = taskTriggerText(task) +
+                                consecutiveFailureSuffix(runs, task.id),
                             startAction = {
                                 EtaPreferenceIcon(
                                     icon = Icons.Rounded.Schedule,
@@ -933,6 +936,24 @@ private fun runSummaryText(record: ScheduledRunLog.Record?): String = when {
  * 拼进「每天 08:30 · …」这种副标题会太长、被截断，反而看不到关键信息。
  * 这里只给最短结论：从未 / ✓ 07:50 / ✗ 07:50。
  */
+
+/**
+ * 列表副标题里的「连续失败 N 次」后缀。
+ *
+ * 只在连续失败 ≥2 次时出现：偶发一次失败（网络抖动、模型 429）不值得占版面，
+ * 但连着两次说明不是巧合。定时任务最大的风险是静默失败，这个数字是它最早的信号。
+ * 直接用页面上已有的 `runs` 计算，不多读一次磁盘。
+ */
+@Composable
+private fun consecutiveFailureSuffix(
+    runs: List<ScheduledRunLog.Record>,
+    taskId: String,
+): String {
+    val failures = ScheduledRunLog.consecutiveFailuresOf(runs, taskId)
+    if (failures < 2) return ""
+    return " · " + stringResource(R.string.scheduled_tasks_consecutive_failures, failures)
+}
+
 @Composable
 private fun runBriefText(record: ScheduledRunLog.Record?): String = when {
     record == null -> stringResource(R.string.scheduled_tasks_brief_never)
