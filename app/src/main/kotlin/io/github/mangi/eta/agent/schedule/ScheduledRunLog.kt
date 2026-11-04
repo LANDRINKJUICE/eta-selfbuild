@@ -90,4 +90,20 @@ internal object ScheduledRunLog {
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_RECORDS).apply()
     }
+
+    /**
+     * 只清掉某一条任务的历史，其他任务的不动。
+     *
+     * 用户 2026-11-04 提的：执行历史只能看不能删，跑多了会一直挂在卡片下面。
+     */
+    fun removeForTask(context: Context, taskId: String) {
+        val remaining = load(context).filterNot { it.taskId == taskId }
+        if (remaining.isEmpty()) {
+            prefs(context).edit().remove(KEY_RECORDS).apply()
+            return
+        }
+        val array = JSONArray()
+        remaining.forEach { array.put(it.toJson()) }
+        prefs(context).edit().putString(KEY_RECORDS, array.toString()).apply()
+    }
 }

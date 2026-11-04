@@ -48,7 +48,15 @@ internal class AgentRuntimeClient(
 
     fun run(
         request: AgentRuntimeWire.RunRequest,
-        onEvent: (AgentEvent) -> Unit
+        onEvent: (AgentEvent) -> Unit,
+        /**
+         * 等待结果的超时秒数；0 表示不限。
+         *
+         * 交互式入口（聊天、通知回复）不传，跑多久都等；**后台入口必须传**——
+         * `:schedule` 那种进程等主进程回结果时，主进程一忙或被厂商杀掉就会永久挂住，
+         * 任务既不成功也不失败，通知永远不来（2026-11-04 真机抓到卡 10 分钟）。
+         */
+        timeoutSeconds: Long = 0L,
     ): AgentRuntimeWire.RunResult {
         val resultLatch = CountDownLatch(1)
         val resultRef = AgentResultMailbox()
@@ -86,8 +94,30 @@ internal class AgentRuntimeClient(
             preparedImagesRef.set(preparedImages)
             msg.data = AgentRuntimeWire.toBundle(request, preparedImages.images, context.cacheDir)
             AgentWireText.send(serviceMessenger, msg)
-            // 最终结果或 Binder 断连负责唤醒；正常长任务不因客户端等待时长被取消。
-            resultLatch.await()
+            // 最终结果或 Binder 断连负责唤醒。交互式入口（timeoutSeconds=0）不设上限，
+            // 长任务不因客户端等待时长被取消；后台入口带超时，避免主进程不回结果时永久挂住。
+            val finished = if (timeoutSeconds > 0L) {
+                resultLatch.await(timeoutSeconds, TimeUnit.SECONDS)
+            } else {
+                resultLatch.await()
+                true
+            }
+            if (!finished) {
+                // 超时：主动取消这次 run 并返回失败，让调用方把「执行超时」写进历史与通知，
+                // 而不是让线程和任务记录一起悬在那里。
+                runCatching {
+                    val cancelMessage = Message.obtain(null, AgentRuntimeWire.MSG_CANCEL)
+                    cancelMessage.data = AgentRuntimeWire.ackBundle(request.runId)
+                    serviceMessenger.send(cancelMessage)
+                }
+                return AgentRuntimeWire.RunResult(
+                    runId = request.runId,
+                    contextSnapshotRef = request.runId,
+                    ok = false,
+                    content = "",
+                    error = "执行超时（${timeoutSeconds} 秒未返回结果）",
+                )
+            }
             return resultRef.get()?.let(AgentRuntimeWire::runResultFromBundle) ?: AgentRuntimeWire.RunResult("", false, "", "Agent Runtime 未返回结果")
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()

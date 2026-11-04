@@ -21,6 +21,14 @@ import kotlinx.coroutines.runBlocking
 internal object ScheduledAgentRunner {
     private const val MAX_NOTIFICATION_CHARS = 400
 
+    /**
+     * 后台执行的上限（秒）：超过就按超时失败，不无限期占着 `:schedule` 进程。
+     *
+     * 定 5 分钟是按实测：这类「看一眼通知给一两步操作」的指令正常 1~2 分钟内结束，
+     * 到 5 分钟还没回基本就是主进程那头出问题了。
+     */
+    private const val SCHEDULED_RUN_TIMEOUT_SECONDS = 300L
+
     fun run(context: Context, task: ScheduledTask): String {
         val prompt = task.prompt.trim()
         if (prompt.isEmpty()) return "指令为空，已跳过"
@@ -52,6 +60,9 @@ internal object ScheduledAgentRunner {
                     images = emptyList(),
                 ),
                 onEvent = { },
+                // 后台入口必须带超时：主进程忙或被 ColorOS 杀掉时，没超时就会永久挂在
+                // CountDownLatch 上，任务既不成功也不失败、通知永远不来（2026-11-04 实测）。
+                timeoutSeconds = SCHEDULED_RUN_TIMEOUT_SECONDS,
             )
             when {
                 result.ok -> result.content.trim().ifEmpty { "已完成（无文字输出）" }

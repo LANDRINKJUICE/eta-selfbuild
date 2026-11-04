@@ -607,12 +607,15 @@ internal object BreenoHooks {
                             images = images,
                             history = request.history,
                             handoff = request.toRuntimeHandoff(prompt)
-                        )
-                    ) { event ->
-                        if (activeAgentRun.get() === runState) {
-                            streamRenderer.onEvent(event)
-                        }
-                    }
+                        ),
+                        // 必须用命名参数：run() 现在尾部还有 timeoutSeconds，
+                        // 原来的尾随 lambda 写法会被当成那个参数而编译失败。
+                        onEvent = { event ->
+                            if (activeAgentRun.get() === runState) {
+                                streamRenderer.onEvent(event)
+                            }
+                        },
+                    )
                     ackRunId = result.runId.ifBlank { null }
                     if (!result.ok) {
                         error(result.error ?: injected(

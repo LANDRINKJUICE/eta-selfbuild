@@ -457,6 +457,14 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                // 只清这条任务的历史，别的任务不动；跑多了那串记录会一直挂在卡片下面。
+                if (runs.any { it.taskId == task.id }) {
+                    TaskMenuRow("清除执行历史") {
+                        longPressTask = null
+                        ScheduledRunLog.removeForTask(context, task.id)
+                        reloadTasks()
+                    }
+                }
                 TaskMenuRow("删除", danger = true) {
                     longPressTask = null
                     pendingDelete = task

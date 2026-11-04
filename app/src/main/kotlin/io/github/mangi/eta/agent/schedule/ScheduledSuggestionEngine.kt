@@ -257,6 +257,28 @@ internal object ScheduledSuggestionEngine {
      * 1. 已有任务的自定义指令里已经写了这个词族的词（真的是同一件事）；
      * 2. 已有任务也是自定义指令、且时间几乎撞死（≤[SAME_SLOT_MINUTES] 分钟）——同时跑两次模型纯浪费。
      */
+    /**
+     * 已有任务是否已经覆盖了这个通知关键词。
+     *
+     * 两种覆盖：
+     * 1. 本身就是同关键词的通知匹配任务（原来只判这一种）；
+     * 2. 自定义指令任务的**名称或指令正文**里提到了这个词 —— 用户把「账单、还款」合成
+     *    一条之后，这条里已经包含"账单"和"还款"，就不该再单独推这两条建议。
+     *    2026-11-04 用户反馈「我加了账单还款，eta 还会单独给我推两个」，就是漏了第 2 种。
+     */
+    private fun coversKeyword(task: ScheduledTask, keyword: String): Boolean {
+        val needle = keyword.trim()
+        if (needle.isEmpty()) return false
+        if (task.trigger == ScheduledTrigger.NOTIFICATION_MATCH &&
+            task.keyword.equals(needle, ignoreCase = true)
+        ) {
+            return true
+        }
+        if (task.action != ScheduledActionKind.CUSTOM_PROMPT) return false
+        return task.name.contains(needle, ignoreCase = true) ||
+            task.prompt.contains(needle, ignoreCase = true)
+    }
+
     private fun conflicts(
         suggestion: ScheduledSuggestion,
         existingTasks: List<ScheduledTask>,
@@ -264,8 +286,7 @@ internal object ScheduledSuggestionEngine {
         if (!task.enabled) return@any false
         when {
             suggestion.trigger == ScheduledTrigger.NOTIFICATION_MATCH ->
-                task.trigger == ScheduledTrigger.NOTIFICATION_MATCH &&
-                    task.keyword.equals(suggestion.keyword, ignoreCase = true)
+                coversKeyword(task, suggestion.keyword)
 
             suggestion.trigger == ScheduledTrigger.DAILY_TIME ->
                 task.trigger == ScheduledTrigger.DAILY_TIME &&
