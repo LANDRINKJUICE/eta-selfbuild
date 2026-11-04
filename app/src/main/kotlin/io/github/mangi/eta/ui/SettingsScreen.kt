@@ -373,18 +373,6 @@ private fun SettingsPageContent(
 
                     EtaPreferenceDivider()
                     EtaArrowPreference(
-                        title = stringResource(R.string.speech_style_title),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Palette,
-                                tint = EtaPreferenceColors.Orange,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.SpeechStyle) },
-                    )
-
-                    EtaPreferenceDivider()
-                    EtaArrowPreference(
                         title = "Subagent",
                         startAction = {
                             EtaPreferenceIcon(
@@ -417,6 +405,18 @@ private fun SettingsPageContent(
                             )
                         },
                         onClick = { onNavigate(AppRoute.McpServers) },
+                    )
+
+                    EtaPreferenceDivider()
+                    EtaArrowPreference(
+                        title = stringResource(R.string.speech_style_title),
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Palette,
+                                tint = EtaPreferenceColors.Orange,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.SpeechStyle) },
                     )
 
                     EtaPreferenceDivider()
