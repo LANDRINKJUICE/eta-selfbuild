@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.SupportAgent
@@ -396,8 +397,8 @@ private fun SkillGroupRow(
         },
         startAction = {
             EtaPreferenceIcon(
-                icon = skillGroupIcon(group.id),
-                tint = skillGroupTint(group.id),
+                icon = skillGroupIcon(group.icon),
+                tint = skillGroupTint(group.icon),
             )
         },
         interaction = Modifier.combinedClickable(
@@ -469,25 +470,27 @@ private fun SkillGroupRow(
     )
 }
 
-/** 分组图标：按组 id 固定，用户改名不影响视觉。 */
-private fun skillGroupIcon(id: String): ImageVector = when (id) {
-    "Eta 自身" -> Icons.Rounded.SupportAgent
-    "开发与构建" -> Icons.Rounded.Code
-    "逆向与包分析" -> Icons.Rounded.BugReport
-    "系统与设备" -> Icons.Rounded.Settings
-    "网络与代理" -> Icons.Rounded.Hub
-    "前端与 Web" -> Icons.Rounded.Language
-    "写作与文档" -> Icons.Rounded.Description
-    "自我维护" -> Icons.Rounded.Autorenew
+/**
+ * 分组图标：按**图标类别**取，而不是按组名。
+ *
+ * 这样模型自动建的分组、用户改过名字的分组都有图标，不会因为组名不匹配就掉成默认文件夹。
+ */
+private fun skillGroupIcon(icon: String): ImageVector = when (icon) {
+    "dev" -> Icons.Rounded.Code
+    "system" -> Icons.Rounded.Settings
+    "network" -> Icons.Rounded.Hub
+    "media" -> Icons.Rounded.PlayCircle
+    "doc" -> Icons.Rounded.Description
+    "self" -> Icons.Rounded.Autorenew
     else -> Icons.Rounded.Folder
 }
 
 /** 分组颜色：沿用设置页那套蓝/绿/橙/黄，一眼能区分大类。 */
 @Composable
-private fun skillGroupTint(id: String): Color = when (id) {
-    "Eta 自身", "开发与构建", "网络与代理" -> EtaPreferenceColors.Blue
-    "系统与设备", "写作与文档" -> EtaPreferenceColors.Green
-    "逆向与包分析", "前端与 Web" -> EtaPreferenceColors.Orange
-    "自我维护" -> EtaPreferenceColors.Yellow
+private fun skillGroupTint(icon: String): Color = when (icon) {
+    "dev", "network" -> EtaPreferenceColors.Blue
+    "system", "doc" -> EtaPreferenceColors.Green
+    "media" -> EtaPreferenceColors.Orange
+    "self" -> EtaPreferenceColors.Yellow
     else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
 }

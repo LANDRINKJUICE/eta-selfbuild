@@ -17,6 +17,8 @@ data class SkillGroupUi(
     val collapsed: Boolean = false,
     /** 自动分类生成的默认分组：用户改过名字就变 false，方便界面标一个「自动」。 */
     val auto: Boolean = true,
+    /** 图标类别（dev/system/network/media/doc/self/other），模型新建的分组也带图标。 */
+    val icon: String = "other",
 )
 
 /**
@@ -30,7 +32,7 @@ data class SkillGroupUi(
  */
 internal object SkillAutoClassifier {
 
-    private data class Rule(val label: String, val keywords: List<String>)
+    private data class Rule(val label: String, val icon: String, val keywords: List<String>)
 
     /**
      * 顺序就是默认的显示顺序：越靠前的组越常用。
@@ -39,10 +41,12 @@ internal object SkillAutoClassifier {
     private val RULES = listOf(
         Rule(
             "Eta 自身",
+            "self",
             listOf("eta", "自改", "云端构建", "eta-cloud-build", "eta-development", "handoff", "交接"),
         ),
         Rule(
             "开发与构建",
+            "dev",
             listOf(
                 "kotlin", "compose", "gradle", "架构", "architecture", "viewmodel", "data-layer",
                 "testing", "测试", "benchmark", "r8", "proguard", "agp", "navigation",
@@ -51,10 +55,12 @@ internal object SkillAutoClassifier {
         ),
         Rule(
             "逆向与包分析",
+            "dev",
             listOf("apk", "jadx", "apktool", "smali", "反编译", "逆向", "obfuscation", "混淆", "reverse"),
         ),
         Rule(
             "系统与设备",
+            "system",
             listOf(
                 "root", "magisk", "kernelsu", "kernel", "模块", "module", "权限", "permissions",
                 "无障碍", "accessibility", "性能", "performance", "电池", "battery", "coloros",
@@ -63,18 +69,22 @@ internal object SkillAutoClassifier {
         ),
         Rule(
             "网络与代理",
+            "network",
             listOf("proxy", "代理", "sing-box", "mihomo", "clash", "vpn", "mirror", "镜像", "web-search", "搜索"),
         ),
         Rule(
             "前端与 Web",
+            "dev",
             listOf("react", "next.js", "vercel", "web", "css", "html", "设计", "design", "ui-ux", "ui", "tailwind"),
         ),
         Rule(
             "写作与文档",
+            "doc",
             listOf("文档", "写作", "readme", "writing", "technical-writer", "humanizer", "guidelines", "文案"),
         ),
         Rule(
             "自我维护",
+            "self",
             listOf(
                 "self", "skill-creator", "skill-installer", "skill-maintenance", "find-skills",
                 "learning", "evaluation", "技能", "记忆", "work-hygiene", "quick-ack", "user-rules",
@@ -85,6 +95,10 @@ internal object SkillAutoClassifier {
 
     /** 兜底组名：什么关键词都没命中的放这里，避免技能凭空消失。 */
     const val FALLBACK_LABEL = "其他"
+
+    /** 某个组名对应的图标类别；未知组名一律 other（界面回落文件夹图标）。 */
+    fun iconOf(label: String): String =
+        RULES.firstOrNull { it.label == label }?.icon ?: "other"
 
     /** 单条技能归到哪个组。 */
     fun classify(skill: SkillItemUi): String {
@@ -139,7 +153,12 @@ internal object SkillAutoClassifier {
             if (index >= 0) {
                 result[index] = result[index].copy(skillIds = result[index].skillIds + skill.id)
             } else {
-                result += SkillGroupUi(id = label, name = label, skillIds = listOf(skill.id))
+                result += SkillGroupUi(
+                    id = label,
+                    name = label,
+                    skillIds = listOf(skill.id),
+                    icon = iconOf(label),
+                )
             }
         }
         // 自动组在前（按 RULES 顺序），用户自建组按用户顺序排在后面。

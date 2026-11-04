@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.agent.style.SkillGroupClassifier
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
 import io.github.mangi.eta.ui.model.SkillAutoClassifier
 import io.github.mangi.eta.ui.model.SkillGroupStore
@@ -76,7 +77,12 @@ internal class AgentSkillsStore(
             val mergedGroups = if (existingGroups.isEmpty()) {
                 // 第一次进来：按关键词自动分类并落盘；之后用户怎么改就怎么存。
                 SkillAutoClassifier.group(items).map { (label, ids) ->
-                    SkillGroupUi(id = label, name = label, skillIds = ids)
+                    SkillGroupUi(
+                        id = label,
+                        name = label,
+                        skillIds = ids,
+                        icon = SkillAutoClassifier.iconOf(label),
+                    )
                 }
             } else {
                 // 新装的技能按规则塞进对应组，卸载的移出，空组自动删掉。
@@ -89,6 +95,24 @@ internal class AgentSkillsStore(
                     isLoading = false,
                     groups = mergedGroups,
                 )
+            }
+
+            // 本地规则没命中、落进「其他」的技能，交给模型起组名（每个技能只问一次）。
+            // 放在界面刷新之后异步跑：分类失败或慢都不影响页面打开。
+            val unresolved = mergedGroups.filter { it.icon == "other" }.flatMap { it.skillIds }
+            val toAsk = if (SkillGroupStore.hasUnasked(appContext, unresolved)) unresolved else emptyList()
+            if (toAsk.isNotEmpty()) {
+                val candidates = items.filter { it.id in toAsk }
+                    .map { SkillGroupClassifier.Candidate(it.id, it.name, it.description) }
+                val classified = SkillGroupClassifier.classify(appContext, candidates)
+                if (classified.isNotEmpty()) {
+                    val updated = SkillGroupStore.applyModelGroups(appContext, mergedGroups, classified)
+                    withContext(Dispatchers.Main) {
+                        skillsState = skillsState.copy(groups = updated)
+                    }
+                }
+                // 无论成功失败都记为「问过」，避免模型不可用时每次进页面都重试。
+                SkillGroupStore.markAsked(appContext, toAsk)
             }
         }
     }
@@ -122,7 +146,12 @@ internal class AgentSkillsStore(
     /** 恢复自动分类：清掉用户改过的名字与顺序（折叠状态也一起重置）。 */
     fun resetSkillGroups() {
         val groups = SkillAutoClassifier.group(skillsState.skills).map { (label, ids) ->
-            SkillGroupUi(id = label, name = label, skillIds = ids)
+            SkillGroupUi(
+                id = label,
+                name = label,
+                skillIds = ids,
+                icon = SkillAutoClassifier.iconOf(label),
+            )
         }
         persistGroups(groups)
     }
