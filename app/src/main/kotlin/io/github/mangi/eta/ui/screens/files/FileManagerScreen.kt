@@ -1766,12 +1766,6 @@ private fun MenuRow(
  * 路径显示：MT 是完整显示路径的。这里只在太长时做**中间省略**，
  * 保留开头的分区名与末尾目录名 —— 两头都有信息量，掐掉任何一头都会看不懂。
  */
-private fun displayPath(path: String): String {
-    val trimmed = path.trimEnd('/')
-    return trimmed.ifEmpty { "/" }
-}
-
-
 /** 底部工具栏的一个图标按钮（MT 风格：无文字、等距、禁用态变灰）。 */
 @Composable
 private fun ToolButton(

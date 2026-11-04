@@ -205,7 +205,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.POWER_CONNECTED" />
                 <action android:name="android.intent.action.POWER_DISCONNECTED" />
-                <action android:name="android.intent.action.BATTERY_CHANGED" />
+                <!-- 电量变化不在这里声明：ACTION_BATTERY_CHANGED 是 sticky 广播，
+                     manifest 声明的组件收不到，必须动态注册（见 BatteryMonitor）。 -->
                 <action android:name="android.intent.action.USER_PRESENT" />
                 <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
             </intent-filter>

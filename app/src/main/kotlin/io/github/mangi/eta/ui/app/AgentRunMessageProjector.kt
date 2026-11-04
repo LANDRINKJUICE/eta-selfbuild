@@ -196,22 +196,20 @@ internal class AgentRunMessageProjector(
             messages = messages,
         )
         val assistantId = assistantMessageId(runId, round, index)
-        var updated = false
-        val next = transitioned.map { message ->
-            if (message is AgentMessageUi && message.id == assistantId) {
-                updated = true
-                message.copy(
-                    content = message.content + delta,
+        // 直接定位再改一条：流式刷新每 80ms 一次，全表 map 在长会话里是主要开销（体检 #16）。
+        val targetIndex = transitioned.indexOfFirst { it is AgentMessageUi && it.id == assistantId }
+        if (targetIndex >= 0) {
+            val target = transitioned[targetIndex] as AgentMessageUi
+            return transitioned.toMutableList().apply {
+                this[targetIndex] = target.copy(
+                    content = target.content + delta,
                     isStreaming = true,
                     renderMarkdown = false,
                 )
-            } else {
-                message
             }
         }
-        if (updated) return next
 
-        return next + AgentMessageUi(
+        return transitioned + AgentMessageUi(
             id = assistantId,
             content = delta,
             isStreaming = true,
@@ -237,23 +235,21 @@ internal class AgentRunMessageProjector(
         )
         val thinkingId = thinkingMessageId(runId, round, index)
         val elapsedSeconds = elapsedSeconds(thinkingId)
-        var updated = false
-        val next = transitioned.map { message ->
-            if (message is ThinkingMessageUi && message.id == thinkingId) {
-                updated = true
-                message.copy(
-                    content = message.content + delta,
+        // 同 appendTextDelta：定位到那条再改，不做全表 map（体检 #16）。
+        val targetIndex = transitioned.indexOfFirst { it is ThinkingMessageUi && it.id == thinkingId }
+        if (targetIndex >= 0) {
+            val target = transitioned[targetIndex] as ThinkingMessageUi
+            return transitioned.toMutableList().apply {
+                this[targetIndex] = target.copy(
+                    content = target.content + delta,
                     isStreaming = true,
                     elapsedSeconds = elapsedSeconds,
                     collapsed = false,
                 )
-            } else {
-                message
             }
         }
-        if (updated) return next
 
-        return next + ThinkingMessageUi(
+        return transitioned + ThinkingMessageUi(
             id = thinkingId,
             content = delta,
             isStreaming = true,

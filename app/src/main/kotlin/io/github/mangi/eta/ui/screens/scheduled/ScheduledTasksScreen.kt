@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -72,6 +73,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.mangi.eta.ui.model.RecentUsageMessageWindow
 import io.github.mangi.eta.ui.model.TokenUsageSnapshot
@@ -140,31 +142,50 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
     // 与输入框上方的上下文按钮保持一致：token 数字跟随当前界面语言做数字分组。
     val locale = LocalConfiguration.current.locales[0]
 
-    val reloadTasks = {
-        val loaded = ScheduledTaskStore.load(context)
-        // 老任务没有名称：按 关键词 → 指令正文 补一次并落盘，用户进编辑就能看到名字已经填好。
-        // backfill 只补空的，绝不覆盖用户自己填过的名字。
-        val named = ScheduledTaskNaming.backfill(loaded)
-        if (named != loaded) ScheduledTaskStore.save(context, named)
-        tasks = named.sortedWith(TaskOrder)
-        runs = ScheduledRunLog.load(context)
+    val scope = rememberCoroutineScope()
+
+    /**
+     * 读盘 + 补名称 + 刷新列表。
+     *
+     * 刻意放在 **IO 线程**：以前整段跑在组合的主线程里，页面停留时还被 5 秒轮询反复调用，
+     * 每次都是同步读两个文件 + JSON 解析（2026-11-04 代码体检 #13）。
+     */
+    val reloadTasks: suspend () -> Unit = {
+        val snapshot = withContext(Dispatchers.IO) {
+            val loaded = ScheduledTaskStore.load(context)
+            // 老任务没有名称：按 关键词 → 指令正文 补一次并落盘，用户进编辑就能看到名字已经填好。
+            // backfill 只补空的，绝不覆盖用户自己填过的名字。
+            val named = ScheduledTaskNaming.backfill(loaded)
+            if (named != loaded) ScheduledTaskStore.save(context, named)
+            named.sortedWith(TaskOrder) to ScheduledRunLog.load(context)
+        }
+        tasks = snapshot.first
+        runs = snapshot.second
     }
 
     // 增删改统一走这里：先落盘，再按启用状态注册/取消闹钟，最后重新读盘刷新界面。
     val persist: (ScheduledTask) -> Unit = { task ->
-        ScheduledTaskStore.upsert(context, task)
-        if (task.enabled) {
-            ScheduledTaskScheduler.schedule(context, task)
-        } else {
-            ScheduledTaskScheduler.cancel(context, task.id)
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                ScheduledTaskStore.upsert(context, task)
+                if (task.enabled) {
+                    ScheduledTaskScheduler.schedule(context, task)
+                } else {
+                    ScheduledTaskScheduler.cancel(context, task.id)
+                }
+            }
+            reloadTasks()
         }
-        reloadTasks()
     }
 
     val removeTask: (ScheduledTask) -> Unit = { task ->
-        ScheduledTaskStore.delete(context, task.id)
-        ScheduledTaskScheduler.cancel(context, task.id)
-        reloadTasks()
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                ScheduledTaskStore.delete(context, task.id)
+                ScheduledTaskScheduler.cancel(context, task.id)
+            }
+            reloadTasks()
+        }
     }
 
     LaunchedEffect(context) {
@@ -321,7 +342,10 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
         } else {
             // 分组标题与页面大标题重复，这里不再渲染，直接从任务列表开始。
             // 最近一次执行记录：状态行与图标颜色都要用，抽出来避免同一查询写两遍。
-            fun latestRunOf(task: ScheduledTask) = runs.firstOrNull { it.taskId == task.id }
+            // 一次分组：下面每个任务都要用同一批历史的几种形态。
+            // 以前 latestRunOf / filter / count 各扫一遍，是 O(任务数 × 历史数)（2026-11-04 代码体检 #13）。
+            val runsByTask = runs.groupBy { it.taskId }
+            fun latestRunOf(task: ScheduledTask) = runsByTask[task.id]?.firstOrNull()
 
             tasks.forEach { task ->
                 item(key = "scheduled_task_${task.id}") {
@@ -363,7 +387,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         // 历史默认折叠：只显示最近 1 条（就是"最近执行"），
                         // 点「展开」才看更多。任务一多时不会一屏全是历史。
                         if (expandedHistory.contains(task.id)) {
-                            runs.filter { it.taskId == task.id }.take(5).forEach { record ->
+                            runsByTask[task.id].orEmpty().take(5).forEach { record ->
                                 EtaPreferenceDivider()
                                 EtaPreference(
                                     title = runTimeText(record),
@@ -381,7 +405,7 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                         }
 
                         // 展开/收起：只有真有历史时才显示
-                        val total = runs.count { it.taskId == task.id }
+                        val total = runsByTask[task.id]?.size ?: 0
                         if (total > 0) {
                             EtaPreferenceDivider()
                             EtaArrowPreference(
@@ -478,8 +502,12 @@ internal fun ScheduledTasksScreen(onBack: () -> Unit) {
                 if (runs.any { it.taskId == task.id }) {
                     TaskMenuRow("清除执行历史") {
                         longPressTask = null
-                        ScheduledRunLog.removeForTask(context, task.id)
-                        reloadTasks()
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                ScheduledRunLog.removeForTask(context, task.id)
+                            }
+                            reloadTasks()
+                        }
                     }
                 }
                 TaskMenuRow("删除", danger = true) {
@@ -980,8 +1008,6 @@ private fun runTimeText(record: ScheduledRunLog.Record): String {
 }
 
 /** HH:mm；不用 String.format，避免跟随系统 Locale 出现阿拉伯数字变体。 */
-private fun taskTimeText(task: ScheduledTask): String = ScheduledTaskSchedule.describe(task)
-
 /**
  * 卡片副标题：**按触发条件给文案，不是一律「每天 HH:mm」**。
  *

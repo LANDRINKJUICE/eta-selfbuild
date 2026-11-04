@@ -91,6 +91,9 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         io.github.mangi.eta.agent.model.AgentRuntimeIdentity.init(this)
         // 定时任务：AlarmManager 的闹钟不跨重启存活，进程起来后按当前配置重建。
         ScheduledTaskScheduler.rescheduleAll(this)
+        // 电量触发：ACTION_BATTERY_CHANGED 是 sticky 广播，manifest 声明收不到，
+        // 必须在常驻进程里动态注册（2026-11-04 代码体检 #1）。
+        io.github.mangi.eta.agent.schedule.BatteryMonitor.start(this)
         // 通知渠道：跑完要弹窗提示的渠道必须是 HIGH + 声音，这里统一建好并做版本升级。
         io.github.mangi.eta.agent.notify.EtaNotificationChannels.ensure(this)
         XposedServiceHelper.registerListener(this)

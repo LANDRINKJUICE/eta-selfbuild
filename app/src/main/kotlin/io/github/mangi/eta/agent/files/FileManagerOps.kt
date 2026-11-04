@@ -219,9 +219,6 @@ internal object FileManagerOps {
 
     // ------------------------------------------------------------ 打开 / 预览
 
-    /** 文本预览上限：超过就只显示前 256 KiB，避免大文件把界面卡死。 */
-    private const val TEXT_PREVIEW_LIMIT = 256 * 1024
-
     /** 编辑器能打开的上限：再大就不让编辑，避免内存和命令行压力。 */
     const val EDIT_LIMIT_BYTES = 512 * 1024
 

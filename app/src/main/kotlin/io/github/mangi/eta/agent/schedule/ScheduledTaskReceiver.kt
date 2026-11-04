@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import io.github.mangi.eta.core.AndroidAgentLogger
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 定时任务的执行入口（运行在独立进程 `:schedule`）。
@@ -44,7 +45,14 @@ internal class ScheduledTaskReceiver : Service() {
                     // 同一任务刚跑过：这是重排闹钟/系统补发导致的重复触发。
                     // 只跳过执行，下面 finally 里仍会续排下一次，不影响后续日程。
                     AndroidAgentLogger.warn("Scheduled task duplicated, skip: ${task.id}")
+                } else if (!inFlight.add(taskId)) {
+                    // 同一任务上一次还没跑完：跳过，别再并发跑一遍（2026-11-04 代码体检 #4）
+                    AndroidAgentLogger.warn("Scheduled task already running, skip: ${task.id}")
                 } else {
+                  try {
+                    // 先把「已开始」写进磁盘再执行：任务跑的那几分钟里磁盘上必须是新时间，
+                    // 否则第二个触发（闹钟补发 / 事件同刻 / 手动执行）会通过 2 分钟闸门并发跑两遍。
+                    ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
                     // 把触发这次任务的事件一起带上。
                     //
                     // 2026-11-04 修：通知匹配类任务以前只传 task，Agent 拿不到通知的
@@ -56,6 +64,9 @@ internal class ScheduledTaskReceiver : Service() {
                     )
                     ScheduledActionRunner.run(appContext, task, event)
                     ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
+                  } finally {
+                    inFlight.remove(taskId)
+                  }
                 }
             } catch (failure: Exception) {
                 AndroidAgentLogger.warn("Scheduled task failed: type=${failure.javaClass.simpleName}")
@@ -71,5 +82,15 @@ internal class ScheduledTaskReceiver : Service() {
             }
         }.start()
         return START_NOT_STICKY
+    }
+
+    private companion object {
+        /**
+         * 同进程内正在执行的任务 id。
+         *
+         * 磁盘上的 lastRunAtMillis 闸门只能挡「跑完之后」的重复触发；
+         * 正在执行的这段时间需要内存标记兜住同进程并发（2026-11-04 代码体检 #4）。
+         */
+        val inFlight: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 }

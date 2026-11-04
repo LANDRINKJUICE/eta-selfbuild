@@ -134,6 +134,15 @@ internal class AgentAppState(
     val isLoadingEarlierMessages: Boolean get() = historyLoadState == ConversationHistoryLoadState.Loading
 
     private var selectedConversationId: String? = initialConversations.selectedConversationId
+
+    /**
+     * 当前选中会话 id（只读）。
+     *
+     * 消息级操作（删除 / 重新生成）必须拿它校验归属：确认框开着时切换会话，
+     * 动作不能落到新会话上（2026-11-04 代码体检 #2）。
+     */
+    val currentConversationId: String?
+        get() = selectedConversationId
     private var conversationsById: Map<String, AgentChatHomeUiState> = initialConversations.conversationsById
     private var conversationTitles: Map<String, String> = initialConversations.titles
     private var conversationUpdatedAt: Map<String, Long> = initialConversations.updatedAt
@@ -1785,6 +1794,18 @@ internal class AgentAppState(
                 withContext(Dispatchers.Main) {
                     updateCurrentConversation(homeState.copy(pendingImages = homeState.pendingImages + pending))
                 }
+            } catch (failure: Throwable) {
+                // 图片编解码走系统 provider，异常不能逃逸到 viewModelScope：
+                // 默认 handler 会崩或静默中断，用户既没提示也丢了这次操作。
+                // 2026-11-04 代码体检 #10。
+                AndroidAgentLogger.error("Attach image failed: type=${failure.javaClass.simpleName}")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        appContext,
+                        appContext.getString(R.string.state_ui_unable_to_read_this_image_please_try_again_or_us_d94978),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             } finally {
                 val selectedUri = Uri.parse(uri)
                 if (selectedUri.scheme == ContentResolver.SCHEME_CONTENT) {
@@ -1847,7 +1868,14 @@ internal class AgentAppState(
     ) {
         val ownerVersion = fileAttachmentOwnerVersion
         scope.launch(Dispatchers.IO) {
-            val resolutions = resolver()
+            // provider 解析可能抛异常，不能让它逃逸到 viewModelScope（2026-11-04 代码体检 #10）。
+            val resolutions = runCatching { resolver() }
+                .onFailure { failure ->
+                    AndroidAgentLogger.error(
+                        "Resolve file references failed: type=${failure.javaClass.simpleName}",
+                    )
+                }
+                .getOrNull() ?: return@launch
             val references = resolutions.mapNotNull { resolution ->
                 (resolution as? AgentFileReferenceGateway.Resolution.Success)?.reference
             }
@@ -2221,11 +2249,6 @@ internal class AgentAppState(
     }
 
     private fun conversationIdForRun(runId: String): String? = runStore.conversationId(runId)
-
-    private fun conversationStateForRun(runId: String): AgentChatHomeUiState {
-        val conversationId = conversationIdForRun(runId) ?: return emptyChatState(defaultThinkingEnabled)
-        return conversationsById[conversationId] ?: emptyChatState(defaultThinkingEnabled)
-    }
 
     private fun refreshConversationSummaries() {
         val summaries = conversationsById.entries

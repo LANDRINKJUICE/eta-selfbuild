@@ -190,10 +190,12 @@ internal class AgentRuntimeClient(
             msg.replyTo = clientMessenger
             serviceMessenger.send(msg)
             if (resultLatch.await(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                val resolved = resultRef.get().map { completed ->
-                    if (completed.result.contextSnapshotRef.isBlank()) completed else {
-                        val full = readCompletedResult(serviceMessenger, completed)
-                            ?: return@withRuntimeMessenger CompletedRunsQuery.Unavailable
+                // 单条读失败只跳过这一条：整批作废会让其余已完成的结果也白丢一轮，
+                // 而且上层分不清「真的没有结果」和「读失败」（2026-11-04 代码体检 #9）。
+                // 失败的那条没有 ack，仍留在服务端 outbox，下一轮会重试。
+                val resolved = resultRef.get().mapNotNull { completed ->
+                    if (completed.result.contextSnapshotRef.isBlank()) return@mapNotNull completed
+                    readCompletedResult(serviceMessenger, completed)?.let { full ->
                         completed.copy(result = full)
                     }
                 }
@@ -313,7 +315,11 @@ internal class AgentRuntimeClient(
             if (!attachLatch.await(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 return AttachOutcome.Unavailable
             }
-            terminalLatch.await()
+            // 不能无限等：run 活着但卡住（工具挂起、GUI 等待、模型流不动）时，
+            // 这里会永久阻塞调用线程，主线程调用方就是 ANR（2026-11-04 代码体检 #6）。
+            if (!terminalLatch.await(ATTACH_TERMINAL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                return AttachOutcome.Unavailable
+            }
             resultRef.get()?.let { return AttachOutcome.Completed(AgentRuntimeWire.runResultFromBundle(it)) }
             return if (attachedRef.get() == false) {
                 AttachOutcome.NotActive
@@ -415,5 +421,13 @@ internal class AgentRuntimeClient(
 
     private companion object {
         const val RESPONSE_TIMEOUT_SECONDS = 8L
+
+        /**
+         * attach 之后等「run 终态」的上限。
+         *
+         * 单次 run 自身有 300 秒上限（见 ScheduledAgentRunner），这里留足余量；
+         * 目的是别让调用线程无限阻塞（2026-11-04 代码体检 #6）。
+         */
+        const val ATTACH_TERMINAL_TIMEOUT_SECONDS = 600L
     }
 }

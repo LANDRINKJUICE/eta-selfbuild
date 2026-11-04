@@ -141,9 +141,4 @@ internal object SkillGroupClassifier {
         .take(8)
         .trim()
 
-    /** 供 UI 侧确认「这个技能是否已经分过类」，避免重复请求模型。 */
-    internal fun needsClassification(
-        candidate: Candidate,
-        existingGroups: Set<String>,
-    ): Boolean = existingGroups.isEmpty()
 }

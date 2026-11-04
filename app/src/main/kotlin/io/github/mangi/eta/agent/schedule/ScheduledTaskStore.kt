@@ -48,8 +48,27 @@ internal object ScheduledTaskStore {
         update(context) { state -> state.copy(seeded = true) }
     }
 
+    /**
+     * 整表保存（用户编辑任务后回写）。
+     *
+     * 但 `lastRunAtMillis` 不能盲从调用方：界面拿的是几秒前的快照，
+     * 而 `:schedule` 可能刚跑完并写了更新的时间。直接覆盖会让判重闸门失效，
+     * 表现为同一任务被重复执行（2026-11-04 代码体检 #5）。所以这一项取磁盘上更新的那个。
+     */
     fun save(context: Context, tasks: List<ScheduledTask>) {
-        update(context) { state -> state.copy(tasks = tasks) }
+        update(context) { state ->
+            val onDisk = state.tasks.associateBy { it.id }
+            val merged = tasks.map { incoming ->
+                val diskRunAt = onDisk[incoming.id]?.lastRunAtMillis
+                val mine = incoming.lastRunAtMillis
+                if (diskRunAt != null && (mine == null || diskRunAt > mine)) {
+                    incoming.copy(lastRunAtMillis = diskRunAt)
+                } else {
+                    incoming
+                }
+            }
+            state.copy(tasks = merged)
+        }
     }
 
     fun upsert(context: Context, task: ScheduledTask) {
@@ -121,19 +140,26 @@ internal object ScheduledTaskStore {
         }
     }
 
-    private fun <T> withLock(context: Context, block: () -> T): T =
-        runCatching {
-            RandomAccessFile(lockFile(context), "rw").use { handle ->
-                handle.channel.lock().use { block() }
-            }
-        }.getOrElse { failure ->
-            // 锁文件异常（极少数文件系统问题）也不能让任务彻底不可用：退化成无锁执行，
-            // 行为与改造前一致，但至少不会整条链路挂掉。
+    private fun <T> withLock(context: Context, block: () -> T): T {
+        // 只把「打开锁文件 / 加锁」包进容错：以前整段 runCatching + getOrElse{ block() }
+        // 会把 block 自己抛的异常也当成锁失败，于是**再执行一遍**写操作
+        // （2026-11-04 代码体检：跨进程存储的两个副本都有这个坑）。
+        val handle = runCatching { RandomAccessFile(lockFile(context), "rw") }.getOrElse { failure ->
             AndroidAgentLogger.warn(
-                "Scheduled store lock failed: type=${failure.javaClass.simpleName}"
+                "Scheduled store lock open failed: type=${failure.javaClass.simpleName}",
             )
-            block()
+            return block()
         }
+        return handle.use { file ->
+            val lock = runCatching { file.channel.lock() }.getOrElse { failure ->
+                AndroidAgentLogger.warn(
+                    "Scheduled store lock failed: type=${failure.javaClass.simpleName}",
+                )
+                return block()
+            }
+            lock.use { block() }
+        }
+    }
 
     private fun readStateUnlocked(context: Context): State {
         val target = file(context)

@@ -188,6 +188,13 @@ fun AgentAppRoot(
     var conversationExportTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
+    // 切换会话时，针对旧会话的消息操作确认框自动作废（体检 #2）：
+    // 否则用户切到别的会话后点「确认」，动作会落到新会话上。
+    val activeConversationId = agentState.currentConversationId
+    LaunchedEffect(activeConversationId) {
+        messageDeleteTarget = null
+        messageRegenerateTarget = null
+    }
     val conversationExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/markdown"),
     ) { uri ->
@@ -415,7 +422,11 @@ fun AgentAppRoot(
                                 AgentHomeAction.CancelMessageEdit -> agentState.cancelMessageEdit()
                                 is AgentHomeAction.DeleteMessage -> {
                                     agentState.messageRevisionImpact(action.id)?.let { impact ->
-                                        messageDeleteTarget = MessageMutationTarget(action.id, impact.laterTurnCount)
+                                        messageDeleteTarget = MessageMutationTarget(
+                                            conversationId = agentState.currentConversationId.orEmpty(),
+                                            messageId = action.id,
+                                            laterTurnCount = impact.laterTurnCount,
+                                        )
                                     }
                                 }
                                 is AgentHomeAction.RegenerateMessage -> {
@@ -423,7 +434,11 @@ fun AgentAppRoot(
                                     if (agentState.homeState.roleplay != null || impact?.laterTurnCount == 0) {
                                         agentState.regenerateMessage(action.id)
                                     } else if (impact != null) {
-                                        messageRegenerateTarget = MessageMutationTarget(action.id, impact.laterTurnCount)
+                                        messageRegenerateTarget = MessageMutationTarget(
+                                            conversationId = agentState.currentConversationId.orEmpty(),
+                                            messageId = action.id,
+                                            laterTurnCount = impact.laterTurnCount,
+                                        )
                                     }
                                 }
                                 is AgentHomeAction.SelectReplyCandidate -> agentState.selectReplyCandidate(action.id, action.index)
@@ -914,7 +929,10 @@ fun AgentAppRoot(
                 destructive = true,
                 onCancel = { messageDeleteTarget = null },
                 onConfirm = {
-                    agentState.deleteMessageTurn(target.messageId)
+                    // 复核归属：确认框开着时切了会话，就别动新会话的消息（体检 #2）。
+                    if (target.conversationId == agentState.currentConversationId) {
+                        agentState.deleteMessageTurn(target.messageId)
+                    }
                     messageDeleteTarget = null
                 },
             )
@@ -942,23 +960,19 @@ fun AgentAppRoot(
                 destructive = true,
                 onCancel = { messageRegenerateTarget = null },
                 onConfirm = {
-                    agentState.regenerateMessage(target.messageId)
+                    // 同理：会话变了就别用新会话的上下文去截断旧消息（体检 #2）。
+                    if (target.conversationId == agentState.currentConversationId) {
+                        agentState.regenerateMessage(target.messageId)
+                    }
                     messageRegenerateTarget = null
                 },
             )
         }
     }
 
-    // 危险操作确认：工具线程正在阻塞等待，这里必须给出明确结果（超时由工具侧按拒绝处理）。
-    var dangerousPending by remember { mutableStateOf<DangerousOperationGuard.Pending?>(null) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val pending = DangerousOperationGuard.pending()
-            if (pending != null && pending.id != dangerousPending?.id) dangerousPending = pending
-            if (pending == null && dangerousPending != null) dangerousPending = null
-            kotlinx.coroutines.delay(200)
-        }
-    }
+    // 危险操作确认：工具线程在阻塞等待，这里必须给出明确结果（超时由工具侧按拒绝处理）。
+    // 用 Flow 收集，不再 200ms 轮询主线程（2026-11-04 代码体检 #12）。
+    val dangerousPending by DangerousOperationGuard.pendingFlow.collectAsState()
     val dangerousTarget = dangerousPending
     if (dangerousTarget != null) {
         EtaWindowDialog(
@@ -969,29 +983,23 @@ fun AgentAppRoot(
                 dangerousTarget.toolName,
                 dangerousTarget.reason,
             ),
-            onDismissRequest = {
-                DangerousOperationGuard.deny(dangerousTarget.id)
-                dangerousPending = null
-            },
+            // 不用手动清状态：工具线程的 finally 会把 pendingFlow 置空（≤150ms 内）。
+            onDismissRequest = { DangerousOperationGuard.deny(dangerousTarget.id) },
         ) {
             MiuixDialogActions(
                 confirmText = stringResource(R.string.dangerous_operation_allow),
                 cancelText = stringResource(R.string.dangerous_operation_deny),
                 destructive = true,
-                onCancel = {
-                    DangerousOperationGuard.deny(dangerousTarget.id)
-                    dangerousPending = null
-                },
-                onConfirm = {
-                    DangerousOperationGuard.approve(dangerousTarget.id)
-                    dangerousPending = null
-                },
+                onCancel = { DangerousOperationGuard.deny(dangerousTarget.id) },
+                onConfirm = { DangerousOperationGuard.approve(dangerousTarget.id) },
             )
         }
     }
 }
 
 private data class MessageMutationTarget(
+    /** 发起操作时所属的会话：确认前要复核，避免切会话后删到别人头上。 */
+    val conversationId: String,
     val messageId: String,
     val laterTurnCount: Int,
 )

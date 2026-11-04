@@ -135,17 +135,25 @@ internal object ScheduledRunLog {
         }
     }
 
-    private fun <T> withLock(context: Context, block: () -> T): T =
-        runCatching {
-            RandomAccessFile(lockFile(context), "rw").use { handle ->
-                handle.channel.lock().use { block() }
-            }
-        }.getOrElse { failure ->
+    private fun <T> withLock(context: Context, block: () -> T): T {
+        // 同 ScheduledTaskStore：只容错「打开 + 加锁」，
+        // 别把 block 自己的异常也当锁失败再执行一遍（2026-11-04 代码体检）。
+        val handle = runCatching { RandomAccessFile(lockFile(context), "rw") }.getOrElse { failure ->
             AndroidAgentLogger.warn(
-                "Scheduled run log lock failed: type=${failure.javaClass.simpleName}"
+                "Scheduled run log lock open failed: type=${failure.javaClass.simpleName}",
             )
-            block()
+            return block()
         }
+        return handle.use { file ->
+            val lock = runCatching { file.channel.lock() }.getOrElse { failure ->
+                AndroidAgentLogger.warn(
+                    "Scheduled run log lock failed: type=${failure.javaClass.simpleName}",
+                )
+                return block()
+            }
+            lock.use { block() }
+        }
+    }
 
     private fun readUnlocked(context: Context): List<Record> {
         val target = file(context)

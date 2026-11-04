@@ -2,6 +2,8 @@ package io.github.mangi.eta.agent.tool
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,13 +41,24 @@ internal object DangerousOperationGuard {
     private var decision: Boolean? = null
     private var sequence = 0L
 
+    /**
+     * 待确认请求的响应式视图。
+     *
+     * 界面以前用 200ms 轮询读 [pending]，等于主线程每秒唤醒 5 次只为拿一个静态值
+     * （2026-11-04 代码体检 #12）。改成 Flow 后响应速度不变、开销归零。
+     */
+    private val pendingState = MutableStateFlow<Pending?>(null)
+    val pendingFlow: StateFlow<Pending?> get() = pendingState
+
     /** 工具线程调用：阻塞直到用户决定或超时。返回 true 表示允许执行。 */
     fun requestApproval(toolName: String, reason: String): Boolean {
         val id: Long
         synchronized(lock) {
             id = ++sequence
-            current = Pending(id, toolName, reason, System.currentTimeMillis())
+            val request = Pending(id, toolName, reason, System.currentTimeMillis())
+            current = request
             decision = null
+            pendingState.value = request
         }
         val deadline = System.currentTimeMillis() + APPROVAL_TIMEOUT_MS
         try {
@@ -61,6 +74,7 @@ internal object DangerousOperationGuard {
             synchronized(lock) {
                 current = null
                 decision = null
+                pendingState.value = null
             }
         }
     }

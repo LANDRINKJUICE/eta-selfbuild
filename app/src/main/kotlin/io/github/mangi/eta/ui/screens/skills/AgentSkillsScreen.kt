@@ -215,18 +215,21 @@ fun AgentSkillsScreen(
                         if (!group.collapsed) {
                             group.skillIds.mapNotNull(byId::get).forEach { skill ->
                                 EtaPreferenceDivider()
-                                SkillSwitchRow(
-                                    skill = skill,
-                                    enabled = !operationPending,
-                                    onToggle = { enabled ->
-                                        onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
-                                    },
-                                    onDelete = if (skill.canDeleteUserSkill) {
-                                        { deleteTarget = skill }
-                                    } else {
-                                        null
-                                    },
-                                )
+                                // 卡片里可能塞着 60+ 行；给每行 key，开关/折叠时状态不会按位置乱串（体检 #15）。
+                                key(skill.id) {
+                                    SkillSwitchRow(
+                                        skill = skill,
+                                        enabled = !operationPending,
+                                        onToggle = { enabled ->
+                                            onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
+                                        },
+                                        onDelete = if (skill.canDeleteUserSkill) {
+                                            { deleteTarget = skill }
+                                        } else {
+                                            null
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
