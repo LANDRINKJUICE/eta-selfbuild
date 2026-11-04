@@ -459,8 +459,14 @@ internal class AgentTraceFormatter {
      */
     private fun summarizeTerminalResult(toolName: String, json: JSONObject?): String {
         if (json == null) return terminalLabel(toolName)
-        if (json.optString("code").isNotBlank()) return summarizeFailure(json)
-        if (!json.has("exit_code") || json.isNull("exit_code")) {
+        // 顺序很重要：新版终端结果带**诊断字段** code（ok / timeout / exit_1 …），
+        // 而这里以前写的是「有 code 就当失败」—— 于是成功的命令全被显示成
+        // 「失败 · code=ok」（2026-11-04 真机截图反馈）。
+        // 所以先按 exit_code 判，只有没 exit_code 的老格式才退回看 code。
+        val hasExitCode = json.has("exit_code") && !json.isNull("exit_code")
+        if (!hasExitCode) {
+            val code = json.optString("code").takeIf { it.isNotBlank() }
+            if (code != null && code != TERMINAL_OK_CODE) return summarizeFailure(json)
             val action = terminalActionLabel(toolName, json.optString("action"))
             return if (json.optBoolean("ok", true)) "${terminalLabel(toolName)} · $action" else "失败 · $action"
         }
@@ -687,6 +693,9 @@ internal class AgentTraceFormatter {
         const val MAX_LISTED_APP_NAMES = 3
         const val MAX_TERMINAL_PREVIEW_LINES = 10
         const val MAX_TERMINAL_PREVIEW_CHARS = 800
+
+        /** 终端诊断字段 code 的「成功」取值（见 TerminalExitClassifier）。 */
+        const val TERMINAL_OK_CODE = "ok"
         val SENSITIVE_ASSIGNMENT = Regex(
             """(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|TOKEN|PASSWORD|PASSWD|SECRET)[A-Z0-9_]*)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s;&|]+)"""
         )

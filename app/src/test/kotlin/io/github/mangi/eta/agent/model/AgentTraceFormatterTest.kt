@@ -620,6 +620,36 @@ class AgentTraceFormatterTest {
         assertTrue(summary.length < longOutput.length)
     }
 
+    @Test
+    fun terminalSuccessWithDiagnosticCodeIsNotTreatedAsFailure() {
+        // 2026-11-04 真机 bug：成功结果的诊断字段 code=ok 被当成错误码，
+        // 于是所有成功的终端命令都显示成「失败 · code=ok」。
+        val success = formatter.summarizeResult(
+            "terminal",
+            AgentModelClient.ToolResult(
+                content = """{"ok":true,"tool":"terminal","action":"exec","status":"exited","exit_code":0,"code":"ok","timed_out":false,"stdout":"done","stderr":""}""",
+            ),
+        )
+        assertTrue(success.startsWith("执行完成"))
+        assertFalse(success.contains("失败"))
+
+        // 没有 exit_code 的老格式：code=ok 同样不能算失败
+        val legacySuccess = formatter.summarizeResult(
+            "terminal",
+            AgentModelClient.ToolResult(content = """{"ok":true,"code":"ok","action":"exec"}"""),
+        )
+        assertFalse(legacySuccess.contains("失败"))
+
+        // 退出码非 0 时照旧报失败，诊断字段不影响结论
+        val failed = formatter.summarizeResult(
+            "terminal",
+            AgentModelClient.ToolResult(
+                content = """{"ok":false,"exit_code":2,"code":"exit_2","stderr":"boom","stdout":""}""",
+            ),
+        )
+        assertTrue(failed.startsWith("失败 · 退出码 2"))
+    }
+
     private data class RedactionCase(
         val toolName: String,
         val argumentsJson: String,
