@@ -69,6 +69,19 @@ internal object ScheduledAgentRunner {
             .getOrNull()
             ?: return "没有可用的模型配置，请先在设置里配置模型提供商"
 
+        // 后台任务无人监督，绝不能让它动界面或做写操作。
+        //
+        // 2026-11-04 真机事故：通知匹配任务为了"看看签到没"，直接打开并操作了支付宝。
+        // 定时任务只该「读信息 + 给建议」，所以这里把 GUI、敏感操作、终端、浏览器、
+        // 子代理全部关掉；`deviceSensitiveReadTools` 保留——读通知/账单正是任务本身要做的事。
+        val backgroundConfig = config.copy(
+            deviceDirectTools = false,
+            deviceSensitiveActionTools = false,
+            terminalTools = false,
+            browserTools = false,
+            subagentTools = false,
+        )
+
         // 诊断：这条日志能区分「配置没拿到」和「拿到配置但 run 没返回」两种情况。
         AndroidAgentLogger.warn("Scheduled run start: task=${task.id}")
         val leaseId = "scheduled:${task.id}"
@@ -82,7 +95,7 @@ internal object ScheduledAgentRunner {
                 request = AgentRuntimeWire.RunRequest(
                     runId = "scheduled-${task.id}-${System.currentTimeMillis()}",
                     prompt = prompt,
-                    config = config,
+                    config = backgroundConfig,
                     images = emptyList(),
                 ),
                 onEvent = { },
