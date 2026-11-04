@@ -72,7 +72,22 @@ internal object ScheduledRunLog {
         }
     }
 
-    fun load(context: Context): List<Record> = withLock(context) { readUnlocked(context) }
+    /**
+     * 读不加锁（写是原子替换，读到的总是完整文件）；只有首次迁移才进锁。
+     * 详见 [ScheduledTaskStore.readState] 的注释。
+     */
+    @Synchronized
+    fun load(context: Context): List<Record> {
+        val appContext = context.applicationContext
+        if (file(appContext).exists()) return readUnlocked(appContext)
+        return withLock(appContext) {
+            if (file(appContext).exists()) {
+                readUnlocked(appContext)
+            } else {
+                migrateLegacy(appContext)
+            }
+        }
+    }
 
     /** 某条任务最近一次执行记录（没有则 null）。 */
     fun latestFor(context: Context, taskId: String): Record? =
@@ -124,7 +139,8 @@ internal object ScheduledRunLog {
 
     private fun readUnlocked(context: Context): List<Record> {
         val target = file(context)
-        if (!target.exists()) return migrateLegacy(context)
+        // 文件不存在时由调用方在锁内决定要不要迁移（见 load）；这里只负责读。
+        if (!target.exists()) return emptyList()
         return runCatching {
             parse(JSONArray(target.readText()))
         }.getOrElse { failure ->
@@ -166,6 +182,22 @@ internal object ScheduledRunLog {
 
     private fun parse(array: JSONArray): List<Record> =
         (0 until array.length()).mapNotNull { index ->
-            array.optJSONObject(index)?.let(Record::fromJson)
+            array.optJSONObject(index)
+                ?.let(Record::fromJson)
+                ?.let(::normalizeLegacyFailure)
+        }
+
+    /**
+     * 纠正旧版本写错的成败标记（只改读取结果，不改写磁盘上的原始记录）。
+     *
+     * 旧实现靠文案前缀猜成败，真机历史里留下了 8 条「已停止」「没有可用的模型配置」
+     * 「执行超时」却 `ok=true` 的记录，界面上显示成绿勾。这里用同一套判据（[ScheduledOutcome.of]）
+     * 把明显是失败的记录纠正过来，让旧数据也能正确显示。
+     */
+    private fun normalizeLegacyFailure(record: Record): Record =
+        if (record.ok && !ScheduledOutcome.of(record.message).ok) {
+            record.copy(ok = false)
+        } else {
+            record
         }
 }

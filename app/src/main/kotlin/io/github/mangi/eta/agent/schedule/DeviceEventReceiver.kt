@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import io.github.mangi.eta.core.AndroidAgentLogger
 
@@ -54,22 +55,29 @@ internal class DeviceEventReceiver : BroadcastReceiver() {
      * 也会触发「Wi-Fi 连接」任务，白跑一次模型（2026-11-04 审查发现）。
      */
     private fun wifiEvent(context: Context, intent: Intent): ScheduledEvent.WifiChanged? {
-        val state = intent.getIntExtra("wifi_state", -1)
+        val state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, -1)
         return when (state) {
-            3 -> if (isWifiOnline(context)) ScheduledEvent.WifiChanged(true) else null
-            1 -> ScheduledEvent.WifiChanged(false)
+            WifiManager.WIFI_STATE_ENABLED ->
+                if (isWifiOnline(context)) ScheduledEvent.WifiChanged(true) else null
+            WifiManager.WIFI_STATE_DISABLED -> ScheduledEvent.WifiChanged(false)
             else -> null
         }
     }
 
-    /** 当前活动网络是不是「Wi-Fi 且具备互联网能力」。 */
-    private fun isWifiOnline(context: Context): Boolean {
+    /**
+     * 当前活动网络是不是「Wi-Fi 且具备互联网能力」。
+     *
+     * 整段包 runCatching：`getNetworkCapabilities` 在个别厂商实现上会抛异常，
+     * 而这里跑在广播接收器里，抛出去就是一次崩溃 —— 宁可按「没连上」处理。
+     */
+    private fun isWifiOnline(context: Context): Boolean = runCatching {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return false
-        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
-        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            ?: return@runCatching false
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)
+            ?: return@runCatching false
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
+    }.getOrDefault(false)
 
     /** 电量只有跨过 5% 台阶才放行，避免充电过程中反复触发。 */
     private fun crossedStep(percent: Int): Boolean {

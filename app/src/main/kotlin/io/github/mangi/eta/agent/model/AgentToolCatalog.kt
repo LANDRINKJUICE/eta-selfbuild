@@ -62,10 +62,15 @@ internal object AgentToolCatalog {
     }
 
     /**
-     * 「会动手」的工具名单：打开应用／交出画面／打开链接／点、长按、滑、滚／输入、按键、改剪贴板。
+     * 「会动手」或「会接触用户界面」的工具：打开应用／交出画面／打开链接／点、长按、滑、滚／
+     * 输入、按键、改剪贴板／读屏、截图、读剪贴板。
      *
-     * 只读模式把它们从工具表里摘掉。执行层 [io.github.mangi.eta.agent.tool.AgentLocalTools]
-     * 还有一层同样的拦截 —— 目录层让模型看不见，执行层防止别的路径（历史工具名、MCP、子代理）绕过。
+     * 只读模式把它们从工具表里摘掉。**读屏和截图也算**：
+     * 只读任务（通知匹配）手上已经有通知原文，不需要看用户正在用的界面；
+     * 而截屏会读到隐私内容、还会占住 GUI 操作权（2026-11-04 事故就是它自己看屏然后去点）。
+     *
+     * 执行层 [io.github.mangi.eta.agent.tool.AgentLocalTools] 还有一层同样的拦截 ——
+     * 目录层让模型看不见，执行层防止别的路径（历史工具名、MCP、子代理）绕过。
      */
     internal val INTERACTION_TOOL_NAMES: Set<String> = setOf(
         "launch_app",
@@ -83,6 +88,9 @@ internal object AgentToolCatalog {
         "set_clipboard",
         "press_key",
         "open_system_panel",
+        "observe_screen",
+        "save_screenshot",
+        "get_clipboard",
     )
 
     /** 按工具名摘除条目，保持原有顺序。 */

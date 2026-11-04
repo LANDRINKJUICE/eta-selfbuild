@@ -47,10 +47,14 @@ class AgentToolCatalogTest {
     fun `只读模式保留纯读工具`() {
         val names = toolNames(interactionTools = false)
 
+        // 只读任务仍然要知道现在几点、在哪儿、装了哪些应用、怎么释放操作权。
         assertTrue(names.contains("get_current_context"))
         assertTrue(names.contains("search_apps"))
-        assertTrue(names.contains("observe_screen"))
-        assertTrue(names.contains("save_screenshot"))
+        assertTrue(names.contains("release_gui"))
+        // 但读屏 / 截图 / 读剪贴板都算「接触用户界面」，只读模式不保留。
+        assertFalse(names.contains("observe_screen"))
+        assertFalse(names.contains("save_screenshot"))
+        assertFalse(names.contains("get_clipboard"))
     }
 
     @Test

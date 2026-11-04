@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.model
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -32,7 +33,11 @@ internal object AgentRuntimeIdentity {
     fun describe(): String = cached.orEmpty()
 
     private fun build(context: Context): String {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        // minSdk 33，直接用 PackageInfoFlags（旧重载已 deprecated）。
+        val info = context.packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.PackageInfoFlags.of(0),
+        )
         val device = listOf(Build.BRAND, Build.MODEL)
             .filter { it.isNotBlank() }
             .joinToString(" ")

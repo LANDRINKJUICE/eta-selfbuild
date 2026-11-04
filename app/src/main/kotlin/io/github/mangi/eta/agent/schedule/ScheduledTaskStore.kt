@@ -100,9 +100,26 @@ internal object ScheduledTaskStore {
         }
     }
 
+    /**
+     * 读不加锁：写是「临时文件 + rename」原子替换，读到的要么是旧的完整文件、要么是新的完整文件。
+     * 页面每 5 秒轮询一次，如果每次都开锁跨进程同步，会跟 `:schedule` 的写入互相阻塞。
+     * 只有首次迁移（文件还不存在）才进锁，避免两个进程同时写。
+     *
+     * `@Synchronized` 管同进程并发：同一 JVM 里两次 `channel.lock()` 会撞
+     * OverlappingFileLockException。
+     */
     @Synchronized
-    private fun readState(context: Context): State =
-        withLock(context) { readStateUnlocked(context.applicationContext) }
+    private fun readState(context: Context): State {
+        val appContext = context.applicationContext
+        if (file(appContext).exists()) return readStateUnlocked(appContext)
+        return withLock(appContext) {
+            if (file(appContext).exists()) {
+                readStateUnlocked(appContext)
+            } else {
+                migrateLegacy(appContext)
+            }
+        }
+    }
 
     private fun <T> withLock(context: Context, block: () -> T): T =
         runCatching {
@@ -120,7 +137,8 @@ internal object ScheduledTaskStore {
 
     private fun readStateUnlocked(context: Context): State {
         val target = file(context)
-        if (!target.exists()) return migrateLegacy(context)
+        // 文件不存在时由调用方在锁内决定要不要迁移（见 readState）；这里只负责读。
+        if (!target.exists()) return State(seeded = false, tasks = emptyList())
         return runCatching {
             val json = JSONObject(target.readText())
             State(
