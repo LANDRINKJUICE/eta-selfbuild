@@ -82,12 +82,21 @@ internal object JobWakeUpController {
         wakeUpOrdinal: Int,
         logger: AgentLogger,
     ) {
-        val config = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
+        val baseConfig = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
             .getOrNull()
-        if (config == null) {
+        if (baseConfig == null) {
             logger.warn("Job wake-up skipped: no runtime config")
             return
         }
+        // 唤醒是「收尾」，不是「开工」：只留诊断和重试用得上的能力。
+        // 2026-11-04 用户实测：不限制的话它跑去搜网页、写长篇分析，问题一个没解决。
+        // browserTools 同时管 web_search / fetch_url / browser_use（见 AgentToolCatalog）。
+        val config = baseConfig.copy(
+            browserTools = false,
+            subagentTools = false,
+            deviceSensitiveActionTools = false,
+            interactionTools = false,
+        )
         val leaseId = "job-wakeup:${task.id}"
         val acquired = runCatching {
             AgentExecutionService.acquire(app, leaseId, allowBoundFallback = false) { }
@@ -144,9 +153,11 @@ internal object JobWakeUpController {
         appendLine()
         appendLine("要求：")
         appendLine("1. 先看日志确认是不是真失败，有些命令非 0 退出属于预期。")
-        appendLine("2. 能修就直接修（改配置、换参数、重试），修完说明结果。")
-        appendLine("3. 修不了就给出结论和下一步建议。")
-        appendLine("4. 不要再起同样的后台任务重试，避免循环。")
+        appendLine("2. 只做「能自己恢复」的动作：换参数、换路径、原样重试一次。")
+        appendLine("3. 断网、限速、连接中断这类，重试一次还不行就直接说「需要用户自己处理」，")
+        appendLine("   不要去搜网页，不要分析原理，不要写长篇结论。")
+        appendLine("4. 整个过程最多 3 次工具调用；结论不超过 3 句话。")
+        appendLine("5. 不要再起同样的后台任务重试，避免循环。")
     }
 
     private fun decodeHistory(raw: String?): List<Long> {

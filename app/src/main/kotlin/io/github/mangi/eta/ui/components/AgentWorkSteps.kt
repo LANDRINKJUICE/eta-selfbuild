@@ -91,7 +91,14 @@ internal fun ToolActivityMessageUi.outcomeLine(): String? {
         ToolActivityStatusUi.Success -> {
             val output = lines.drop(1).lastOrNull { it != TRUNCATION_MARK }
             when {
-                output != null -> output
+                // 只有输出时看不出这是命令结果，容易被当成 App 自己的说明
+                // （2026-11-04 用户把测试命令 echo 的内容当成了界面文案）。
+                // 所以给「完成 / 执行完成」这类通用状态补上前缀，业务摘要（如「已打开 · 抖音」）保持原样。
+                // 顺带压一下长度：某条命令打一整行超长内容时，摘要不该把卡片撑满。
+                output != null -> {
+                    val compact = output.take(OUTCOME_MAX_CHARS)
+                    head.takeIf { it in TRIVIAL_SUCCESS }?.let { "$it · $compact" } ?: compact
+                }
                 head in TRIVIAL_SUCCESS -> null
                 else -> head.removePrefix(SUCCESS_PREFIX).takeIf { it.isNotBlank() }
             }
@@ -105,4 +112,8 @@ private const val FAILURE_PREFIX = "失败 · "
 private const val FAILURE_CODE_SEPARATOR = " · code="
 private const val SUCCESS_PREFIX = "完成 · "
 private const val TRUNCATION_MARK = "…"
+
+/** 摘要行最长多少字：单行靠省略号兜底，但先截断能让省略号落在句子里而不是字符中间。 */
+private const val OUTCOME_MAX_CHARS = 120
+
 private val TRIVIAL_SUCCESS = setOf("完成", "执行完成")

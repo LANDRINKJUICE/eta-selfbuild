@@ -60,10 +60,12 @@ internal object ScheduledAgentRunner {
         // 语气提醒放在整段 prompt 的最后：指令离输出越近越容易被遵守，
         // 只靠 system 里那句实测会被模型忽略（见 SpeechStyleStore.taskReminder）。
         val styleReminder = runCatching { SpeechStyleStore.taskReminder() }.getOrDefault("")
-        val prompt = if (styleReminder.isBlank()) {
-            eventPrompt
-        } else {
-            eventPrompt + "\n\n" + styleReminder
+        // 顺带压篇幅：定时任务多数是「看一眼、给个结论」，长分析只会让通知和会话都难读。
+        val answerRule = "（答复尽量短：先一句结论，最多再补一句依据；不要用 markdown 标题、列表或加粗。）"
+        val prompt = buildString {
+            append(eventPrompt)
+            append("\n\n").append(answerRule)
+            if (styleReminder.isNotBlank()) append("\n\n").append(styleReminder)
         }
 
         val appContext = context.applicationContext

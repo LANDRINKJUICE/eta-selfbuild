@@ -33,6 +33,15 @@ internal object ScheduledActionRunner {
     private const val NOTIFICATION_ID = 1188
     private const val HISTORY_MESSAGE_CHARS = 200
 
+    /**
+     * 通知正文最多多少字。
+     *
+     * 通知不是阅读器：以前直接把模型答复前 400 字塞进去，一屏都放不下，
+     * 而且 markdown 不渲染，`**App 是哪个**` 原样显示（2026-11-04 用户截图反馈）。
+     * 完整答复仍在会话里，通知只留结论。
+     */
+    private const val NOTIFICATION_TEXT_CHARS = 120
+
     fun run(context: Context, task: ScheduledTask, event: ScheduledEvent? = null) {
         val startedAt = System.currentTimeMillis()
         // 成败由执行方直接给出（[ScheduledOutcome]），不再靠摘要文案猜。
@@ -53,7 +62,33 @@ internal object ScheduledActionRunner {
             durationMs = duration,
         )
         runCatching { ScheduledRunLog.record(context, runRecord) }
-        notify(context, task, summary, ok, runRecord)
+        // 通知用压缩版：完整答复留在会话和历史里，通知只显示结论（见 notificationText）。
+        notify(context, task, notificationText(summary), ok, runRecord)
+    }
+
+    /**
+     * 把答复压成「通知里能看的一两句」。
+     *
+     * 做两件事：去掉 markdown 标记（通知不渲染，星号和反引号只会碍眼）、
+     * 按句子边界截到 [NOTIFICATION_TEXT_CHARS]。
+     */
+    private fun notificationText(raw: String): String {
+        val flattened = raw
+            .replace(Regex("```[\\s\\S]*?```"), " ")
+            .replace(Regex("\\*\\*|__|`"), "")
+            .replace(Regex("(?m)^\\s{0,3}#{1,6}\\s*"), "")
+            .replace(Regex("(?m)^\\s*>\\s?"), "")
+            .replace(Regex("(?m)^\\s*[-*]\\s+"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (flattened.length <= NOTIFICATION_TEXT_CHARS) return flattened
+        val cut = flattened.take(NOTIFICATION_TEXT_CHARS)
+        val lastBreak = cut.indexOfLast { it in "。！？；" }
+        return if (lastBreak >= NOTIFICATION_TEXT_CHARS / 3) {
+            cut.take(lastBreak + 1)
+        } else {
+            cut.trimEnd() + "…"
+        }
     }
 
     private fun describe(

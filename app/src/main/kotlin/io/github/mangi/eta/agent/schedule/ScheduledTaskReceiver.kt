@@ -49,24 +49,24 @@ internal class ScheduledTaskReceiver : Service() {
                     // 同一任务上一次还没跑完：跳过，别再并发跑一遍（2026-11-04 代码体检 #4）
                     AndroidAgentLogger.warn("Scheduled task already running, skip: ${task.id}")
                 } else {
-                  try {
-                    // 先把「已开始」写进磁盘再执行：任务跑的那几分钟里磁盘上必须是新时间，
-                    // 否则第二个触发（闹钟补发 / 事件同刻 / 手动执行）会通过 2 分钟闸门并发跑两遍。
-                    ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
-                    // 把触发这次任务的事件一起带上。
-                    //
-                    // 2026-11-04 修：通知匹配类任务以前只传 task，Agent 拿不到通知的
-                    // 标题/正文/包名，只能**自己去打开通知栏看** —— 而通知栏属于 systemui，
-                    // CanvasRoutingPolicy 把它列为必须主屏的包，于是用户正在用的界面被顶掉。
-                    // 用户原话：「sub 识别到了，自己识屏然后打开通知栏…这就是直接抢我焦点了」。
-                    val event = ScheduledEvent.decode(
-                        intent?.getStringExtra(ScheduledTaskScheduler.EXTRA_EVENT)
-                    )
-                    ScheduledActionRunner.run(appContext, task, event)
-                    ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
-                  } finally {
-                    inFlight.remove(taskId)
-                  }
+                    try {
+                        // 先把「已开始」写进磁盘再执行：任务跑的那几分钟里磁盘上必须是新时间，
+                        // 否则第二个触发（闹钟补发 / 事件同刻 / 手动执行）会通过 2 分钟闸门并发跑两遍。
+                        ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
+                        // 把触发这次任务的事件一起带上。
+                        //
+                        // 2026-11-04 修：通知匹配类任务以前只传 task，Agent 拿不到通知的
+                        // 标题/正文/包名，只能**自己去打开通知栏看** —— 而通知栏属于 systemui，
+                        // CanvasRoutingPolicy 把它列为必须主屏的包，于是用户正在用的界面被顶掉。
+                        // 用户原话：「sub 识别到了，自己识屏然后打开通知栏…这就是直接抢我焦点了」。
+                        val event = ScheduledEvent.decode(
+                            intent?.getStringExtra(ScheduledTaskScheduler.EXTRA_EVENT)
+                        )
+                        ScheduledActionRunner.run(appContext, task, event)
+                        ScheduledTaskStore.markRun(appContext, task.id, System.currentTimeMillis())
+                    } finally {
+                        inFlight.remove(taskId)
+                    }
                 }
             } catch (failure: Exception) {
                 AndroidAgentLogger.warn("Scheduled task failed: type=${failure.javaClass.simpleName}")

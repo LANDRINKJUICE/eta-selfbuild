@@ -19,6 +19,11 @@ import io.github.mangi.eta.core.AndroidAgentLogger
  *
  * 注册点选在主进程（Eta 日常常驻的那个），收到后转发给 `:schedule` 分发，
  * 不为一条广播去拉起一个新进程。
+ *
+ * **已知限制**：跨进程分发用的是 `startService`，Android 8+ 在 App 完全后台（没有前台服务、
+ * 不可见）时可能被系统拒绝。那种情况下事件会被 [ScheduledTaskScheduler.dispatchEvent] 里的
+ * runCatching 吞成一条 warn，电量类任务当次不触发 —— 但不影响其他触发方式，
+ * 也不影响下一次电量跨台阶。
  */
 internal object BatteryMonitor {
     /** 只有跨过 5% 台阶才分发，避免充电过程中把任务反复触发。 */

@@ -56,7 +56,9 @@ class AgentWorkStepsTest {
     fun terminalOutcomeUsesLastOutputLine() {
         val message = tool("t1", "run_command", resultSummary = "执行完成\nline 1\nline 2\n…")
 
-        assertEquals("line 2", message.outcomeLine())
+        // 带「执行完成 ·」前缀：只显示一行输出时，看不出这是命令结果而不是 App 的说明
+        // （2026-11-04 用户把测试命令 echo 的内容当成界面文案）。
+        assertEquals("执行完成 · line 2", message.outcomeLine())
     }
 
     @Test
