@@ -50,12 +50,12 @@ import io.github.mangi.eta.data.repository.SpeechSettingsRepository
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
 import io.github.mangi.eta.ui.components.CharacterAvatar
 import io.github.mangi.eta.ui.components.ConversationSidePaneScaffold
+import io.github.mangi.eta.ui.components.FrostCaptureBox
 import io.github.mangi.eta.ui.components.MiuixBackButton
+import io.github.mangi.eta.ui.components.ProvideScrollingFrostState
 import io.github.mangi.eta.ui.components.RoleplayChatUi
-import io.github.mangi.eta.ui.components.TopBarBackdrop
-import io.github.mangi.eta.ui.components.captureForTopBar
+import io.github.mangi.eta.ui.components.ScrolledTopBarBackdrop
 import io.github.mangi.eta.ui.components.rememberTopBarBackdrop
-import io.github.mangi.eta.ui.components.topBarContainerColor
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.navigation.AppRoute
@@ -118,7 +118,6 @@ internal fun AgentAppShell(
 ) {
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberTopBarBackdrop()
-    val topBarColor = topBarContainerColor(backdrop)
     val pageContent: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -127,11 +126,11 @@ internal fun AgentAppShell(
             ),
             topBar = {
                 if (currentRoute !is AppRoute.Settings) {
-                    TopBarBackdrop(backdrop) {
+                    ScrolledTopBarBackdrop(backdrop) { color ->
                         AgentTopBar(
                             route = currentRoute,
                             scrollBehavior = scrollBehavior,
-                            color = topBarColor,
+                            color = color,
                             onBack = onBack,
                             onOpenConversationPane = onOpenConversationPane,
                             onNewConversation = onNewConversation,
@@ -150,10 +149,12 @@ internal fun AgentAppShell(
                 }
             },
         ) { padding ->
-            Box(
+            // 滚动期间不录制顶栏采样层：整块内容每帧都变，离屏录制是落帧大头。
+            FrostCaptureBox(
+                capture = true,
+                backdrop = backdrop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .captureForTopBar(backdrop)
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
             ) {
                 content(padding)
@@ -161,30 +162,32 @@ internal fun AgentAppShell(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        if (conversationPaneState != null && currentRoute is AppRoute.Home) {
-            ConversationSidePaneScaffold(
-                state = conversationPaneState,
-                visible = isConversationPaneOpen,
-                backHandlerEnabled = isCurrentRoute,
-                onOpen = onOpenConversationPane,
-                onDismiss = onDismissConversationPane,
-                onSearchChange = onSearchConversations,
-                onConversationSelected = onSelectConversation,
-                onConversationRename = onConversationRename,
-                onConversationExport = onConversationExport,
-                onConversationDelete = onConversationDelete,
-                onOpenSettings = onOpenSettings,
-                onOpenModelProviders = onOpenModelProviders,
-                onOpenTools = onOpenTools,
-                onOpenSkills = onOpenSkills,
-                onOpenCharacters = onOpenCharacters,
-                onOpenPermissions = onOpenPermissions,
-            ) {
+    ProvideScrollingFrostState {
+        Box(modifier = modifier.fillMaxSize()) {
+            if (conversationPaneState != null && currentRoute is AppRoute.Home) {
+                ConversationSidePaneScaffold(
+                    state = conversationPaneState,
+                    visible = isConversationPaneOpen,
+                    backHandlerEnabled = isCurrentRoute,
+                    onOpen = onOpenConversationPane,
+                    onDismiss = onDismissConversationPane,
+                    onSearchChange = onSearchConversations,
+                    onConversationSelected = onSelectConversation,
+                    onConversationRename = onConversationRename,
+                    onConversationExport = onConversationExport,
+                    onConversationDelete = onConversationDelete,
+                    onOpenSettings = onOpenSettings,
+                    onOpenModelProviders = onOpenModelProviders,
+                    onOpenTools = onOpenTools,
+                    onOpenSkills = onOpenSkills,
+                    onOpenCharacters = onOpenCharacters,
+                    onOpenPermissions = onOpenPermissions,
+                ) {
+                    pageContent()
+                }
+            } else {
                 pageContent()
             }
-        } else {
-            pageContent()
         }
     }
 }

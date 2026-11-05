@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.ui.components.AgentConversationMessages
+import io.github.mangi.eta.ui.components.toTimelineEntries
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
@@ -664,6 +665,7 @@ private fun BoxScope.AssistantPanel(
                 if (hasMessages) {
                     AgentConversationMessages(
                         visibleMessages = state.messages,
+                        timelineEntries = remember(state.messages) { state.messages.toTimelineEntries() },
                         scrollState = listState,
                         isStreaming = state.phase == EtaVoicePhase.PROCESSING,
                         bottomInset = 8.dp,

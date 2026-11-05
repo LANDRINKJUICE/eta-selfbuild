@@ -45,6 +45,7 @@ fun MiuixScaffoldPage(
         val scrollBehavior = MiuixScrollBehavior()
         val backdrop = rememberTopBarBackdrop()
         val topBarColor = topBarContainerColor(backdrop)
+        ReportScrollingFrost(listState)
 
         Scaffold(
             modifier = modifier.fillMaxSize(),
@@ -73,24 +74,30 @@ fun MiuixScaffoldPage(
         ) { innerPadding ->
             WidePageContent { sidePadding ->
                 // 保留 MiuixTheme 注入的默认越界工厂，让短内容页也能回弹到顶栏采样区。
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalCutoutPadding()
-                        .captureForTopBar(backdrop)
-                        .scrollEndHaptic()
-                        .overScrollVertical()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(
-                        start = sidePadding,
-                        top = innerPadding.calculateTopPadding(),
-                        end = sidePadding,
-                    ),
+                // 滚动中不录制顶栏采样层：列表每帧都在变，离屏录制与模糊是落帧大头。
+                FrostCaptureBox(
+                    capture = true,
+                    backdrop = backdrop,
+                    modifier = Modifier.fillMaxSize(),
                 ) {
-                    content()
-                    item(key = "bottom_spacer") {
-                        MiuixPageBottomSpacer()
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalCutoutPadding()
+                            .scrollEndHaptic()
+                            .overScrollVertical()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            start = sidePadding,
+                            top = innerPadding.calculateTopPadding(),
+                            end = sidePadding,
+                        ),
+                    ) {
+                        content()
+                        item(key = "bottom_spacer") {
+                            MiuixPageBottomSpacer()
+                        }
                     }
                 }
             }

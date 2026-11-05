@@ -115,7 +115,6 @@ import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
-import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.squircle.squircleBorder
@@ -179,22 +178,30 @@ internal fun AgentChatBody(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = messages.size + if (hasEarlierMessages) 1 else 0)
+    // 长会话滚动是掉帧的主要场景；滚动期间让实时磨砂让路（见 ScrollingFrost.kt）。
+    ReportScrollingFrost(scrollState)
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
     val browserSnapshot = LocalAgentBrowserSession.current?.snapshots?.collectAsState()?.value
         ?: BrowserSessionSnapshot()
+    // 复制按钮只出现在每轮对话的最终结果上
     val contextUsage = remember(messages, modelPickerState.selectedModel) {
         latestContextUsage(messages, modelPickerState.selectedModel)
     }
 
     val visibleMessages = remember(messages, messageEdit?.targetMessageId, messageEdit?.preserveFollowingMessages) {
-        AgentConversationRevisionReducer.visibleMessagesForEdit(
+        val base = AgentConversationRevisionReducer.visibleMessagesForEdit(
             messages = messages,
             targetMessageId = messageEdit?.takeUnless { it.preserveFollowingMessages }?.targetMessageId,
-        ).filterNot { message ->
-            message is AgentMessageUi && message.content.isBlank()
+        )
+        // 绝大多数帧没有空白的 assistant 占位：直接复用原列表，避免每次流式增量都
+        // 全量复制一遍（最大会话 5,458 条）。
+        if (base.none { message -> message is AgentMessageUi && message.content.isBlank() }) {
+            base
+        } else {
+            base.filterNot { message -> message is AgentMessageUi && message.content.isBlank() }
         }
     }
     val currentBrowserMessageId = remember(
@@ -234,8 +241,16 @@ internal fun AgentChatBody(
 
     SpeechPlaybackHost {
         SpeechAutoReadAloud(messages = messages, isStreaming = isStreaming)
+        // 依赖整段消息列表的派生结果放在这里计算：随消息变化重建，但不会被语音宿主
+        // 的播报状态连带重建，也不再每次流式增量在子函数里重算一遍。
+        val previousTimelineEntries = remember { arrayOf(emptyList<AgentTimelineEntry>()) }
+        val timelineEntries = remember(visibleMessages) {
+            visibleMessages.toTimelineEntries(previous = previousTimelineEntries[0])
+        }
+        SideEffect { previousTimelineEntries[0] = timelineEntries }
         AgentChatScaffold(
             visibleMessages = visibleMessages,
+            timelineEntries = timelineEntries,
             hasMessages = visibleMessages.isNotEmpty() || hasEarlierMessages,
             scrollState = scrollState,
             input = input,
@@ -306,6 +321,7 @@ internal fun AgentChatBody(
 @OptIn(ExperimentalLayoutApi::class)
 private fun AgentChatScaffold(
     visibleMessages: List<AgentChatMessageUi>,
+    timelineEntries: List<AgentTimelineEntry>,
     hasMessages: Boolean,
     scrollState: LazyListState,
     input: String,
@@ -375,7 +391,8 @@ private fun AgentChatScaffold(
         ),
         bottomBar = {
             AgentChatBottomBar(
-                messageBackdrop = messageBackdrop.takeIf { frostEnabled },
+                messageBackdrop = messageBackdrop,
+                frostEnabled = frostEnabled,
                 input = input,
                 modelPickerState = modelPickerState,
                 isCompacting = isCompacting,
@@ -420,32 +437,37 @@ private fun AgentChatScaffold(
                     .padding(bottom = bottomPadding),
             )
         } else {
-            AgentConversationMessages(
-                visibleMessages = visibleMessages,
-                scrollState = scrollState,
-                isStreaming = isStreaming,
-                bottomInset = bottomPadding,
-                keepBottomAnchored = keepBottomAnchored,
-                onBottomAnchorChanged = onBottomAnchorChanged,
-                onSuggestionClick = onSuggestionClick,
-                onRunTraceClick = onRunTraceClick,
-                onOpenBrowser = onOpenBrowser,
-                onEditMessage = onEditMessage,
-                onDeleteMessage = onDeleteMessage,
-                onRegenerateMessage = onRegenerateMessage,
-                onSelectReplyCandidate = onSelectReplyCandidate,
-                messageActionsEnabled = !isStreaming && messageEdit == null,
-                editTargetMessageId = messageEdit?.targetMessageId,
-                currentBrowserMessageId = currentBrowserMessageId,
-                hasEarlierMessages = hasEarlierMessages,
-                messageStartIndex = messageStartIndex,
-                historyLoadState = historyLoadState,
-                onLoadEarlierMessages = onLoadEarlierMessages,
-                onHistoryViewportChanged = onHistoryViewportChanged,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (frostEnabled) Modifier.layerBackdrop(messageBackdrop) else Modifier),
-            )
+            FrostCaptureBox(
+                capture = frostEnabled,
+                backdrop = messageBackdrop,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                AgentConversationMessages(
+                    visibleMessages = visibleMessages,
+                    timelineEntries = timelineEntries,
+                    scrollState = scrollState,
+                    isStreaming = isStreaming,
+                    bottomInset = bottomPadding,
+                    keepBottomAnchored = keepBottomAnchored,
+                    onBottomAnchorChanged = onBottomAnchorChanged,
+                    onSuggestionClick = onSuggestionClick,
+                    onRunTraceClick = onRunTraceClick,
+                    onOpenBrowser = onOpenBrowser,
+                    onEditMessage = onEditMessage,
+                    onDeleteMessage = onDeleteMessage,
+                    onRegenerateMessage = onRegenerateMessage,
+                    onSelectReplyCandidate = onSelectReplyCandidate,
+                    messageActionsEnabled = !isStreaming && messageEdit == null,
+                    editTargetMessageId = messageEdit?.targetMessageId,
+                    currentBrowserMessageId = currentBrowserMessageId,
+                    hasEarlierMessages = hasEarlierMessages,
+                    messageStartIndex = messageStartIndex,
+                    historyLoadState = historyLoadState,
+                    onLoadEarlierMessages = onLoadEarlierMessages,
+                    onHistoryViewportChanged = onHistoryViewportChanged,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -454,6 +476,7 @@ private fun AgentChatScaffold(
 @OptIn(ExperimentalLayoutApi::class)
 internal fun AgentConversationMessages(
     visibleMessages: List<AgentChatMessageUi>,
+    timelineEntries: List<AgentTimelineEntry>,
     scrollState: LazyListState,
     isStreaming: Boolean,
     bottomInset: Dp,
@@ -477,12 +500,7 @@ internal fun AgentConversationMessages(
     onHistoryViewportChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // 上一版条目只作复用比对，不参与组合观察。
-    val previousTimelineEntries = remember { arrayOf(emptyList<AgentTimelineEntry>()) }
-    val timelineEntries = remember(visibleMessages) {
-        visibleMessages.toTimelineEntries(previous = previousTimelineEntries[0])
-    }
-    SideEffect { previousTimelineEntries[0] = timelineEntries }
+    // timelineEntries 由外层提上来：它依赖整段消息列表，放进本函数会每次增量重建。
     val activeWorkProcessKey = if (isStreaming) {
         (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
     } else {
@@ -996,6 +1014,7 @@ internal fun resolveFinalResultMessageIds(
 @Composable
 private fun AgentChatBottomBar(
     messageBackdrop: LayerBackdrop?,
+    frostEnabled: Boolean,
     input: String,
     modelPickerState: AgentModelPickerUiState,
     isCompacting: Boolean,
@@ -1033,7 +1052,9 @@ private fun AgentChatBottomBar(
             .fillMaxWidth()
             .imePadding(),
     ) {
-        if (messageBackdrop != null) {
+        // 滚动中让开实时磨砂：内容每帧都在变时，采样与模糊每帧都要重算。
+        val frostBackdrop = if (frostEnabled) scrollingFrostBackdrop(messageBackdrop) else null
+        if (frostBackdrop != null) {
             val blurColors = BlurDefaults.blurColors(
                 blendColors = listOf(
                     BlendColorEntry(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
@@ -1057,7 +1078,7 @@ private fun AgentChatBottomBar(
                         )
                     }
                     .textureBlur(
-                        backdrop = messageBackdrop,
+                        backdrop = frostBackdrop,
                         shape = RectangleShape,
                         blurRadius = 20f,
                         colors = blurColors,
