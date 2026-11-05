@@ -6,7 +6,9 @@ import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AgentLogger
+import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -101,14 +103,26 @@ internal object JobWakeUpController {
         val acquired = runCatching {
             AgentExecutionService.acquire(app, leaseId, allowBoundFallback = false) { }
         }.getOrDefault(false)
+        val runId = "job-wakeup-${task.id}-${System.currentTimeMillis()}"
+        // 带上 handoff，结果才会写进 runtime outbox 并落回会话。
+        // 不带 handoff 时 persistCompletedRun 第一行就 return，用户只能在通知里看到一句摘要，
+        // 对话里没有任何痕迹（2026-11-05 用户实测反馈「唤醒了但不会回到对话」）。
+        val handoffConversationId = latestConversationId(app)
         try {
             val client = AgentRuntimeClient(app, logger)
             val result = client.run(
                 request = AgentRuntimeWire.RunRequest(
-                    runId = "job-wakeup-${task.id}-${System.currentTimeMillis()}",
+                    runId = runId,
                     prompt = buildPrompt(task, logTail, wakeUpOrdinal),
                     config = config,
                     images = emptyList(),
+                    handoff = handoffConversationId.takeIf { it.isNotBlank() }?.let { conversationId ->
+                        AgentRuntimeWire.EntryHandoff(
+                            id = runId,
+                            source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,
+                            payload = conversationId,
+                        )
+                    },
                 ),
                 onEvent = { },
             )
@@ -130,6 +144,18 @@ internal object JobWakeUpController {
             if (acquired) runCatching { AgentExecutionService.release(leaseId) }
         }
     }
+
+    /**
+     * 取最近更新过的会话 id，作为唤醒结果的归属。
+     *
+     * 后台命令通常是用户在刚才那个会话里让我跑的，所以「最近会话」是合理归属。
+     * 一条会话都没有时返回空串，调用方退化成「只发通知」，不制造空会话。
+     */
+    private fun latestConversationId(app: Context): String = runCatching {
+        runBlocking(Dispatchers.IO) {
+            EtaDatabase.get(app).conversationDao().conversationMetadataPage(1, 0).firstOrNull()?.id
+        }
+    }.getOrNull().orEmpty()
 
     /** 交给 Agent 的指令：事实在前，要求在后，明确禁止起同样的任务重试。 */
     internal fun buildPrompt(task: DetachedTask, logTail: String, wakeUpOrdinal: Int = 1): String = buildString {
