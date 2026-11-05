@@ -65,6 +65,19 @@ class AgentAccessibilityService : AccessibilityService() {
         val activePath: MutableSet<AccessibilityNodeInfo> = hashSetOf(),
         var visitedNodes: Int = 0,
         var truncated: Boolean = false,
+        /**
+         * 本次快照的坐标原点：root 在系统全局坐标系里的左上角。
+         *
+         * 为什么需要：`getBoundsInScreen()` 返回的是**全局屏幕坐标**。多屏并存时（主屏 + 虚拟屏），
+         * 后创建的 display 在全局布局里可能被排到主屏右侧，节点坐标于是整体 + 一个屏宽，
+         * 而 `screen` 报的仍是单屏尺寸，坐标就跑出屏幕范围了。
+         * 2026-11-05 实测：虚拟屏 id=4 期间所有节点的 x 恒定 +1240（正好等于屏宽），
+         * 直接导致 gui_macro 第二步滚动判定 INVALID_NODE_BOUNDS、整个宏中断。
+         * 只有在 root 被排到 display 之外时才减（判据与用例见 [AgentCoordinateOrigin]），
+         * 减完下游（点击、位置比较、序列化）就都能按「相对 display」处理。
+         */
+        val originX: Int = 0,
+        val originY: Int = 0,
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -147,9 +160,25 @@ class AgentAccessibilityService : AccessibilityService() {
         val root = activeRootOnDisplay(displayId) ?: return@runOnMainSync null
         val nodeLimit = maxNodes.coerceIn(1, 120)
         val indexedNodes = mutableListOf<IndexedNode>()
+        // 坐标系原点：只在 root 已被排到本 display 范围之外时，才认为存在跨屏拼接偏移。
+        //
+        // 判据保守的原因：root.left / top 并不总等于 display 原点。悬浮窗、分屏、小窗的 root
+        // 都落在屏幕内，若无条件减 root 原点，坐标会变成「相对窗口」，点击就偏了。
+        // 只有 root 起点 >= 屏幕尺寸，才只可能是被排到下/右一个 display 上（实测虚拟屏
+        // id=4 时全部节点 x +1240，正好等于屏宽），此时减掉它才是对的。
+        val rootBounds = Rect().also { root.getBoundsInScreen(it) }
+        val display = displaySize(displayId)
+        val (originX, originY) = AgentCoordinateOrigin.resolve(
+            rootLeft = rootBounds.left,
+            rootTop = rootBounds.top,
+            displayWidth = display?.first,
+            displayHeight = display?.second,
+        )
         val traversal = NodeTraversalState(
             maxVisitedNodes = (nodeLimit * UI_TREE_VISIT_MULTIPLIER)
                 .coerceIn(MIN_UI_TREE_VISITED_NODES, MAX_UI_TREE_VISITED_NODES),
+            originX = originX,
+            originY = originY,
         )
         collectNodes(
             node = root,
@@ -1693,6 +1722,16 @@ class AgentAccessibilityService : AccessibilityService() {
         val bounds = node.bounds()
         val size = displaySize(displayId)
         if (size != null) {
+            // 先归一化再求交：getBoundsInScreen 可能是跨屏拼接的全局坐标，直接拿去和
+            // (0,0,屏宽,屏高) 求交会得到空矩形，于是点击/滚动被误判成「没有可点击区域」
+            // （2026-11-05 实测：虚拟屏 id=4 时点击兜底与 gui_macro 滚动都栽在这）。
+            val (originX, originY) = AgentCoordinateOrigin.resolve(
+                rootLeft = bounds.left,
+                rootTop = bounds.top,
+                displayWidth = size.first,
+                displayHeight = size.second,
+            )
+            if (originX != 0 || originY != 0) bounds.offset(-originX, -originY)
             if (!bounds.intersect(0, 0, size.first, size.second)) bounds.setEmpty()
         }
         return bounds
@@ -1963,6 +2002,8 @@ class AgentAccessibilityService : AccessibilityService() {
                     packageName = node.packageName?.toString().orEmpty(),
                     viewId = node.viewIdResourceName.orEmpty(),
                     bounds = Rect(bounds),
+                    originX = traversal.originX,
+                    originY = traversal.originY,
                     clickable = clickable,
                     longClickable = longClickable,
                     scrollable = scrollTarget != null,
@@ -2384,6 +2425,9 @@ class AgentAccessibilityService : AccessibilityService() {
         val packageName: String,
         val viewId: String,
         val bounds: Rect,
+        /** 采集时的坐标原点；bounds 仍是全局坐标，对外输出前统一减去这两个值。 */
+        val originX: Int = 0,
+        val originY: Int = 0,
         val clickable: Boolean,
         val longClickable: Boolean,
         val scrollable: Boolean,
@@ -2443,7 +2487,11 @@ class AgentAccessibilityService : AccessibilityService() {
          * 位置一变就不放行，滚动的列表、换页的按钮仍然会被拦下。
          */
         fun geometryMatches(refreshed: AccessibilityNodeInfo): Boolean {
+            // 两边都换算到「相对 display」再比：快照存的 bounds 与刷新拿到的都是全局坐标，
+            // 多屏并存时两端原点可能不同（虚拟屏被重排），不减原点会误判「位置变了」→
+            // STALE_CONTENT，白白拦掉一次本可执行的点击（2026-11-05 实测）。
             val current = Rect().also { refreshed.getBoundsInScreen(it) }
+                .apply { offset(-originX, -originY) }
             return current == bounds &&
                 refreshed.className?.toString().orEmpty() == className &&
                 refreshed.isClickable == clickable
@@ -2480,7 +2528,9 @@ class AgentAccessibilityService : AccessibilityService() {
                 className = className,
                 packageName = packageName,
                 viewId = viewId,
-                bounds = bounds,
+                // 对外一律给「相对 display」坐标：点击注入、序列化、模型读到的 center 都得落在
+                // display 范围内，否则多屏并存时坐标会整体溢出（见 originX 注释）。
+                bounds = Rect(bounds).apply { offset(-originX, -originY) },
                 clickable = clickable,
                 longClickable = longClickable,
                 scrollable = scrollable,
