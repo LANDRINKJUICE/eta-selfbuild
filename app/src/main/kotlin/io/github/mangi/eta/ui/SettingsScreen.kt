@@ -527,6 +527,39 @@ private fun SettingsPageContent(
                     )
 
                     EtaPreferenceDivider()
+                    SwitchPref(
+                        context = context,
+                        prefs = agentPrefs,
+                        title = stringResource(R.string.ui_allow_interjection_b31c7d),
+                        summary = stringResource(R.string.ui_allow_interjection_b31c7d_summary),
+                        key = Prefs.Keys.AGENT_INTERJECTION,
+                        icon = Icons.Rounded.SupportAgent,
+                        iconTint = EtaPreferenceColors.Blue,
+                    )
+
+                    EtaPreferenceDivider()
+                    SwitchPref(
+                        context = context,
+                        prefs = agentPrefs,
+                        title = stringResource(R.string.ui_ask_before_assume_b7c31e),
+                        summary = stringResource(R.string.ui_ask_before_assume_b7c31e_summary),
+                        key = Prefs.Keys.AGENT_ASK_BEFORE_ASSUME,
+                        icon = Icons.Rounded.Hearing,
+                        iconTint = EtaPreferenceColors.Green,
+                    )
+
+                    EtaPreferenceDivider()
+                    SwitchPref(
+                        context = context,
+                        prefs = agentPrefs,
+                        title = stringResource(R.string.ui_ui_risk_guard_c4a9e2),
+                        summary = stringResource(R.string.ui_ui_risk_guard_c4a9e2_summary),
+                        key = Prefs.Keys.AGENT_UI_RISK_GUARD,
+                        icon = Icons.Rounded.TouchApp,
+                        iconTint = EtaPreferenceColors.Orange,
+                    )
+
+                    EtaPreferenceDivider()
                     EtaArrowPreference(
                         title = stringResource(R.string.ui_linux_tool_environment_314d22),
                         startAction = {

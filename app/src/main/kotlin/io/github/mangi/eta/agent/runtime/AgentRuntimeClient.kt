@@ -167,6 +167,23 @@ internal class AgentRuntimeClient(
         }
     }
 
+    /**
+     * 插话：把 [text] 排进 [runId] 这一轮的补充队列，**不打断**当前运行。
+     *
+     * 返回 true 只代表消息已经投递给 runtime 进程；真正生效的时机是那一轮的下一个回合边界
+     * （AgentLoop 在模型请求前 pollSteeringMessage）。run 已经结束时会返回 false，
+     * 调用方应退回「排队 / 正常发送」，不要静默丢掉用户输入。
+     */
+    fun supplement(runId: String, text: String): Boolean {
+        if (runId.isBlank() || text.isBlank()) return false
+        return withRuntimeMessenger(false) { serviceMessenger ->
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_SUPPLEMENT)
+            msg.data = AgentRuntimeWire.supplementBundle(runId, text)
+            serviceMessenger.send(msg)
+            true
+        }
+    }
+
     fun drainCompletedRuns(): List<AgentRuntimeWire.CompletedRun> {
         return when (val query = queryCompletedRuns()) {
             is CompletedRunsQuery.Known -> query.runs

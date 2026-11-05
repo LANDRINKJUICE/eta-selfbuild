@@ -46,6 +46,18 @@ internal object AgentToolRequirements {
             "character_memory_get", "character_memory_write",
             "skills_list", "skills_read", "skills_read_resource", "skills_list_curated",
             "skills_inspect_github", "skills_install_from_github",
+            "gui_macro",
+            "ask_user",
+        )
+        // ask_user：会阻塞等用户点确认，属于「会接触用户界面」的工具（只读模式要摘掉）。
+        put(
+            "ask_user",
+            getValue("ask_user").copy(gui = true),
+        )
+        // gui_macro：一次调用跑一串界面动作，自己要抓快照、也会点界面，按 GUI 动作对待。
+        put(
+            "gui_macro",
+            getValue("gui_macro").copy(accessibility = true, gui = true, freshObservation = true),
         )
         register(
             RootRequirement.PARTIAL,

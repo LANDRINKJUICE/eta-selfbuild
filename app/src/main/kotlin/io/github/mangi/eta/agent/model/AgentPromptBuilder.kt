@@ -4,6 +4,7 @@ import io.github.mangi.eta.agent.memory.AgentMemoryContext
 import io.github.mangi.eta.agent.skill.SkillContext
 import io.github.mangi.eta.agent.roleplay.RoleplayRunContext
 import io.github.mangi.eta.agent.terminal.TerminalExecutionContext
+import io.github.mangi.eta.config.Prefs
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -104,6 +105,9 @@ internal object AgentPromptBuilder {
                     "再显式设置 include_screenshot=true；补截图时保持 include_ui_tree=true，让截图、节点与新的 observation_id 来自同一次观察，" +
                     "禁止把新截图与旧节点混用；树被截断但节点语义仍有效时，优先提高 max_nodes，不要仅因截断请求截图；" +
                     "点击可见控件优先用 tap_element/tap_area；坐标工具必须写明 coordinate_space：看截图定位用 normalized（0–999），坐标来自 ui_nodes 用 screen，" +
+                    "固定流程（点 A → 等某段文字出现 → 点 B → 滚动一下）用 gui_macro 一次调用跑完，别一步一个回合：" +
+                    "实测一次点击约 0.1 秒、一次模型回合约 4 秒，串起来省的是回合数；宏每一步都会本地校验，失败会中止并把当前界面返回；" +
+                    "需要先看结果再决定下一步的流程，仍然逐步调用单独工具；" +
                     "调用节点工具时必须把该节点与同一次观察的 observation_id 一起传回，过期就重新观察；" +
                     "同一手机的 GUI 操作阶段由 Runtime 排队独占，完成阶段后调用 release_gui 主动释放，再继续不依赖屏幕的工作；" +
                     "launch_app 与 open_uri 默认使用智能画布分流（display=auto）：目标应用已在物理主屏前台时直接操作主屏，跨应用任务优先在后台虚拟屏静默执行（observe_screen 返回 canvas=virtual）；" +
@@ -123,6 +127,13 @@ internal object AgentPromptBuilder {
                     "不要改用坐标或 Shell 重放 GUI 动作。"
             )
         )
+        if (Prefs.isEnabled(Prefs.Keys.AGENT_ASK_BEFORE_ASSUME)) {
+            messages.put(systemMessage(
+                "不确定时先问：需求有歧义、要动用户的数据／金钱／隐私、不可逆操作，或结论取决于无法验证的假设时，" +
+                    "先调用 ask_user 把「现状 + 两个可选方向 + 你建议哪个」说清，等用户回答再继续；" +
+                    "禁止用假设硬推，也不要替用户做选择。小事不要问，别拿它刷回合。",
+            ))
+        }
         if (config.terminalTools) {
             messages.put(systemMessage(
                 "Eta 内置文件与终端工具。文件和命令共用本次运行的默认身份与工作区；已知路径可直接读取或写入，不必先查目录。" +

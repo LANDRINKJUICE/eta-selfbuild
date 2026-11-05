@@ -90,12 +90,21 @@ internal object AgentRuntimeWire {
     /** service -> client：返回各运行的会话归属与当前阶段。 */
     const val MSG_QUERY_ACTIVE_RUNS_RESPONSE = 17
 
+    /**
+     * client -> service：给正在跑的那一轮「插话」。
+     *
+     * 与 MSG_CANCEL 的区别是本消息**不打断**：文本只排进那一轮的补充队列，
+     * 由 AgentLoop 在下一个回合边界（模型请求之前 / 工具批次结束之后）注入成一条 user 消息。
+     */
+    const val MSG_SUPPLEMENT = 18
+
     private const val MODULE_PACKAGE = "io.github.mangi.eta"
     private const val SERVICE_CLASS = "io.github.mangi.eta.agent.runtime.AgentRuntimeService"
 
     private const val KEY_TYPE = "type"
     private const val KEY_RUN_ID = "run_id"
     private const val KEY_PROMPT = "prompt"
+    private const val KEY_SUPPLEMENT_TEXT = "supplement_text"
     private const val KEY_ASSISTANT_SCREEN_CONTEXT = "assistant_screen_context"
     private const val KEY_MODEL_SESSION_ID = "model_session_id"
     private const val KEY_PROVIDER_ID = "provider_id"
@@ -644,6 +653,15 @@ internal object AgentRuntimeWire {
     fun ackBundle(runId: String): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
     }
+
+    /** client -> service：插话文本（不打断，下一回合生效）。 */
+    fun supplementBundle(runId: String, text: String): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, runId)
+        putString(KEY_SUPPLEMENT_TEXT, text)
+    }
+
+    fun supplementTextFromBundle(bundle: Bundle): String =
+        bundle.getString(KEY_SUPPLEMENT_TEXT).orEmpty()
 
     fun activeRunsToBundle(runs: List<ActiveRunSnapshot>): Bundle = Bundle().apply {
         putParcelableArrayList("active_runs", ArrayList(runs.map { run ->

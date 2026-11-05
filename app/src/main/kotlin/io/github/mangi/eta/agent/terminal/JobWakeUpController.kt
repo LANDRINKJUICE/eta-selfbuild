@@ -35,6 +35,9 @@ internal object JobWakeUpController {
     /** 随 prompt 带上的日志尾部字符数；再多会挤占上下文。 */
     const val LOG_TAIL_CHARS = 3_000
 
+    /** 会话忙时延迟多久再试一次（毫秒）。 */
+    private const val BUSY_RETRY_DELAY_MS = 120_000L
+
     private const val HISTORY_KEY = "agent_job_wakeup_history"
     private const val HISTORY_LIMIT = 8
 
@@ -77,12 +80,44 @@ internal object JobWakeUpController {
         Thread({ run(app, task, logTail, ordinal, logger) }, "eta-job-wakeup").apply { isDaemon = true }.start()
     }
 
+    /**
+     * 失败原因是不是「目标会话正忙」。
+     *
+     * 这不是故障，是**时机不对**：用户正在跟助手对话时，runtime 会拒绝同一会话的并发 run
+     * （`RuntimeRunRegistry` 的 CONVERSATION_BUSY 准入判据）。这种情况不该给用户弹
+     * 「后台命令失败，自动处理未完成」——那只是在吓人。
+     */
+    private fun isConversationBusy(error: String): Boolean =
+        error.contains("当前会话仍有任务在运行") || error.contains("CONVERSATION_BUSY")
+
+    /** 会话忙时的延后重试：只排一次，重试那一轮不再递归刷新。 */
+    private fun scheduleBusyRetry(
+        app: Context,
+        task: DetachedTask,
+        logTail: String,
+        wakeUpOrdinal: Int,
+        logger: AgentLogger,
+    ) {
+        Thread({
+            try {
+                Thread.sleep(BUSY_RETRY_DELAY_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return@Thread
+            }
+            if (!Prefs.isEnabled(Prefs.Keys.AGENT_JOB_WAKEUP)) return@Thread
+            run(app, task, logTail, wakeUpOrdinal, logger, allowBusyRetry = false)
+        }, "eta-job-wakeup-retry").apply { isDaemon = true }.start()
+    }
+
     private fun run(
         app: Context,
         task: DetachedTask,
         logTail: String,
         wakeUpOrdinal: Int,
         logger: AgentLogger,
+        /** 第一次因「会话忙」失败时允许再排一次重试；重试那轮置 false，避免死循环。 */
+        allowBusyRetry: Boolean = true,
     ) {
         val baseConfig = runCatching { runBlocking { RuntimeConfigRepository.currentRuntimeConfig() } }
             .getOrNull()
@@ -127,7 +162,20 @@ internal object JobWakeUpController {
                 onEvent = { },
             )
             if (!result.ok) {
-                logger.warn("Job wake-up run failed: ${result.error?.take(200).orEmpty()}")
+                val error = result.error.orEmpty()
+                logger.warn("Job wake-up run failed: ${error.take(200)}")
+                // 「会话正忙」不是失败：用户本来就在跟助手说话，这时候弹「后台命令失败，自动处理未完成」
+                // 只会吓人（2026-11-05 用户反馈「怎么一直弹这个玩意」）。
+                // 改成：安静地稍后重试一次；再忙就只记日志，不打扰。
+                if (isConversationBusy(error)) {
+                    if (allowBusyRetry) {
+                        logger.info("Job wake-up deferred: conversation busy, will retry in ${BUSY_RETRY_DELAY_MS / 1000}s")
+                        scheduleBusyRetry(app, task, logTail, wakeUpOrdinal, logger)
+                    } else {
+                        logger.info("Job wake-up skipped quietly: conversation still busy")
+                    }
+                    return
+                }
             }
             // 回执：把原来那条「失败了」的通知升级成「已自动处理」，用户不用回会话才知道。
             runCatching {

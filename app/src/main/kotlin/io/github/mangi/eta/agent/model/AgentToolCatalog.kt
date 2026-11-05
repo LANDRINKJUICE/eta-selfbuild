@@ -35,6 +35,7 @@ internal object AgentToolCatalog {
             AgentContextAppToolCatalog.appendTo(tools)
             AgentScreenshotToolCatalog.appendTo(tools)
             AgentGestureToolCatalog.appendTo(tools)
+            AgentInteractionToolCatalog.appendTo(tools)
             AgentTextSystemToolCatalog.appendTo(tools)
             AgentDeviceToolCatalog.appendTo(
                 tools,
@@ -85,6 +86,8 @@ internal object AgentToolCatalog {
         "scroll",
         "scroll_element",
         "type_text",
+        "gui_macro",
+        "ask_user",
         "set_clipboard",
         "press_key",
         "open_system_panel",

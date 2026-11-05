@@ -50,6 +50,22 @@ internal object Prefs {
         const val AGENT_SKILL_ERROR_JOURNAL = "agent_skill_error_journal"
         /** 后台命令失败后自动唤醒 Agent 处理；10 分钟内最多 2 次，防止「失败→唤醒→再失败」循环。 */
         const val AGENT_JOB_WAKEUP = "agent_job_wakeup"
+        /**
+         * 运行中「插话」：开了以后长按发送键不再打断当前运行，而是把这句话排进正在跑的这一轮，
+         * 由 AgentLoop 在下一个回合边界注入。默认关，保持原来的「排队／打断」语义。
+         */
+        const val AGENT_INTERJECTION = "agent_interjection"
+        /**
+         * 不确定时先问我：开了以后模型拿不准就必须调用 `ask_user` 停下来问，
+         * 而不是用假设往下推进（复用危险操作那张确认卡片，超时按「否决」处理）。
+         */
+        const val AGENT_ASK_BEFORE_ASSUME = "agent_ask_before_assume"
+        /**
+         * 界面风险闸门：要点击的控件文案命中「删除／支付／卸载」这类不可逆动作时，
+         * 先弹出确认卡片（复用危险操作那道闸门），用户不点就当否决。
+         * 默认开——它保护的是数据和钱；表刻意做窄，避免误拦（见 [UiRiskPolicy]）。
+         */
+        const val AGENT_UI_RISK_GUARD = "agent_ui_risk_guard"
         const val AGENT_RUNTIME_CONFIG_JSON = "agent_runtime_config_json"
 
         /** 全部布尔开关及其默认值。 */
@@ -74,6 +90,9 @@ internal object Prefs {
             AGENT_VIRTUAL_DISPLAY_ENABLED to true,
             AGENT_SKILL_ERROR_JOURNAL to true,
             AGENT_JOB_WAKEUP to true,
+            AGENT_INTERJECTION to false,
+            AGENT_ASK_BEFORE_ASSUME to false,
+            AGENT_UI_RISK_GUARD to true,
         )
 
         /** 由 Eta Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
@@ -89,6 +108,9 @@ internal object Prefs {
             AGENT_VIRTUAL_DISPLAY_ENABLED,
             AGENT_SKILL_ERROR_JOURNAL,
             AGENT_JOB_WAKEUP,
+            AGENT_INTERJECTION,
+            AGENT_ASK_BEFORE_ASSUME,
+            AGENT_UI_RISK_GUARD,
         )
     }
 

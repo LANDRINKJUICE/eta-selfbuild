@@ -1224,6 +1224,11 @@ internal class AgentAppState(
         }
 
         if (homeState.isStreaming) {
+            // 开着「插话」开关时长按发送 = 插话：把话排进正在跑的这一轮，**不打断**它，
+            // 由 AgentLoop 在下一个回合边界注入。关着时保持原样（短按排队、长按打断再发）。
+            if (immediateInterrupt && trySendAsInterjection(prompt)) {
+                return
+            }
             val queued = QueuedMessageUi(
                 id = "queue-${UUID.randomUUID()}",
                 content = prompt,
@@ -1958,6 +1963,39 @@ internal class AgentAppState(
     private fun requestInterruptCurrentRun() {
         val runId = runStore.activeRunId(selectedConversationId) ?: return
         requestCancelRun(runId)
+    }
+
+    /**
+     * 插话：不打断当前运行，只把这句话排进它的补充队列（AgentLoop 在下一个回合边界注入）。
+     *
+     * 返回 false 表示没插进去——开关没开、没有活动 run、带图/带文件、或 runtime 拒收，调用方退回排队，
+     * 不静默吞掉用户输入。
+     */
+    private fun trySendAsInterjection(prompt: String): Boolean {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_INTERJECTION)) return false
+        if (prompt.isBlank()) return false
+        // 补充通道只传文本；带图/带文件必须走正常排队发送，别默默把附件丢掉。
+        if (homeState.pendingImages.isNotEmpty() || homeState.pendingFileReferences.isNotEmpty()) return false
+        val runId = runStore.activeRunId(selectedConversationId) ?: return false
+        val accepted = runCatching {
+            AgentRuntimeClient(appContext, AndroidAgentLogger).supplement(runId, prompt)
+        }.getOrDefault(false)
+        if (!accepted) return false
+        updateCurrentConversation(
+            homeState.copy(
+                input = "",
+                pendingImages = emptyList(),
+                pendingFileReferences = emptyList(),
+                messageEdit = null,
+            ),
+            updateTimestamp = false,
+        )
+        Toast.makeText(
+            appContext,
+            appContext.getString(R.string.state_ui_interjection_sent_takes_effect_at_the_next_step_9d1f2c),
+            Toast.LENGTH_SHORT,
+        ).show()
+        return true
     }
 
     private fun requestCancelRun(runId: String, byUser: Boolean = false) {

@@ -1433,4 +1433,13 @@
     <string name="scheduled_trigger_wifi_disconnected">斷開 Wi-Fi 時</string>
     <string name="scheduled_tasks_keyword_any">任意通知</string>
     <string name="scheduled_trigger_readonly_title">觸發條件</string>
+  <string name="ui_allow_interjection_b31c7d">工作時允許插話</string>
+  <string name="ui_allow_interjection_b31c7d_summary">執行中長按傳送鍵 = 插話：不打斷目前執行，我在下一個回合邊界（目前模型請求或工具呼叫做完之後）看到它。短按仍然是排隊。</string>
+  <string name="state_ui_interjection_sent_takes_effect_at_the_next_step_9d1f2c">已插話，我下一步就能看到</string>
+  <string name="ui_ask_before_assume_b7c31e">不確定時先問我</string>
+  <string name="ui_ask_before_assume_b7c31e_summary">拿不準時（需求有歧義、要動你的資料／錢／隱私、不可逆操作）助手必須先停下來問你：手機會跳確認卡片，點「繼續」= 同意，點「取消」或 120 秒沒點 = 不同意。</string>
+  <string name="ask_user_title">助手在問你</string>
+  <string name="ask_user_confirm">繼續</string>
+  <string name="ui_ui_risk_guard_c4a9e2">介面風險確認</string>
+  <string name="ui_ui_risk_guard_c4a9e2_summary">要我點的控件文案是「刪除／支付／卸載」這類不可逆動作時，先跳確認卡片（120 秒不點＝不同意）。詞表刻意做窄，避免誤攔。</string>
 </resources>

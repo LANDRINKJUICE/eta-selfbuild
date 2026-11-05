@@ -27,8 +27,15 @@ internal object AgentAfterActionSummary {
             )
     }
 
-    private fun signature(nodes: List<UiNode>): List<String> =
-        nodes.map { "${it.className}|${it.viewId}|${it.text}|${it.desc}|${it.bounds.toShortString()}" }
+    /** 节点语义指纹：用于判断「界面有没有可见变化」。gui_macro 与动作后快照共用。 */
+    internal fun signature(nodes: List<UiNode>): List<String> =
+        nodes.map { node ->
+            // 开关/单选/焦点/可用性都要进指纹：只比文本与位置的话，「点开一个开关」会被判成
+            // 「界面没变化」，模型以为没生效、回头再点一次，把刚打开的又关掉（2026-11-05 审查发现）。
+            "${node.className}|${node.viewId}|${node.text}|${node.desc}|${node.bounds.toShortString()}" +
+                "|checked=${node.checked}|selected=${node.selected}|focused=${node.focused}" +
+                "|enabled=${node.enabled}|editable=${node.editable}|password=${node.password}"
+        }
 
     /** 精简字段：省略默认值为 false 的布尔与包名，降低每步附带观察的 token 开销。 */
     private fun UiNode.compactJson(): JSONObject = JSONObject()

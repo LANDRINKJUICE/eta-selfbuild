@@ -975,21 +975,31 @@ fun AgentAppRoot(
     val dangerousPending by DangerousOperationGuard.pendingFlow.collectAsState()
     val dangerousTarget = dangerousPending
     if (dangerousTarget != null) {
+        // ask_user 复用这张卡片：标题和按钮换成「问」的语气，正文直接显示模型的问题。
+        val isQuestion = dangerousTarget.toolName == "ask_user"
         EtaWindowDialog(
             show = true,
-            title = stringResource(R.string.dangerous_operation_title),
-            summary = stringResource(
-                R.string.dangerous_operation_summary,
-                dangerousTarget.toolName,
-                dangerousTarget.reason,
+            title = stringResource(
+                if (isQuestion) R.string.ask_user_title else R.string.dangerous_operation_title,
             ),
+            summary = if (isQuestion) {
+                dangerousTarget.reason
+            } else {
+                stringResource(
+                    R.string.dangerous_operation_summary,
+                    dangerousTarget.toolName,
+                    dangerousTarget.reason,
+                )
+            },
             // 不用手动清状态：工具线程的 finally 会把 pendingFlow 置空（≤150ms 内）。
             onDismissRequest = { DangerousOperationGuard.deny(dangerousTarget.id) },
         ) {
             MiuixDialogActions(
-                confirmText = stringResource(R.string.dangerous_operation_allow),
+                confirmText = stringResource(
+                    if (isQuestion) R.string.ask_user_confirm else R.string.dangerous_operation_allow,
+                ),
                 cancelText = stringResource(R.string.dangerous_operation_deny),
-                destructive = true,
+                destructive = !isQuestion,
                 onCancel = { DangerousOperationGuard.deny(dangerousTarget.id) },
                 onConfirm = { DangerousOperationGuard.approve(dangerousTarget.id) },
             )

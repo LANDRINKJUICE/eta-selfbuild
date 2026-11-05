@@ -1596,4 +1596,13 @@
     <string name="scheduled_trigger_wifi_disconnected">When Wi-Fi disconnects</string>
     <string name="scheduled_tasks_keyword_any">any notification</string>
     <string name="scheduled_trigger_readonly_title">Trigger</string>
+  <string name="ui_allow_interjection_b31c7d">Allow interjections while working</string>
+  <string name="ui_allow_interjection_b31c7d_summary">When a run is in progress, long-pressing Send adds a mid-run instruction instead of interrupting. It takes effect at my next step — after the current model round or tool call finishes. Short press still queues.</string>
+  <string name="state_ui_interjection_sent_takes_effect_at_the_next_step_9d1f2c">Interjection sent — I will see it at my next step</string>
+  <string name="ui_ask_before_assume_b7c31e">Ask me when unsure</string>
+  <string name="ui_ask_before_assume_b7c31e_summary">When the agent might be guessing — ambiguous request, touching your data, money or privacy, or an irreversible action — it must stop and ask first. A confirm card shows up: Continue = go ahead, Cancel or no answer within 120s = no.</string>
+  <string name="ask_user_title">The agent is asking</string>
+  <string name="ask_user_confirm">Continue</string>
+  <string name="ui_ui_risk_guard_c4a9e2">Confirm risky taps</string>
+  <string name="ui_ui_risk_guard_c4a9e2_summary">Before the agent taps something whose label is irreversible or money-related (delete, pay, uninstall…), a confirm card shows up. No answer within 120s counts as no. The word list is deliberately narrow to avoid false prompts.</string>
 </resources>

@@ -321,6 +321,8 @@ internal class AgentLocalTools(
                 "wait" -> textResult(deviceController.waitMs(args.optInt("duration_ms", 1_000)))
                 "wait_for_text" -> textResult(waitForText(args))
                 "wait_for_package" -> textResult(waitForPackage(args))
+                "gui_macro" -> guiMacro(args)
+                "ask_user" -> textResult(askUser(args))
                 "open_system_panel" -> {
                     publishedObservation.set(PublishedObservation())
                     activeDisplayId = Display.DEFAULT_DISPLAY
@@ -590,19 +592,13 @@ internal class AgentLocalTools(
         if (result == null || !result.optBoolean("ok")) return textResult(raw)
         val before = publishedObservation.get().elements
         val displayId = currentActiveDisplayId()
-        val after = runCatching {
-            screenObservationProvider?.invoke(AFTER_ACTION_OPTIONS)
-                ?: deviceController.observe(
-                    includeScreenshot = false,
-                    includeUiTree = true,
-                    maxNodes = AFTER_ACTION_OPTIONS.maxNodes,
-                    displayId = displayId,
-                )
+        // 等布局稳定再抓：动画中途抓到的快照坐标会整体偏一屏，模型拿它去点必然白烧一轮。
+        val elements = runCatching {
+            settledObservation(displayId, AFTER_ACTION_SETTLE_MAX_MS)
         }.getOrElse { throwable ->
             logger.debug { "Agent local tool after-action observation failed: type=${throwable.javaClass.simpleName}" }
             return textResult(raw)
-        }
-        val elements = after.elementObservation ?: return textResult(raw)
+        } ?: return textResult(raw)
         // 新快照取代动作前的快照：旧 index 在界面变化后本就不可靠，继续保留只会让模型误用。
         publishedObservation.set(publishedObservation.get().copy(elements = elements))
         result.put("after", AgentAfterActionSummary.build(before, elements))
@@ -656,6 +652,8 @@ internal class AgentLocalTools(
         if (node == null) {
             return errorResult("INVALID_NODE_INDEX", "观察快照中不存在节点 index=$index")
         }
+        // 不可逆文案（删除/支付/卸载…）先确认：我认错一行也点不下去。
+        uiRiskDenial("tap_element", node.text, node.desc)?.let { denial -> return denial }
         val result = clearOverlay(displayId, ScreenPoint(node.centerX, node.centerY)) {
             deviceController.tapElement(observation, index)
         }
@@ -677,6 +675,7 @@ internal class AgentLocalTools(
         if (node == null) {
             return errorResult("INVALID_NODE_INDEX", "观察快照中不存在节点 index=$index")
         }
+        uiRiskDenial("long_press_element", node.text, node.desc)?.let { denial -> return denial }
         val result = clearOverlay(displayId, ScreenPoint(node.centerX, node.centerY)) {
             deviceController.longPressElement(observation, index, durationMs)
         }
@@ -836,12 +835,442 @@ internal class AgentLocalTools(
             displayId = currentActiveDisplayId(),
         )
 
+    /**
+     * 「不确定时先问」：把问题丢给用户，**阻塞等确认**。
+     *
+     * 复用危险操作那道确认卡片（[DangerousOperationGuard]）：点「继续」= 同意，
+     * 「取消」或超时无人应答 = 否决。**超时按否决是刻意的**：宁可不做，
+     * 也不要靠猜往下推（用户原话：你们有时候不会问我）。
+     */
+    private fun askUser(args: JSONObject): String {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_ASK_BEFORE_ASSUME)) {
+            return errorResult(
+                "ASK_USER_DISABLED",
+                "「不确定时先问」没开（设置 → 智能体）。请按最保守的方式继续，并在结论里写明你的假设",
+            )
+        }
+        val question = args.optString("question").trim().ifBlank {
+            return errorResult("INVALID_ARGUMENT", "question 不能为空：写清「现状 + 两个可选方向 + 你建议哪个」")
+        }
+        if (question.length > MAX_ASK_CHARS) {
+            return errorResult("INVALID_ARGUMENT", "question 太长（上限 $MAX_ASK_CHARS 字符）")
+        }
+        val approved = DangerousOperationGuard.requestApproval(ASK_USER_TOOL, question)
+        DangerousOperationGuard.log(context, ASK_USER_TOOL, question, approved)
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", ASK_USER_TOOL)
+            .put("answer", if (approved) "approved" else "denied")
+            .put(
+                "message",
+                if (approved) {
+                    "用户点了「继续」：可以按你问的方案往下做。"
+                } else {
+                    "用户点了「取消」或没回应：不要执行这一步。" +
+                        "改成在最终回复里只写这个疑问、两个可选方案和你的建议，等用户回答。"
+                },
+            )
+            .toString()
+    }
+
+    /**
+     * 界面风险闸门：命中「删除／支付」这类不可逆文案就先确认，超时按否决。
+     *
+     * 返回 null 表示放行；非 null 是要回给模型的拒绝结果。
+     * 这一层和 [DangerousOperationPolicy] 互补：那个看命令，这个看**要点的控件文案**。
+     */
+    private fun uiRiskDenial(toolName: String, vararg labels: String): String? {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_UI_RISK_GUARD)) return null
+        val reason = UiRiskPolicy.evaluate(labels.toList()) ?: return null
+        val approved = DangerousOperationGuard.requestApproval(toolName, reason)
+        DangerousOperationGuard.log(context, toolName, reason, approved)
+        if (approved) return null
+        return errorResult(
+            "UI_RISK_DENIED",
+            "该界面动作被判定为不可逆（$reason），用户未确认，已拒绝执行。" +
+                "如果确实要做，让用户自己点，或先用 ask_user 说清楚再问。",
+        )
+    }
+
     private fun waitForPackage(args: JSONObject): String =
         deviceController.waitForPackage(
             packageName = args.optString("package_name"),
             timeoutMs = args.optInt("timeout_ms", 10_000),
             displayId = currentActiveDisplayId(),
         )
+
+    /**
+     * GUI 宏：一次调用按顺序执行一串界面动作，**每一步都在设备侧本地校验**。
+     *
+     * 为什么做：实测「手上」一次点击只要 50–100ms，但两步之间隔着一次模型回合（约 4 秒），
+     * 所以十步流程 ≈ 40 秒，其中 39 秒不是在点。宏把「点 A → 等文字出现 → 点 B → 滚一下」
+     * 这类固定流程压成一次调用，十步 ≈ 1–2 秒。
+     *
+     * 安全边界（每条都对应一个真实事故形态）：
+     * 1. **每步校验**：会动界面的步骤执行后，界面在 900ms 内毫无变化就立刻中止并回报现场——
+     *    不做校验的盲点序列就是这个项目踩过的坑（点错地方的代价远大于多点一次观察）。
+     * 2. **能用文字就用文字**：`tap_text` 按文本找节点、可点击的优先，不依赖上一次快照的 index。
+     * 3. **上限**：最多 [AgentGuiMacroSpec.MAX_STEPS] 步、整体 60 秒，超了在动手前就报参数错误。
+     * 4. **中止也带回快照**：不管成功还是中止，`after` 都附上当前界面，模型不用再补一次 observe_screen。
+     * 5. **先解析后执行**：参数一次全验，模型写错一步不会「点了一半才发现」。
+     */
+    private fun guiMacro(args: JSONObject): AgentModelClient.ToolResult {
+        val steps = when (val plan = AgentGuiMacroSpec.parse(args)) {
+            is GuiMacroParse.Invalid -> return textResult(errorResult(plan.code, plan.message))
+            is GuiMacroParse.Ok -> plan.steps
+        }
+        val displayId = currentActiveDisplayId()
+        val before = publishedObservation.get().elements
+        val startedAt = SystemClock.elapsedRealtime()
+        val stepTimings = JSONArray()
+        var completed = 0
+        var failure: MacroStepOutcome.Failed? = null
+        val unverifiedSteps = JSONArray()
+        for (step in steps) {
+            if (closed.get()) throw AgentRunCancelledException()
+            val elapsedBeforeStep = SystemClock.elapsedRealtime() - startedAt
+            if (elapsedBeforeStep > AgentGuiMacroSpec.MAX_TOTAL_MS) {
+                failure = MacroStepOutcome.Failed(
+                    "MACRO_TIMEOUT",
+                    "整个宏超过 ${AgentGuiMacroSpec.MAX_TOTAL_MS / 1000} 秒已中止；已完成的 $completed 步有效",
+                )
+                break
+            }
+            // 虚拟屏可能中途被回收、或用户切了画布；displayId 一变就必须停 ——
+            // 否则会出现「在 A 屏观察、在 B 屏点下去」这种最典型的错屏误点。
+            val stepDisplayId = currentActiveDisplayId()
+            if (stepDisplayId != displayId) {
+                failure = MacroStepOutcome.Failed(
+                    "DISPLAY_CHANGED",
+                    "宏执行期间目标屏幕变了（$displayId → $stepDisplayId），已中止",
+                )
+                break
+            }
+            // 单步等待不能超过整体剩余预算，否则「整体 60 秒」形同虚设。
+            val remainingBudget = (AgentGuiMacroSpec.MAX_TOTAL_MS - elapsedBeforeStep)
+                .coerceAtMost(AgentGuiMacroSpec.MAX_STEP_TIMEOUT_MS.toLong())
+                .toInt()
+            val stepStarted = SystemClock.elapsedRealtime()
+            val outcome = runMacroStep(step, displayId, remainingBudget)
+            stepTimings.put(
+                JSONObject()
+                    .put("step", step.position + 1)
+                    .put("action", step.action)
+                    .put("ms", SystemClock.elapsedRealtime() - stepStarted)
+                    .put("ok", outcome !is MacroStepOutcome.Failed),
+            )
+            if (outcome is MacroStepOutcome.Failed) {
+                failure = outcome
+                break
+            }
+            if (outcome is MacroStepOutcome.OkUnverified) {
+                unverifiedSteps.put(step.position + 1)
+            }
+            completed++
+        }
+        val after = settledObservation(displayId, MACRO_AFTER_SETTLE_MAX_MS)
+        if (after != null) {
+            // 和单动作保持一致：新快照取代旧快照，避免模型接着用已经失效的 index。
+            publishedObservation.set(publishedObservation.get().copy(elements = after))
+        }
+        val result = JSONObject()
+            .put("ok", failure == null)
+            .put("tool", "gui_macro")
+            .put("steps_done", completed)
+            .put("steps_total", steps.size)
+            .put("total_ms", SystemClock.elapsedRealtime() - startedAt)
+            .put("step_ms", stepTimings)
+        failure?.let { failed ->
+            result.put("code", failed.code)
+            result.put("message", failed.message)
+            result.put("failed_step", completed + 1)
+        }
+        if (unverifiedSteps.length() > 0) {
+            // 这些步骤「做了，但没法判断有没有生效」（例如 Canvas 界面没有节点）。明写出来，
+            // 比假装通过或假装失败都强：模型知道下一步要不要自己看一眼。
+            result.put("unverified_steps", unverifiedSteps)
+        }
+        after?.let { elements -> result.put("after", AgentAfterActionSummary.build(before, elements)) }
+        return textResult(result.toString())
+    }
+
+    /** 执行一步：先记前快照（要校验变化的步骤才记），再派发，再校验。 */
+    private fun runMacroStep(step: GuiMacroStep, displayId: Int, budgetMs: Int): MacroStepOutcome {
+        val beforeSignature = if (step.interacts) {
+            observeElements(displayId)?.nodes?.let { nodes -> AgentAfterActionSummary.signature(nodes) }
+        } else {
+            null
+        }
+        if (step.action == AgentGuiMacroSpec.ACTION_TAP_TEXT) {
+            // 按文字定位要自己抓快照，所以单独一条路。
+            macroTapText(step, displayId)?.let { failure -> return failure }
+            return macroVerify(step, beforeSignature, displayId, budgetMs)
+        }
+        val raw = try {
+            when (step.action) {
+                AgentGuiMacroSpec.ACTION_TAP_ELEMENT -> tapElement(step.raw)
+                "tap" -> tap(step.raw)
+                "long_press" -> longPress(step.raw)
+                "scroll" -> deviceController.scroll(step.direction, step.amount, displayId)
+                "press_key" -> deviceController.pressKey(step.button, displayId)
+                "type_text" -> typeText(step.raw)
+                // 不走 waitForText(step.raw)：那条路的 match 区分大小写、timeout 上限 60s，
+                // 和宏内其它文字判据不一致，也会把「整体 60 秒」捅穿。
+                "wait_text" -> waitForMacroText(step, displayId, budgetMs)
+                "wait" -> deviceController.waitMs(step.durationMs.coerceAtMost(budgetMs.coerceAtLeast(100)))
+                else -> errorResult("INVALID_ARGUMENT", "未知动作 ${step.action}")
+            }
+        } catch (cancelled: AgentRunCancelledException) {
+            throw cancelled
+        } catch (interrupted: InterruptedException) {
+            // 被取消打断时要把中断标志还回去，否则后续 sleep 会立刻返回，取消等于没取消。
+            Thread.currentThread().interrupt()
+            throw AgentRunCancelledException()
+        } catch (failure: Exception) {
+            return MacroStepOutcome.Failed(
+                "STEP_FAILED",
+                "${step.action} 执行失败：${failure.message?.take(120).orEmpty()}",
+            )
+        }
+        if (!raw.isOkJson()) {
+            val error = runCatching { JSONObject(raw) }.getOrNull()
+            return MacroStepOutcome.Failed(
+                error?.optString("code").orEmpty().ifBlank { "STEP_FAILED" },
+                "${step.action} 失败：${error?.optString("message").orEmpty().ifBlank { "未返回原因" }}",
+            )
+        }
+        return macroVerify(step, beforeSignature, displayId, budgetMs)
+    }
+
+    /** 宏内的等文字：判据和 tap_text 同一套（[AgentGuiMacroSpec.matchesText]），超时受整体预算约束。 */
+    private fun waitForMacroText(step: GuiMacroStep, displayId: Int, budgetMs: Int): String {
+        val timeout = step.timeoutMs.coerceIn(
+            AgentGuiMacroSpec.MIN_STEP_TIMEOUT_MS,
+            maxOf(AgentGuiMacroSpec.MIN_STEP_TIMEOUT_MS, budgetMs),
+        )
+        val deadline = SystemClock.elapsedRealtime() + timeout
+        while (true) {
+            if (closed.get()) throw AgentRunCancelledException()
+            val nodes = observeElements(displayId, MACRO_OBSERVE_OPTIONS)?.nodes
+            if (nodes != null && nodes.any { node -> macroNodeMatches(node, step) }) {
+                return JSONObject().put("ok", true).put("tool", "wait_text").toString()
+            }
+            if (SystemClock.elapsedRealtime() >= deadline) {
+                return errorResult("TIMEOUT", "等「${step.text}」超过 ${timeout}ms 还没出现")
+            }
+            Thread.sleep(MACRO_TAP_TEXT_POLL_MS)
+        }
+    }
+
+    /**
+     * 按文字找节点并点击；返回 null 表示点成功了，非 null 是失败原因。
+     *
+     * **命中多个就中止，不瞎挑一个**：屏幕上有 5 行都叫「删除」时，随便点第一个就是误操作。
+     * 需要消歧时由调用方给 `view_id` 或 `nth`，并在失败信息里把候选列清楚。
+     */
+    private fun macroTapText(step: GuiMacroStep, displayId: Int): MacroStepOutcome.Failed? {
+        val deadline = SystemClock.elapsedRealtime() + step.timeoutMs
+        val nthProvided = step.raw.has("nth")
+        while (true) {
+            if (closed.get()) throw AgentRunCancelledException()
+            val observation = observeElements(displayId, MACRO_OBSERVE_OPTIONS)
+                ?: return MacroStepOutcome.Failed("NO_OBSERVATION", "拿不到界面快照，无法按文字定位")
+            val matched = observation.nodes.filter { node -> macroNodeMatches(node, step) }
+            val candidates = if (step.viewId.isNotEmpty()) {
+                matched.filter { node -> node.viewId.substringAfterLast('/') == step.viewId }
+            } else {
+                matched
+            }
+            if (candidates.isNotEmpty()) {
+                val target = when {
+                    step.viewId.isNotEmpty() || nthProvided ->
+                        candidates.getOrNull(step.nth) ?: return MacroStepOutcome.Failed(
+                            "TARGET_NOT_FOUND",
+                            "「${step.text}」只有 ${candidates.size} 个候选，取不到 nth=${step.nth}",
+                        )
+
+                    candidates.size == 1 -> candidates.first()
+
+                    else -> return MacroStepOutcome.Failed(
+                        "AMBIGUOUS_TARGET",
+                        "「${step.text}」命中 ${candidates.size} 个节点，为免点错没有点。" +
+                            "请补 view_id 或 nth 消歧；候选：" + describeCandidates(candidates),
+                    )
+                }
+                // 宏里更危险：一次调用可能连点好几下，所以命中不可逆文案时整串中止。
+                val riskReason = if (Prefs.isEnabled(Prefs.Keys.AGENT_UI_RISK_GUARD)) {
+                    UiRiskPolicy.evaluate(listOf(target.text, target.desc))
+                } else {
+                    null
+                }
+                if (riskReason != null) {
+                    val approved = DangerousOperationGuard.requestApproval("gui_macro", riskReason)
+                    DangerousOperationGuard.log(context, "gui_macro", riskReason, approved)
+                    if (!approved) {
+                        return MacroStepOutcome.Failed(
+                            "UI_RISK_DENIED",
+                            "这一步要点的「${target.text.ifBlank { step.text }}」属于不可逆操作（$riskReason），" +
+                                "用户未确认，宏已中止",
+                        )
+                    }
+                }
+                val clicked = clearOverlay(displayId, ScreenPoint(target.centerX, target.centerY)) {
+                    deviceController.tapElement(observation, target.index)
+                }
+                if (clicked.isOkJson()) {
+                    if (!CanvasRoutingPolicy.isVirtualDisplay(displayId)) {
+                        AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.TAP)
+                    }
+                    showTap(target.centerX, target.centerY, displayId)
+                    return null
+                }
+                val code = runCatching { JSONObject(clicked).optString("code") }.getOrDefault("")
+                return MacroStepOutcome.Failed(
+                    code.ifBlank { "TAP_FAILED" },
+                    "找到「${step.text}」但点不动（${code.ifBlank { "未返回原因" }}）",
+                )
+            }
+            if (step.timeoutMs <= 0 || SystemClock.elapsedRealtime() >= deadline) {
+                return MacroStepOutcome.Failed("TARGET_NOT_FOUND", "当前界面上找不到「${step.text}」")
+            }
+            Thread.sleep(MACRO_TAP_TEXT_POLL_MS)
+        }
+    }
+
+    /** 把候选节点压成一行，方便模型直接换个 view_id/nth 重发。 */
+    private fun describeCandidates(nodes: List<RootShellDeviceController.UiNode>): String =
+        nodes.take(5).joinToString("；") { node ->
+            val label = node.text.ifBlank { node.desc }.take(24)
+            "[${node.index}] ${node.className.substringAfterLast('.')}" +
+                (if (node.viewId.isNotBlank()) " #${node.viewId.substringAfterLast('/')}" else "") +
+                " 文本=$label 可点击=${node.clickable} 位置=${node.centerX},${node.centerY}"
+        }
+
+    private fun macroNodeMatches(node: RootShellDeviceController.UiNode, step: GuiMacroStep): Boolean =
+        AgentGuiMacroSpec.matchesText(node.text, step.text, step.match) ||
+            (step.includeDesc && AgentGuiMacroSpec.matchesText(node.desc, step.text, step.match))
+
+    /**
+     * 单步校验：先看 expect_text 有没有出现，再看界面有没有变化。
+     *
+     * 变化判定分三态：变了 / 没变 / **无法判定**（界面没有节点，例如 Canvas、视频、地图）。
+     * 无法判定时不算失败 —— 否则每个坐标类步骤都会假报「没生效」，模型会被误导着重复点。
+     */
+    private fun macroVerify(
+        step: GuiMacroStep,
+        beforeSignature: List<String>?,
+        displayId: Int,
+        budgetMs: Int,
+    ): MacroStepOutcome {
+        if (step.expectText.isNotEmpty()) {
+            val timeout = (step.timeoutMs.takeIf { it > 0 } ?: AgentGuiMacroSpec.DEFAULT_TEXT_TIMEOUT_MS)
+                .coerceAtMost(maxOf(AgentGuiMacroSpec.MIN_STEP_TIMEOUT_MS, budgetMs))
+            // 走宏内自己的等文字：match 语义与 tap_text 同一套（否则 expect_text 区分大小写、
+            // tap_text 不区分，同一份参数会得出相反结论）。
+            val expectation = GuiMacroStep(
+                position = step.position,
+                action = "wait_text",
+                text = step.expectText,
+                match = step.match,
+                includeDesc = step.includeDesc,
+                timeoutMs = timeout,
+            )
+            if (!waitForMacroText(expectation, displayId, timeout).isOkJson()) {
+                return MacroStepOutcome.Failed(
+                    "EXPECT_NOT_FOUND",
+                    "这一步之后等「${step.expectText}」超过 ${timeout}ms 还没出现；已停在当前界面",
+                )
+            }
+        }
+        if (beforeSignature == null || !step.verifyChange) return MacroStepOutcome.Ok
+        return when (waitForScreenChange(beforeSignature, displayId)) {
+            MacroScreenChange.CHANGED -> MacroStepOutcome.Ok
+            MacroScreenChange.UNKNOWN -> MacroStepOutcome.OkUnverified
+            MacroScreenChange.UNCHANGED -> MacroStepOutcome.Failed(
+                "NO_VISIBLE_CHANGE",
+                "${step.action} 执行后界面没有变化，动作可能没生效；已停在当前界面" +
+                    "（本来就该没有可见变化的步骤，请设 verify_change=false）",
+            )
+        }
+    }
+
+    private fun waitForScreenChange(before: List<String>, displayId: Int): MacroScreenChange {
+        // 动之前就没有节点（Canvas、纯图片界面）：根本没有判据可用，别硬判「没生效」。
+        if (before.isEmpty()) return MacroScreenChange.UNKNOWN
+        val deadline = SystemClock.elapsedRealtime() + MACRO_CHANGE_TIMEOUT_MS
+        var sawNodes = false
+        while (true) {
+            if (closed.get()) throw AgentRunCancelledException()
+            val nodes = observeElements(displayId)?.nodes
+            if (nodes != null && nodes.isNotEmpty()) {
+                sawNodes = true
+                if (AgentAfterActionSummary.signature(nodes) != before) return MacroScreenChange.CHANGED
+            }
+            if (SystemClock.elapsedRealtime() >= deadline) {
+                return if (sawNodes) MacroScreenChange.UNCHANGED else MacroScreenChange.UNKNOWN
+            }
+            Thread.sleep(MACRO_CHANGE_POLL_MS)
+        }
+    }
+
+    private fun observeElements(
+        displayId: Int,
+        options: AgentScreenObservationContract.Options = AFTER_ACTION_OPTIONS,
+    ): RootShellDeviceController.ElementObservation? = runCatching {
+        val observation = screenObservationProvider?.invoke(options)
+            ?: deviceController.observe(
+                includeScreenshot = options.includeScreenshot,
+                includeUiTree = options.includeUiTree,
+                maxNodes = options.maxNodes,
+                displayId = displayId,
+            )
+        observation.elementObservation
+    }.getOrNull()
+
+    /**
+     * 抓一份「布局已经稳定」的快照。
+     *
+     * 为什么需要：动作后的快照如果正好抓在窗口动画中途，节点坐标会整体偏一屏
+     * （2026-11-05 实测：同一节点 after 与重新观察的 x 差 +1240，正好一个虚拟屏宽度），
+     * 模型拿它去点就吃到 STALE_CONTENT，白烧一整轮。
+     *
+     * 判据只看**根节点 bounds**：窗口位移会让它变，而内容刷新（转圈、计时器、光标）不会 ——
+     * 所以不会因为界面一直在动而每次都干等满。
+     */
+    private fun settledObservation(
+        displayId: Int,
+        maxWaitMs: Long,
+    ): RootShellDeviceController.ElementObservation? {
+        val deadline = SystemClock.elapsedRealtime() + maxWaitMs
+        var previousKey: String? = null
+        var latest: RootShellDeviceController.ElementObservation? = null
+        while (true) {
+            latest = observeElements(displayId) ?: return latest
+            val key = stabilityKey(latest)
+            if (key == previousKey) return latest
+            previousKey = key
+            if (closed.get() || SystemClock.elapsedRealtime() >= deadline) return latest
+            Thread.sleep(SETTLE_POLL_MS)
+        }
+    }
+
+    /**
+     * 布局稳定的判据：包名 + 窗口 + 截断标志 + **前三个节点**的 bounds。
+     *
+     * 为什么不是只看「根节点」：`collectNodes` 会按「有用」过滤（有文本/可点击…），
+     * 纯容器 FrameLayout/DecorView 根本不会进快照，`nodes.first()` 其实是第一个「有用」的节点，
+     * 长得像时钟、进度条时会永远不稳。取前三个更耐瞬时抖动；`truncated` 参与判断，
+     * 避免「只看到前 30 个节点、恰好没变化」被误判成稳定。
+     */
+    private fun stabilityKey(observation: RootShellDeviceController.ElementObservation): String =
+        buildString {
+            append(observation.packageName).append('|')
+            append(observation.windowId).append('|')
+            append(observation.truncated).append('|')
+            observation.nodes.take(3).forEach { node ->
+                append(node.bounds.toShortString()).append(';')
+            }
+        }
 
     /**
      * 坐标系必须显式声明。旧版按"上一次观察是否带截图"隐式切换默认值，模型无从得知，
@@ -1996,6 +2425,43 @@ private val AFTER_ACTION_OPTIONS = AgentScreenObservationContract.Options(
     includeUiTree = true,
     maxNodes = 30,
 )
+
+/** 宏里按文字找节点用的快照：60 个节点，长列表也够用。 */
+private val MACRO_OBSERVE_OPTIONS = AgentScreenObservationContract.Options(
+    includeScreenshot = false,
+    includeUiTree = true,
+    maxNodes = 60,
+)
+
+/** 按文字定位时的轮询间隔（毫秒）。 */
+private const val MACRO_TAP_TEXT_POLL_MS = 200L
+
+/** ask_user 的问题长度上限：再长就不该用确认卡片，而该直接问。 */
+private const val MAX_ASK_CHARS = 400
+
+/** ask_user 在确认卡片上显示的「工具名」。 */
+private const val ASK_USER_TOOL = "ask_user"
+
+/** 动作执行后等「界面有变化」的上限；超过就判定这一步没生效。 */
+private const val MACRO_CHANGE_TIMEOUT_MS = 900L
+private const val MACRO_CHANGE_POLL_MS = 120L
+
+/** 抓快照时等布局稳定的上限与轮询间隔。 */
+private const val MACRO_AFTER_SETTLE_MAX_MS = 1_200L
+private const val AFTER_ACTION_SETTLE_MAX_MS = 900L
+private const val SETTLE_POLL_MS = 120L
+
+/** 宏的一步执行结果；[Failed] 会带着原因中止整个宏，[OkUnverified] 表示做了但无法判断是否生效。 */
+private sealed interface MacroStepOutcome {
+    data object Ok : MacroStepOutcome
+
+    data object OkUnverified : MacroStepOutcome
+
+    data class Failed(val code: String, val message: String) : MacroStepOutcome
+}
+
+/** 界面变化判定的三态：没有「无法判定」这一档，就只能靠猜。 */
+private enum class MacroScreenChange { CHANGED, UNCHANGED, UNKNOWN }
 
 /** append 超过该长度改走粘贴路径；逐字键入的增量重建对长文本既慢又容易被输入法打断。 */
 private const val TYPE_TEXT_INCREMENTAL_CHARS = 200

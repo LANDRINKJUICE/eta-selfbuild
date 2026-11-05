@@ -29,6 +29,9 @@ class PrefsDefaultsTest {
                 Prefs.Keys.AGENT_VIRTUAL_DISPLAY_ENABLED to true,
                 Prefs.Keys.AGENT_SKILL_ERROR_JOURNAL to true,
                 Prefs.Keys.AGENT_JOB_WAKEUP to true,
+                Prefs.Keys.AGENT_INTERJECTION to false,
+                Prefs.Keys.AGENT_ASK_BEFORE_ASSUME to false,
+                Prefs.Keys.AGENT_UI_RISK_GUARD to true,
             ),
             Prefs.Keys.BOOLEAN_DEFAULTS,
         )
@@ -52,6 +55,9 @@ class PrefsDefaultsTest {
                 Prefs.Keys.AGENT_VIRTUAL_DISPLAY_ENABLED,
                 Prefs.Keys.AGENT_SKILL_ERROR_JOURNAL,
                 Prefs.Keys.AGENT_JOB_WAKEUP,
+                Prefs.Keys.AGENT_INTERJECTION,
+                Prefs.Keys.AGENT_ASK_BEFORE_ASSUME,
+                Prefs.Keys.AGENT_UI_RISK_GUARD,
             ),
             Prefs.Keys.LOCAL_AGENT_KEYS,
         )

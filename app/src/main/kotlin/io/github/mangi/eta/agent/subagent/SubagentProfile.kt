@@ -81,6 +81,7 @@ internal data class SubagentProfile(
             "swipe",
             "scroll",
             "scroll_element",
+            "gui_macro",
             "type_text",
             "input_text",
             "replace_text",

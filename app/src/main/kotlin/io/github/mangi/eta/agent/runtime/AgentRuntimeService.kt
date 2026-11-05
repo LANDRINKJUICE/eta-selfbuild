@@ -251,6 +251,13 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     if (runId.isNotBlank()) cancelRun(runId)
                 }
 
+                AgentRuntimeWire.MSG_SUPPLEMENT -> {
+                    val data = msg.data
+                    val runId = data?.let(AgentRuntimeWire::runIdFromBundle).orEmpty()
+                    val text = data?.let(AgentRuntimeWire::supplementTextFromBundle).orEmpty()
+                    if (runId.isNotBlank() && text.isNotBlank()) supplementRun(runId, text)
+                }
+
                 AgentRuntimeWire.MSG_ACK_RESULT -> {
                     val runId = AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
                     dispatchResultIo { AgentRuntimeResultStore.remove(this@AgentRuntimeService, runId) }
@@ -843,6 +850,40 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private fun requestResume() {
         guiControl.resumeForUser()
+    }
+
+    /**
+     * 插话：把文本排进 [runId] 这一轮的补充队列，**什么都不取消**。
+     *
+     * 与悬浮胶囊那条路（[requestSupplement]）的区别：不要求它就是胶囊当前显示的那个 run，
+     * 直接按 runId 找；找不到（run 已结束）就记一条日志安静退出，由调用方退回排队发送，
+     * 绝不静默吞掉用户输入。
+     */
+    private fun supplementRun(runId: String, text: String) {
+        val supplementText = text.trim()
+        if (supplementText.isBlank()) return
+        val active = runs.get(runId)
+        if (active == null) {
+            AndroidAgentLogger.warnThrottled("agent_supplement_no_active_run") {
+                "Agent runtime supplement ignored: run not active runId=${runId.take(12)}"
+            }
+            return
+        }
+        val event = active.supplement(supplementText)
+        if (event == null) {
+            AndroidAgentLogger.warnThrottled("agent_supplement_rejected") {
+                "Agent runtime supplement rejected: this run no longer accepts input runId=${runId.take(12)}"
+            }
+            return
+        }
+        AndroidAgentLogger.info(
+            "Agent runtime interjection accepted: index=${event.index}, chars=${event.text.length}"
+        )
+        // 胶囊正在显示这一轮时才回写悬浮状态；聊天页通过 attachRun 的事件流自己更新。
+        if (displayedRun?.runId == runId) {
+            active.overlayState = active.overlayState.applyEvent(event)
+            state.value = active.overlayState
+        }
     }
 
     private fun requestSupplement(runId: String?, text: String) {
@@ -1510,8 +1551,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
 
         private const val ACTION_KEEP_ALIVE = "io.github.mangi.eta.agent.runtime.KEEP_ALIVE"
-        private const val HIDE_DELAY_MS = 2_500L
-        private const val RESULT_REVIEW_DELAY_MS = 120_000L
         private const val RESULT_CARD_HEIGHT_RATIO = 0.5f
         private const val RESULT_OPEN_REQUEST_CODE = 1108
         private const val CAPSULE_WINDOW_WIDTH_DP = 272
