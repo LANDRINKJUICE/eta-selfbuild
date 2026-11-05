@@ -1839,18 +1839,21 @@ class AgentAccessibilityService : AccessibilityService() {
                 NodeActionResult.failure("STALE_WINDOW", "活动窗口已经变化，请重新观察屏幕"),
             )
         }
-        if (
-            windowContentGeneration(snapshot.windowId) != snapshot.contentGeneration &&
-            !snapshot.hasUnambiguousIdentity(indexed)
-        ) {
-            return NodeValidation.Invalid(
-                NodeActionResult.failure("STALE_CONTENT", "窗口内容已经变化，请重新观察屏幕"),
-            )
-        }
         val node = indexed.node
         if (!runCatching { node.refresh() }.getOrDefault(false)) {
             return NodeValidation.Invalid(
                 NodeActionResult.failure("STALE_NODE", "目标节点已经失效，请重新观察屏幕"),
+            )
+        }
+        // 判据落在目标节点上，而不是窗口整体：窗口别处刷新（时间戳、流式文字）不该让这次点击作废。
+        // 真的换了位置 / 类型 / 可点击性才判过期，见 IndexedNode.geometryMatches。
+        if (
+            windowContentGeneration(snapshot.windowId) != snapshot.contentGeneration &&
+            !snapshot.hasUnambiguousIdentity(indexed) &&
+            !indexed.geometryMatches(node)
+        ) {
+            return NodeValidation.Invalid(
+                NodeActionResult.failure("STALE_CONTENT", "目标节点的位置或类型已经变化，请重新观察屏幕"),
             )
         }
         if (!indexed.identityMatches(node)) {
@@ -2428,6 +2431,23 @@ class AgentAccessibilityService : AccessibilityService() {
 
         fun identityMatches(refreshed: AccessibilityNodeInfo): Boolean =
             identity().matches(refreshed.toIdentity())
+
+        /**
+         * 位置 + 类型是否和快照一致。
+         *
+         * 用于「窗口内容变了、但目标节点本身没动」的情况。容器类节点（像卡片外壳，text/desc 都为空）
+         * 以前只要窗口里任何地方刷新就一律判 STALE_CONTENT，连节点自身校验都轮不到，
+         * 结果每点一次都要模型重新观察再点（2026-11-05 实测：点击本身 8~18ms，重来一圈几秒）。
+         *
+         * 这里只认「同一个位置、同一个类型、可点击性一致」——比按旧坐标盲点安全得多：
+         * 位置一变就不放行，滚动的列表、换页的按钮仍然会被拦下。
+         */
+        fun geometryMatches(refreshed: AccessibilityNodeInfo): Boolean {
+            val current = Rect().also { refreshed.getBoundsInScreen(it) }
+            return current == bounds &&
+                refreshed.className?.toString().orEmpty() == className &&
+                refreshed.isClickable == clickable
+        }
 
         private fun identity(): AccessibilityNodeIdentity = AccessibilityNodeIdentity(
             uniqueId = uniqueId,
