@@ -169,11 +169,16 @@ class AgentAccessibilityService : AccessibilityService() {
             indexedNodes = indexedNodes.toList(),
             displayId = displayId,
         ).also { snapshot ->
-            AndroidAgentLogger.debug {
-                "Agent accessibility action=observe_tree observation=${snapshot.id} " +
-                    "display=$displayId nodes=${snapshot.nodes.size} visited=${traversal.visitedNodes} " +
-                    "truncated=${traversal.truncated} " +
-                    "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}"
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            val line = "Agent accessibility action=observe_tree observation=${snapshot.id} " +
+                "display=$displayId nodes=${snapshot.nodes.size} visited=${traversal.visitedNodes} " +
+                "truncated=${traversal.truncated} elapsed_ms=$elapsed"
+            // 慢的观察要能在诊断日志里查到（debug 只进 logcat，不落盘，回头就没了）；
+            // 快的仍走 debug，避免每次观察都往日志里塞一行（2026-11-04 点击变慢排查）。
+            if (elapsed >= SLOW_OBSERVE_MS) {
+                AndroidAgentLogger.info(line)
+            } else {
+                AndroidAgentLogger.debug { line }
             }
         }
     }
@@ -520,8 +525,38 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /** 带内部重抓的点击，见 [retryWithFreshSnapshot]。 */
     fun clickNodeWithRefresh(snapshot: NodeSnapshot, index: Int): NodeActionResult {
+        val startedAt = SystemClock.uptimeMillis()
         val first = clickNode(snapshot, index)
-        return retryWithFreshSnapshot(snapshot, index, first, "tap_element") { s, i -> clickNode(s, i) }
+        val result = retryWithFreshSnapshot(snapshot, index, first, "tap_element") { s, i ->
+            clickNode(s, i)
+        }
+        logTapTiming(
+            path = "element",
+            startedAtMs = startedAt,
+            result = result,
+            extra = "retried=${result !== first}",
+        )
+        return result
+    }
+
+    /**
+     * 点击耗时埋点。
+     *
+     * 用户反馈「点击很慢」，但这条链路上有四段可能耗时：节点校验、手势派发、系统回调、
+     * 失败后的重抓快照。不埋点只能靠猜（2026-11-04 用户提出）。
+     * 这里只记耗时和结果码，不记坐标、不记界面内容。
+     */
+    private fun logTapTiming(
+        path: String,
+        startedAtMs: Long,
+        result: NodeActionResult,
+        extra: String = "",
+    ) {
+        val elapsed = SystemClock.uptimeMillis() - startedAtMs
+        AndroidAgentLogger.info(
+            "Agent tap timing: path=$path elapsedMs=$elapsed ok=${result.ok} " +
+                "code=${result.code.ifBlank { "-" }} method=${result.method.ifBlank { "-" }} $extra",
+        )
     }
 
     /** 带内部重抓的长按，见 [retryWithFreshSnapshot]。 */
@@ -1003,8 +1038,9 @@ class AgentAccessibilityService : AccessibilityService() {
         y: Float,
         durationMs: Long = 50,
         displayId: Int = android.view.Display.DEFAULT_DISPLAY,
-    ): NodeActionResult =
-        dispatchGestureResult(
+    ): NodeActionResult {
+        val startedAt = SystemClock.uptimeMillis()
+        val result = dispatchGestureResult(
             Path().apply {
                 moveTo(x, y)
                 lineTo(x, y)
@@ -1013,6 +1049,15 @@ class AgentAccessibilityService : AccessibilityService() {
             successMethod = "GESTURE_TAP",
             displayId = displayId,
         )
+        // 坐标点击和元素点击分开记：前者要等系统手势回调，后者走 ACTION_CLICK，慢的原因不一样。
+        logTapTiming(
+            path = "gesture",
+            startedAtMs = startedAt,
+            result = result,
+            extra = "gestureMs=$durationMs display=$displayId",
+        )
+        return result
+    }
 
     fun gestureSwipe(
         x1: Float,
@@ -2547,6 +2592,9 @@ class AgentAccessibilityService : AccessibilityService() {
     companion object {
         private const val CLIP_LABEL = "eta_agent"
         private const val WINDOW_POLL_FALLBACK_MS = 80L
+
+        /** 观察一次 UI 树超过这个耗时就打 info 落盘，用来定位「点击前卡一下」。 */
+        private const val SLOW_OBSERVE_MS = 300L
         private const val MAX_UI_TREE_DEPTH = 24
         private const val UI_TREE_VISIT_MULTIPLIER = 8
         private const val MIN_UI_TREE_VISITED_NODES = 128

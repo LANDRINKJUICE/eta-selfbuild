@@ -61,6 +61,10 @@ internal object BatteryMonitor {
             }
         }.onSuccess {
             registered = true
+            // 成功也留一行：否则真出问题时，分不清「没注册」和「注册了但没触发」。
+            AndroidAgentLogger.info(
+                "Battery monitor registered: initial=${if (initial in 0..100) "$initial%" else "unknown"}",
+            )
         }.onFailure { failure ->
             AndroidAgentLogger.warn(
                 "Battery monitor register failed: type=${failure.javaClass.simpleName}",
