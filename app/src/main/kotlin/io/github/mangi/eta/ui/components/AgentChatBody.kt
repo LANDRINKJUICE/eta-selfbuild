@@ -32,7 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -763,18 +763,25 @@ internal fun AgentConversationMessages(
                     )
                 }
             }
-            items(
+            itemsIndexed(
                 items = timelineEntries,
-                key = { it.key },
-                contentType = { it.contentType() },
-            ) { entry ->
-                val itemModifier = Modifier.animateItem(
-                    fadeInSpec = tween(durationMillis = 180),
-                    placementSpec = null,
-                    // 历史轮次被编辑、删除或重新生成时必须立即退出；退出动画会让已从
-                    // 状态中裁掉的旧消息继续绘制，并与同位置的新流式消息短暂重叠。
-                    fadeOutSpec = null,
-                )
+                key = { _, entry -> entry.key },
+                contentType = { _, entry -> entry.contentType() },
+            ) { index, entry ->
+                // 只有最新一条做淡入：滚动时滑进视口的条目也算「第一次组合」，
+                // 若全都挂 animateItem，整个滚动过程始终有几个条目在跑 alpha 动画，
+                // 120Hz 下这是白白多出来的一层合成。
+                val itemModifier = if (index == timelineEntries.lastIndex) {
+                    Modifier.animateItem(
+                        fadeInSpec = tween(durationMillis = 180),
+                        placementSpec = null,
+                        // 历史轮次被编辑、删除或重新生成时必须立即退出；退出动画会让已从
+                        // 状态中裁掉的旧消息继续绘制，并与同位置的新流式消息短暂重叠。
+                        fadeOutSpec = null,
+                    )
+                } else {
+                    Modifier
+                }
                 when (entry) {
                     is AgentTimelineEntry.Message -> {
                         val message = entry.message

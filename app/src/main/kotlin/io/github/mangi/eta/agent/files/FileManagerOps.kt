@@ -60,16 +60,17 @@ internal object FileManagerOps {
      * 会整体错位：条目被丢弃、名字被截断（"Payload Dumper" 变成 "Dumper"）。
      * `stat -c '%A|%s|%Y|%n'` 用 `|` 分隔且名字在最后，两种实现下都稳定。
      *
-     * 用 for 循环而不是通配符展开，是为了避开命令行长度上限，并顺带覆盖隐藏文件。
+     * 用一次 stat 覆盖整个目录（含隐藏文件）：文件名由 shell 展开后直接作为参数传入，
+     * 不经过任何中间解析，也就不存在逐个转义的问题。
      */
     fun list(shell: (String) -> String, path: String): Listing {
         val quoted = shellQuote(path)
         val command = buildString {
             append("cd ").append(quoted).append(" 2>&1 || exit 1; ")
-            append("for f in * .[!.]*; do ")
-            append("[ -e \"\$f\" ] || continue; ")
-            append("stat -c '%A|%s|%Y|%n' \"\$f\" 2>/dev/null; ")
-            append("done")
+            // 一次 stat 处理整目录。原来是 `for f in *; do stat ...; done`：每个条目
+            // fork 一次进程，几百个文件的目录就是几百次进程创建，再叠加每次 runShell
+            // 本身还要新起一个 su 进程，就是进入文件管理器时肉眼可见的等待。
+            append("stat -c '%A|%s|%Y|%n' -- * .[!.]* 2>/dev/null")
         }
         val output = runCatching { shell(command) }.getOrElse { failure ->
             return Listing(path, emptyList(), "读取失败：${failure.javaClass.simpleName}")

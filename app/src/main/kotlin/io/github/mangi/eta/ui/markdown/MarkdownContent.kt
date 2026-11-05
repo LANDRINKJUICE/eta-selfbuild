@@ -5,6 +5,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -549,3 +552,28 @@ private val MarkdownColumnAlign.textAlign: TextAlign
 
 private val TableMinColumnWidth = 72.dp
 private val TableMaxColumnWidth = 260.dp
+
+/**
+ * 懒加载版块列表：只组合并测量进入视口附近的块。
+ *
+ * [MarkdownBlockColumn] 会一次性组合全部块，对单条消息（几 KB）没问题；但整份
+ * MEMORY.md 能到上百 KB、上百个块，进入页面时把主线程按在测量/布局里几十到几百
+ * 毫秒，表现成「点进去卡一下」。这里按块懒加载，进入成本只和首屏有关。
+ */
+@Composable
+internal fun MarkdownBlockLazyColumn(
+    blocks: List<MarkdownBlock>,
+    style: MarkdownStyle,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
+    val scope = remember(style) { MarkdownRenderScope(style, null) }
+    val density = LocalDensity.current
+    LazyColumn(modifier = modifier, contentPadding = contentPadding) {
+        itemsIndexed(items = blocks, key = { _, block -> block.offset }) { index, block ->
+            val gap = markdownBlockGap(blocks.getOrNull(index - 1), block, style.tone)
+            if (gap.value > 0f) Spacer(Modifier.height(with(density) { gap.toDp() }))
+            MarkdownBlockView(block, scope)
+        }
+    }
+}

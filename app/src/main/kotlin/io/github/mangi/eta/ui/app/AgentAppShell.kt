@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,12 +54,14 @@ import io.github.mangi.eta.ui.components.ConversationSidePaneScaffold
 import io.github.mangi.eta.ui.components.FrostCaptureBox
 import io.github.mangi.eta.ui.components.MiuixBackButton
 import io.github.mangi.eta.ui.components.ProvideScrollingFrostState
+import io.github.mangi.eta.ui.components.rememberScrollingFrostState
 import io.github.mangi.eta.ui.components.RoleplayChatUi
 import io.github.mangi.eta.ui.components.ScrolledTopBarBackdrop
 import io.github.mangi.eta.ui.components.rememberTopBarBackdrop
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.navigation.AppRoute
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -118,6 +121,14 @@ internal fun AgentAppShell(
 ) {
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberTopBarBackdrop()
+    // 新页面入场过渡期间先不让采样层工作：过渡里整屏内容每帧都在变，
+    // 磨砂要跟着每帧重录一遍离屏层，「点进去卡一下」主要就卡在这里。
+    val frostState = rememberScrollingFrostState()
+    LaunchedEffect(currentRoute) {
+        frostState.setRouteTransition(true)
+        delay(RouteTransitionFrostHoldMs)
+        frostState.setRouteTransition(false)
+    }
     val pageContent: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -162,7 +173,7 @@ internal fun AgentAppShell(
         }
     }
 
-    ProvideScrollingFrostState {
+    ProvideScrollingFrostState(frostState) {
         Box(modifier = modifier.fillMaxSize()) {
             if (conversationPaneState != null && currentRoute is AppRoute.Home) {
                 ConversationSidePaneScaffold(
@@ -191,6 +202,9 @@ internal fun AgentAppShell(
         }
     }
 }
+
+/** 新页面入场过渡的长度；过渡结束后才恢复磨砂。 */
+private const val RouteTransitionFrostHoldMs = 400L
 
 @Composable
 private fun AgentTopBar(

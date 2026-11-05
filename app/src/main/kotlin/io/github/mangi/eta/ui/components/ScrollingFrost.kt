@@ -32,9 +32,17 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 @Stable
 internal class ScrollingFrostState {
     private var reporters by mutableIntStateOf(0)
+    private var scrollingReported by mutableStateOf(false)
+    private var routeTransitionActive by mutableStateOf(false)
 
+    /** true 表示此刻不该挂磨砂采样层（滚动中，或页面切换过渡中）。 */
     var isScrolling by mutableStateOf(false)
         private set
+
+    private fun recompute() {
+        val next = scrollingReported || routeTransitionActive
+        if (isScrolling != next) isScrolling = next
+    }
 
     /** 引用计数：多个列表同时存在时，由最后离开的列表决定是否恢复磨砂。 */
     fun attach() {
@@ -45,12 +53,29 @@ internal class ScrollingFrostState {
         reporters -= 1
         if (reporters <= 0) {
             reporters = 0
-            isScrolling = false
+            scrollingReported = false
+            recompute()
         }
     }
 
     fun update(scrolling: Boolean) {
-        if (isScrolling != scrolling) isScrolling = scrolling
+        if (scrollingReported != scrolling) {
+            scrollingReported = scrolling
+            recompute()
+        }
+    }
+
+    /**
+     * 页面切换过渡期间也让路。
+     *
+     * 过渡里整屏内容每帧都在变（新页面入场、旧页面退场），采样层和滚动时一样要每帧
+     * 重录一遍离屏层，是「点进新页面先卡一下」的直接来源。过渡结束后恢复磨砂。
+     */
+    fun setRouteTransition(active: Boolean) {
+        if (routeTransitionActive != active) {
+            routeTransitionActive = active
+            recompute()
+        }
     }
 }
 
@@ -58,8 +83,13 @@ internal val LocalScrollingFrost = staticCompositionLocalOf { ScrollingFrostStat
 
 /** 宿主创建并下发磨砂状态，子页面用 [ReportScrollingFrost] 上报滚动。 */
 @Composable
-internal fun ProvideScrollingFrostState(content: @Composable () -> Unit) {
-    val state = remember { ScrollingFrostState() }
+internal fun rememberScrollingFrostState(): ScrollingFrostState = remember { ScrollingFrostState() }
+
+@Composable
+internal fun ProvideScrollingFrostState(
+    state: ScrollingFrostState = rememberScrollingFrostState(),
+    content: @Composable () -> Unit,
+) {
     CompositionLocalProvider(LocalScrollingFrost provides state, content = content)
 }
 

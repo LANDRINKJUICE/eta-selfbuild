@@ -1,5 +1,7 @@
 package io.github.mangi.eta.ui.markdown
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -9,6 +11,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
@@ -46,6 +49,48 @@ internal fun StaticMarkdown(
         MarkdownContent(document = document, style = style, modifier = modifier)
     }
 }
+
+/**
+ * 大文档的 Markdown：按块懒加载，用于整份 MEMORY.md 这类可以上百 KB 的正文。
+ *
+ * [StaticMarkdown] 用 Column 一次铺开全部块，短消息没问题，长文档进入页面时
+ * 会把主线程按在组合 + 测量里。这里换成 [MarkdownBlockLazyColumn]，进入成本只和
+ * 首屏有关；解析仍然在后台线程，命中缓存时首帧即为最终排版。
+ */
+@Composable
+internal fun LazyStaticMarkdown(
+    content: String,
+    tone: MarkdownTone,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
+    val style = rememberMarkdownStyle(tone)
+    val document = produceState(
+        initialValue = staticMarkdownDocumentCache.get(content, style.inline),
+        content,
+        style.inline,
+    ) {
+        value = staticMarkdownDocumentCache.get(content, style.inline)
+            ?: withContext(Dispatchers.Default) { staticMarkdownDocumentCache.parse(content, style.inline) }
+    }.value
+    if (document == null) {
+        // 解析期间只铺开头一段：把整份长文档塞进单个 Text 的布局成本，
+        // 本身就是这次「进入记忆页卡一下」的主要来源之一。
+        Box(modifier = modifier) {
+            Text(text = content.take(LazyMarkdownPlaceholderChars), style = style.body)
+        }
+    } else {
+        MarkdownBlockLazyColumn(
+            blocks = document.blocks,
+            style = style,
+            modifier = modifier,
+            contentPadding = contentPadding,
+        )
+    }
+}
+
+/** 后台解析期间的占位长度；过长会把占位自身变成一次长布局。 */
+private const val LazyMarkdownPlaceholderChars = 2000
 
 /**
  * 流式内容的 Markdown。解析在后台串行进行，最新目标覆盖尚未开始的旧目标；

@@ -70,4 +70,39 @@ class ScrollingFrostStateTest {
         state.detach()
         assertFalse(state.isScrolling)
     }
+
+    /** 页面切换过渡独立驱动让路：与列表滚动无关，过渡结束才恢复。 */
+    @Test
+    fun routeTransitionPausesFrostIndependently() {
+        val state = ScrollingFrostState()
+        state.setRouteTransition(true)
+        assertTrue(state.isScrolling)
+        state.setRouteTransition(false)
+        assertFalse(state.isScrolling)
+    }
+
+    /** 过渡进行中旧列表被回收，不能把过渡的让路一起清掉。 */
+    @Test
+    fun detachKeepsRouteTransitionHold() {
+        val state = ScrollingFrostState()
+        state.attach()
+        state.setRouteTransition(true)
+        state.detach()
+        assertTrue(state.isScrolling)
+        state.setRouteTransition(false)
+        assertFalse(state.isScrolling)
+    }
+
+    /** 滚动停下但过渡还没结束：继续让路。 */
+    @Test
+    fun scrollingStopKeepsHoldWhileTransitionActive() {
+        val state = ScrollingFrostState()
+        state.attach()
+        state.setRouteTransition(true)
+        state.update(true)
+        state.update(false)
+        assertTrue(state.isScrolling)
+        state.setRouteTransition(false)
+        assertFalse(state.isScrolling)
+    }
 }
