@@ -89,9 +89,17 @@ internal fun MarkdownContent(
     style: MarkdownStyle,
     modifier: Modifier = Modifier,
     reveal: SmoothTextRevealCoordinator? = null,
+    trailingBlocks: Int? = null,
 ) {
     val scope = remember(style, reveal) { MarkdownRenderScope(style, reveal) }
-    MarkdownBlockColumn(blocks = document.blocks, scope = scope, compact = false, modifier = modifier)
+    // 只露最近几行的窗口（思考过程）不需要整篇参与排版：内容越长，每次快照全量重排
+    // 越贵，而这部分高度本来就被裁掉了。截取尾部块后单次排版成本变成常数级。
+    val blocks = if (trailingBlocks != null && trailingBlocks > 0 && document.blocks.size > trailingBlocks) {
+        document.blocks.subList(document.blocks.size - trailingBlocks, document.blocks.size)
+    } else {
+        document.blocks
+    }
+    MarkdownBlockColumn(blocks = blocks, scope = scope, compact = false, modifier = modifier)
 }
 
 @Immutable

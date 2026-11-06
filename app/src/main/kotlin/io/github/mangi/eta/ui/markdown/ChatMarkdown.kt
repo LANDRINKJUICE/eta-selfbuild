@@ -106,11 +106,16 @@ internal fun StreamingMarkdown(
     isStreaming: Boolean,
     tone: MarkdownTone,
     modifier: Modifier = Modifier,
+    trailingBlocks: Int? = null,
     onRevealCompleteChange: (Boolean) -> Unit = {},
 ) {
     val style = rememberMarkdownStyle(tone)
-    // 思考紧跟已收到的增量，避免高速思考先排版占位、再受正文逐字速度限制而积压。
-    val reveal = state.revealCoordinator.takeIf { tone == MarkdownTone.Answer }
+    // 正文与思考各用一条显现时钟，都是逐帧推进；两者块 key 都是文档内偏移，
+    // 共用同一个协调器会互相覆盖进度。
+    val reveal = when (tone) {
+        MarkdownTone.Answer -> state.revealCoordinator
+        MarkdownTone.Thinking -> state.thinkingRevealCoordinator
+    }
     val snapshot = state.snapshot
     val currentContent by rememberUpdatedState(content)
     val currentIsStreaming by rememberUpdatedState(isStreaming)
@@ -118,15 +123,15 @@ internal fun StreamingMarkdown(
     val restoreGeneration = state.restoreState.generation
 
     LifecycleResumeEffect(state) {
-        state.revealCoordinator.pauseAnimationsAndCatchUp()
+        reveal.pauseAnimationsAndCatchUp()
         state.restoreState.begin(currentContent)
         onPauseOrDispose {
             state.restoreState.pause()
-            state.revealCoordinator.pauseAnimationsAndCatchUp()
+            reveal.pauseAnimationsAndCatchUp()
         }
     }
     LaunchedEffect(reveal) {
-        reveal?.runFrameClock()
+        reveal.runFrameClock()
     }
     LaunchedEffect(state) {
         state.parseUpdates()
@@ -134,6 +139,11 @@ internal fun StreamingMarkdown(
     LaunchedEffect(content, isStreaming, style.inline) {
         state.parseTargets.trySend(StreamingMarkdownTarget(content, isStreaming, style.inline))
         if (isStreaming) currentCallback(false)
+    }
+    // 终态收口：显现速度为了丝滑有上限，长回答结束时可能还压着成千字没走完。
+    // 积压大就直接推到目标，积压小就让最后几个字照常打完。
+    LaunchedEffect(isStreaming, reveal) {
+        if (!isStreaming) reveal.settleBacklogIfHeavy()
     }
     LaunchedEffect(content, isStreaming, snapshot, reveal) {
         val target = snapshot
@@ -143,7 +153,7 @@ internal fun StreamingMarkdown(
         }
         // 等终态文档完成组合与排版后，再等待尾部字符的显现收口。
         withFrameNanos { }
-        if (reveal != null && !reveal.drained.value) reveal.drained.filter { it }.first()
+        if (!reveal.drained.value) reveal.drained.filter { it }.first()
         if (isStreamingMarkdownTargetComplete(
                 currentContent,
                 currentIsStreaming,
@@ -156,13 +166,12 @@ internal fun StreamingMarkdown(
     }
 
     val parsed = snapshot ?: return
-    if (reveal != null) {
-        SideEffect { reveal.retainBlocks(parsed.document.revealKeys) }
-    }
+    SideEffect { reveal.retainBlocks(parsed.document.revealKeys) }
     MarkdownContent(
         document = parsed.document,
         style = style,
         reveal = reveal,
+        trailingBlocks = trailingBlocks,
         modifier = modifier.onGloballyPositioned {
             // 恢复基线对应的文档真正排版后才开放增量动画，解析耗时不受帧数限制。
             if (state.restoreState.completeLayout(
@@ -171,7 +180,7 @@ internal fun StreamingMarkdown(
                     currentContent = currentContent,
                 )
             ) {
-                state.revealCoordinator.resumeAnimationsAfterCatchUp()
+                reveal.resumeAnimationsAfterCatchUp()
             }
         },
     )

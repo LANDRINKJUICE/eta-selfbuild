@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Constraints
 import java.text.BreakIterator
 import java.util.Locale
 import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlinx.coroutines.channels.Channel
@@ -51,6 +52,9 @@ internal class SmoothTextRevealCoordinator {
     // 不会让整个列表随之重组。
     private val startedState = mutableStateOf<Set<RevealBlockKey>>(emptySet())
     private var animationsPaused = false
+    // 速度本身也要平滑：模型分片一次到达几十个字时，积压会阶跃式变大，
+    // 若速度直接跟积压走，每帧推进量就会忽大忽小，观感正是「卡卡的、一坨跳出来」。
+    private var smoothedSpeed = BASE_REVEAL_GRAPHEMES_PER_SECOND
 
     val drained: StateFlow<Boolean> = drainedState
     /** 已经开始显现的块，用于让列表 marker 与正文保持同一生命周期。 */
@@ -74,6 +78,23 @@ internal class SmoothTextRevealCoordinator {
         records.values.forEach(::completeRecord)
         updateDrainedState()
         animationsPaused = false
+        wakeups.trySend(Unit)
+    }
+
+    /**
+     * 终态收口：积压超过 [thresholdGraphemes] 时直接把进度推到目标。
+     *
+     * 显现速度为了丝滑是有界的，一条长回答结束时可能还压着上千字没走完；
+     * 那种情况下继续匀速补播要好几秒，而且和「正文已经写完」相矛盾。
+     * 积压不大时（正常回答的收尾）不动它，让最后几个字照常丝滑打完。
+     */
+    fun settleBacklogIfHeavy(thresholdGraphemes: Float = HEAVY_BACKLOG_GRAPHEMES) {
+        val backlog = records.values.sumOf { record ->
+            max(0.0, (record.targetCount - record.progress).toDouble())
+        }.toFloat()
+        if (backlog < thresholdGraphemes) return
+        records.values.forEach(::completeRecord)
+        updateDrainedState()
         wakeups.trySend(Unit)
     }
 
@@ -159,11 +180,18 @@ internal class SmoothTextRevealCoordinator {
                 val totalBacklog = records.values.sumOf { candidate ->
                     max(0.0, (candidate.targetCount - candidate.progress).toDouble())
                 }.toFloat()
-                var remainingAdvance = advanceSmoothReveal(
+                // 先让速度平滑地逼近目标速度，再按这一帧的时间推进：
+                // 分片到达造成的积压阶跃只改变「目标速度」，不直接改变「这一帧走多远」。
+                smoothedSpeed = approachRevealSpeed(
+                    current = smoothedSpeed,
+                    desired = smoothRevealSpeed(totalBacklog),
+                    elapsedSeconds = elapsedSeconds,
+                )
+                var remainingAdvance = advanceReveal(
                     current = 0f,
                     target = totalBacklog,
+                    speed = smoothedSpeed,
                     elapsedSeconds = elapsedSeconds,
-                    totalBacklog = totalBacklog,
                 )
                 val newlyStarted = mutableSetOf<RevealBlockKey>()
                 // 块结束后剩余的推进量继续用于下一块，避免短段落把追赶速度限制为每帧一块。
@@ -355,16 +383,20 @@ internal class SmoothTextRevealNode(
         val partialAlpha = (snapshot.progress - fullCount).coerceIn(0f, 1f)
         if (partialAlpha > 0f) {
             cachedNextPath?.let { path ->
-                clipPath(path) {
-                    alphaPaint.alpha = partialAlpha
-                    drawContext.canvas.saveLayer(
-                        Rect(Offset.Zero, size),
-                        alphaPaint,
-                    )
-                    try {
-                        contentScope.drawContent()
-                    } finally {
-                        drawContext.canvas.restore()
+                // 图层只需要覆盖正在淡入的那一个字素。旧实现用整块文本的 size 建图层，
+                // 长回答每帧都要分配一张整块大小的离屏缓冲，是打字时掉帧的直接来源。
+                val layerBounds = path.getBounds()
+                    .inflate(PARTIAL_LAYER_PADDING_PX)
+                    .intersect(Rect(Offset.Zero, size))
+                if (!layerBounds.isEmpty) {
+                    clipPath(path) {
+                        alphaPaint.alpha = partialAlpha
+                        drawContext.canvas.saveLayer(layerBounds, alphaPaint)
+                        try {
+                            contentScope.drawContent()
+                        } finally {
+                            drawContext.canvas.restore()
+                        }
                     }
                 }
             }
@@ -515,23 +547,61 @@ internal fun updateGraphemeBoundaries(
     }
 }
 
-internal fun smoothRevealSpeed(totalBacklog: Float): Float =
-    max(BASE_REVEAL_GRAPHEMES_PER_SECOND, totalBacklog / TARGET_CATCH_UP_SECONDS)
+internal fun smoothRevealSpeed(totalBacklog: Float): Float {
+    if (totalBacklog <= 0f) return BASE_REVEAL_GRAPHEMES_PER_SECOND
+    // 追平所需的时间随积压一起增长，速度因此是有界且单调的。
+    // 旧实现是 `backlog / 0.2s`（固定 0.2 秒追平）：一次 1000 字素的积压会算出
+    // 5000 字/秒，换算到 120Hz 就是每帧吐 40 多个字——观感就是文字成块蹦出来。
+    val catchUpSeconds = MIN_CATCH_UP_SECONDS + totalBacklog * CATCH_UP_SECONDS_PER_GRAPHEME
+    val desired = totalBacklog / catchUpSeconds
+    return desired.coerceIn(BASE_REVEAL_GRAPHEMES_PER_SECOND, MAX_REVEAL_GRAPHEMES_PER_SECOND)
+}
 
+/**
+ * 一阶低通平滑：[current] 在一个时间常数内向 [desired] 靠拢。
+ *
+ * 分片到达是突发的，而眼睛能察觉的是「相邻帧推进量不一致」。把速度本身的突变
+ * 抹平，单帧推进量就稳定，文字看起来是匀速流动而不是忽快忽慢。
+ */
+internal fun approachRevealSpeed(current: Float, desired: Float, elapsedSeconds: Float): Float {
+    if (elapsedSeconds <= 0f) return current
+    val factor = 1f - exp(-elapsedSeconds / SPEED_SMOOTHING_SECONDS)
+    return current + (desired - current) * factor
+}
+
+/**
+ * 按给定速度推进一帧，单帧推进量封顶 [MAX_GRAPHEMES_PER_FRAME] 个字素。
+ *
+ * 这道硬上限是丝滑的最后一道保险：帧间隔变长（掉帧）时按真实时间算出的推进量会
+ * 变大，封顶之后最多也只跨过三个字，不会出现「卡一下然后蹦出一大段」。
+ */
+internal fun advanceReveal(
+    current: Float,
+    target: Float,
+    speed: Float,
+    elapsedSeconds: Float,
+): Float {
+    if (current >= target) return target
+    val advance = (speed * elapsedSeconds.coerceAtLeast(0f))
+        .coerceIn(0f, MAX_GRAPHEMES_PER_FRAME)
+    return (current + advance).coerceAtMost(target)
+}
+
+/** 用目标速度直接推进一帧，等价于先算 [smoothRevealSpeed] 再走 [advanceReveal]。 */
 internal fun advanceSmoothReveal(
     current: Float,
     target: Float,
     elapsedSeconds: Float,
     totalBacklog: Float,
-): Float {
-    if (current >= target) return target
-    // 帧间隔已在调用侧限制在 MAX_FRAME_DELTA_SECONDS 内，单帧推进量由自适应速度决定。
-    // 不能再加每帧 1 字素的硬上限，否则积压时追赶速度失效，输出会稳定滞后于模型。
-    val advance = (smoothRevealSpeed(totalBacklog) * elapsedSeconds).coerceAtLeast(0f)
-    return (current + advance).coerceAtMost(target)
-}
+): Float = advanceReveal(current, target, smoothRevealSpeed(totalBacklog), elapsedSeconds)
 
 private const val NANOS_PER_SECOND = 1_000_000_000f
 private const val MAX_FRAME_DELTA_SECONDS = 0.05f
 private const val BASE_REVEAL_GRAPHEMES_PER_SECOND = 36f
-private const val TARGET_CATCH_UP_SECONDS = 0.20f
+private const val MIN_CATCH_UP_SECONDS = 0.35f
+private const val CATCH_UP_SECONDS_PER_GRAPHEME = 0.004f
+private const val MAX_REVEAL_GRAPHEMES_PER_SECOND = 320f
+internal const val MAX_GRAPHEMES_PER_FRAME = 3f
+private const val SPEED_SMOOTHING_SECONDS = 0.12f
+private const val PARTIAL_LAYER_PADDING_PX = 2f
+private const val HEAVY_BACKLOG_GRAPHEMES = 400f

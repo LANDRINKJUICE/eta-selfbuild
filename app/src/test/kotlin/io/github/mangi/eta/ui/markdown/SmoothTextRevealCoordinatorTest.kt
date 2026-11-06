@@ -67,7 +67,7 @@ class SmoothTextRevealCoordinatorTest {
     fun oneFrameCarriesAdvanceAcrossBlocksInSourceOrder() = runBlocking {
         val coordinator = SmoothTextRevealCoordinator()
         val keys = (0 until 10).map { RevealBlockKey(it * 20) }
-        keys.reversed().forEach { attach(coordinator, it, "abcdefghij") }
+        keys.reversed().forEach { attach(coordinator, it, "a") }
         val clock = TestFrameClock()
         val frameJob = launch(clock, start = CoroutineStart.UNDISPATCHED) {
             coordinator.runFrameClock()
@@ -77,11 +77,12 @@ class SmoothTextRevealCoordinatorTest {
             clock.send(50_000_000L)
             yield()
 
-            assertEquals(10f, coordinator.drawSnapshot(keys[0])!!.progress, 0f)
-            assertEquals(10f, coordinator.drawSnapshot(keys[1])!!.progress, 0f)
-            assertEquals(5f, coordinator.drawSnapshot(keys[2])!!.progress, 0f)
-            keys.drop(3).forEach { assertEquals(0f, coordinator.drawSnapshot(it)!!.progress, 0f) }
-            assertEquals(keys.take(3).toSet(), coordinator.started.value)
+            // 基础速度 36 字/秒、帧长 50ms，一帧推进 1.8 个字素：第一块吃掉 1 个，
+            // 剩下的顺延给第二块，而不是被限成「每帧一块」。
+            assertEquals(1f, coordinator.drawSnapshot(keys[0])!!.progress, 0.001f)
+            assertEquals(0.8f, coordinator.drawSnapshot(keys[1])!!.progress, 0.001f)
+            keys.drop(2).forEach { assertEquals(0f, coordinator.drawSnapshot(it)!!.progress, 0.001f) }
+            assertEquals(keys.take(2).toSet(), coordinator.started.value)
             assertFalse(coordinator.drained.value)
 
             repeat(60) { clock.send((it + 2) * 50_000_000L) }

@@ -110,12 +110,17 @@ class SmoothTextRevealPolicyTest {
     }
 
     @Test
-    fun revealSpeedUsesBaseRateThenCatchesUpWithoutCeiling() {
+    fun revealSpeedGrowsWithBacklogButStaysBounded() {
         assertEquals(36f, smoothRevealSpeed(totalBacklog = 0f), FLOAT_TOLERANCE)
-        assertEquals(45f, smoothRevealSpeed(totalBacklog = 9f), FLOAT_TOLERANCE)
-        assertEquals(100f, smoothRevealSpeed(totalBacklog = 20f), FLOAT_TOLERANCE)
-        assertEquals(5_000f, smoothRevealSpeed(totalBacklog = 1_000f), FLOAT_TOLERANCE)
-        assertEquals(50_000f, smoothRevealSpeed(totalBacklog = 10_000f), FLOAT_TOLERANCE)
+        // 小积压仍按基础打字速度走，不会因为一次分片就突然加速。
+        assertEquals(36f, smoothRevealSpeed(totalBacklog = 9f), FLOAT_TOLERANCE)
+        assertEquals(133.333f, smoothRevealSpeed(totalBacklog = 100f), 0.01f)
+        assertEquals(229.885f, smoothRevealSpeed(totalBacklog = 1_000f), 0.01f)
+        // 旧实现 `backlog / 0.2s` 在同样的积压下会算出 5000 / 50000 字每秒，
+        // 也就是每帧吐出几十上百个字；现在无论积压多大都不超过上限。
+        val huge = smoothRevealSpeed(totalBacklog = 100_000f)
+        assertEquals(249.781f, huge, 0.01f)
+        assertTrue(huge <= 320f)
     }
 
     @Test
@@ -133,9 +138,10 @@ class SmoothTextRevealPolicyTest {
     }
 
     @Test
-    fun catchUpAdvancesBeyondFormerSpeedCap() {
+    fun singleFrameAdvanceIsCappedSoLongFramesNeverDumpABlock() {
+        // 一千字素的积压 + 50ms 的帧：旧实现一次推进 253 个字，等于一大段直接蹦出来。
         assertEquals(
-            253f,
+            6f,
             advanceSmoothReveal(
                 current = 3f,
                 target = 1_000f,
@@ -144,21 +150,64 @@ class SmoothTextRevealPolicyTest {
             ),
             FLOAT_TOLERANCE,
         )
+        assertEquals(
+            MAX_GRAPHEMES_PER_FRAME,
+            advanceReveal(current = 0f, target = 1_000f, speed = 10_000f, elapsedSeconds = 1f),
+            FLOAT_TOLERANCE,
+        )
     }
 
     @Test
-    fun sustainedFastOutputDoesNotAccumulateUnboundedBacklog() {
+    fun speedChangeIsSmoothedInsteadOfJumping() {
+        val firstFrame = approachRevealSpeed(current = 36f, desired = 240f, elapsedSeconds = 1f / 120f)
+        val secondFrame = approachRevealSpeed(current = firstFrame, desired = 240f, elapsedSeconds = 1f / 120f)
+
+        assertTrue(firstFrame > 36f)
+        // 一帧只走一小段：目标速度一次性到 240，实际速度不会当帧就跳过去。
+        assertTrue(firstFrame < 36f + (240f - 36f) * 0.15f)
+        assertTrue(secondFrame > firstFrame)
+        // 时间没有推进时保持原速，不会凭空加速。
+        assertEquals(36f, approachRevealSpeed(current = 36f, desired = 240f, elapsedSeconds = 0f), FLOAT_TOLERANCE)
+    }
+
+    @Test
+    fun sustainedStreamKeepsPerFrameAdvanceStable() {
+        // 每帧到达 0.6 个字素（120Hz 下约 72 字/秒），观察稳态下单帧推进量。
         var target = 0f
         var progress = 0f
+        var speed = 36f
+        var minAdvance = Float.MAX_VALUE
+        var maxAdvance = 0f
+        repeat(600) { frame ->
+            target += 0.6f
+            speed = approachRevealSpeed(speed, smoothRevealSpeed(target - progress), 1f / 120f)
+            val next = advanceReveal(progress, target, speed, 1f / 120f)
+            val advance = next - progress
+            progress = next
+            if (frame > 240) {
+                minAdvance = minOf(minAdvance, advance)
+                maxAdvance = maxOf(maxAdvance, advance)
+            }
+        }
+        // 跟得上：不会无限落后。
+        assertTrue(target - progress < 60f)
+        // 丝滑：稳态下每帧推进量几乎一致，不会忽快忽慢。
+        assertTrue(maxAdvance - minAdvance < 0.05f)
+    }
+
+    @Test
+    fun extremeBurstNeverOutrunsTheFrameCap() {
+        // 每帧到达 20 字素（120Hz 下 2400 字/秒，远超任何真实模型），逐帧检查上限。
+        var target = 0f
+        var progress = 0f
+        var speed = 36f
         repeat(600) {
             target += 20f
-            progress = advanceSmoothReveal(progress, target, 1f / 60f, target - progress)
+            speed = approachRevealSpeed(speed, smoothRevealSpeed(target - progress), 1f / 120f)
+            val next = advanceReveal(progress, target, speed, 1f / 120f)
+            assertTrue(next - progress <= MAX_GRAPHEMES_PER_FRAME + FLOAT_TOLERANCE)
+            progress = next
         }
-        assertTrue(target - progress < 300f)
-        repeat(90) {
-            progress = advanceSmoothReveal(progress, target, 1f / 60f, target - progress)
-        }
-        assertEquals(target, progress, FLOAT_TOLERANCE)
     }
 
     @Test

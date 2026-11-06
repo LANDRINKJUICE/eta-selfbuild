@@ -4,8 +4,10 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -52,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,6 +76,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -971,6 +975,7 @@ internal fun ThinkingRow(
                             content = message.content,
                             isStreaming = message.isStreaming,
                             tone = MarkdownTone.Thinking,
+                            trailingBlocks = if (tailWindow) THINKING_TAIL_WINDOW_BLOCKS else null,
                         )
                     }
                 } else {
@@ -1000,9 +1005,22 @@ private fun ThinkingTailWindow(
         Box(modifier) { content() }
         return
     }
-    val maxHeight = with(LocalDensity.current) {
+    val density = LocalDensity.current
+    val maxHeight = with(density) {
         (THINKING_TAIL_WINDOW_LINES * THINKING_LINE_HEIGHT_SP).sp.toDp()
     }
+    val maxHeightPx = with(density) { maxHeight.toPx() }
+    // 内容高度按行跳变：每满一行，底部对齐的整块文字就瞬间上移一个行高。
+    // 显现动画做得再好，这一下位移还是「整块啪一下往上顶」。这里把超出窗口的那段高度
+    // 做成匀速插值，位移交给绘制阶段（graphicsLayer 只更新图层，不触发重排/重测），
+    // 文字就成了连续向上流动。
+    var contentHeightPx by remember { mutableIntStateOf(0) }
+    val overshootPx = (contentHeightPx - maxHeightPx).coerceAtLeast(0f)
+    val settledOvershootPx by animateFloatAsState(
+        targetValue = overshootPx,
+        animationSpec = tween(durationMillis = THINKING_TAIL_SLIDE_MS, easing = LinearEasing),
+        label = "thinkingTailSlide",
+    )
     Box(
         modifier = modifier
             .heightIn(max = maxHeight)
@@ -1011,7 +1029,7 @@ private fun ThinkingTailWindow(
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()
-                if (size.height >= maxHeight.toPx() - 1f) {
+                if (size.height >= maxHeightPx - 1f) {
                     drawRect(
                         brush = Brush.verticalGradient(
                             0f to Color.Transparent,
@@ -1025,7 +1043,12 @@ private fun ThinkingTailWindow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight(align = Alignment.Bottom, unbounded = true),
+                .graphicsLayer {
+                    // 插值还没跟上的那一段先补回去，逐帧收敛到 0，肉眼看到的就是滑动。
+                    translationY = overshootPx - settledOvershootPx
+                }
+                .wrapContentHeight(align = Alignment.Bottom, unbounded = true)
+                .onSizeChanged { contentHeightPx = it.height },
         ) {
             content()
         }
@@ -1033,6 +1056,15 @@ private fun ThinkingTailWindow(
 }
 
 private const val THINKING_TAIL_WINDOW_LINES = 4
+
+/** 尾部窗口跟随内容增长的时长；比快照间隔略长，避免每一跳都重新起一次动画。 */
+private const val THINKING_TAIL_SLIDE_MS = 140
+
+/**
+ * 思考窗口只露 [THINKING_TAIL_WINDOW_LINES] 行，只需要尾部几段参与排版。
+ * 整篇交给 Column 的话，每来一个分片就要把几万字全量重排一次。
+ */
+private const val THINKING_TAIL_WINDOW_BLOCKS = 8
 
 // ── Run trace：轻量入口行 ─────────────────────────────────────────────
 
