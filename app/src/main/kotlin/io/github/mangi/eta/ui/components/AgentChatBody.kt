@@ -180,6 +180,8 @@ internal fun AgentChatBody(
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = messages.size + if (hasEarlierMessages) 1 else 0)
     // 长会话滚动是掉帧的主要场景；滚动期间让实时磨砂让路（见 ScrollingFrost.kt）。
     ReportScrollingFrost(scrollState)
+    // 流式输出期间文字逐帧显现，磨砂每帧重录整屏，是打字掉帧主因；同样让路。
+    ReportStreamingFrost(isStreaming)
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)

@@ -14,7 +14,6 @@ import top.yukonga.miuix.kmp.blur.BlurColors
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.ProgressiveBlur
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
-import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
@@ -66,9 +65,6 @@ internal fun TopBarBackdrop(
     }
     Box(modifier = modifier) { content() }
 }
-
-internal fun Modifier.captureForTopBar(backdrop: LayerBackdrop?): Modifier =
-    if (backdrop == null) this else layerBackdrop(backdrop)
 
 @Composable
 internal fun topBarContainerColor(backdrop: LayerBackdrop?): Color =

@@ -72,6 +72,7 @@ import io.github.mangi.eta.ui.components.EtaTextButton
 import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffold
+import io.github.mangi.eta.ui.components.ReportScrollingFrost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1499,6 +1500,8 @@ private fun PaneView(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    // 滚动中让开顶栏磨砂：列表内容每帧都在变时，离屏录制与模糊是落帧大头。
+    ReportScrollingFrost(listState)
     Column(
         modifier = modifier
             .fillMaxHeight()

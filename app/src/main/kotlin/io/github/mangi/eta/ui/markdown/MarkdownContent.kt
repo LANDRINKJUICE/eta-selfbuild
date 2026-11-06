@@ -16,8 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import io.github.mangi.eta.ui.components.ReportScrollingFrost
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckBox
@@ -566,10 +569,12 @@ internal fun MarkdownBlockLazyColumn(
     style: MarkdownStyle,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    state: LazyListState = rememberLazyListState(),
 ) {
     val scope = remember(style) { MarkdownRenderScope(style, null) }
     val density = LocalDensity.current
-    LazyColumn(modifier = modifier, contentPadding = contentPadding) {
+    ReportScrollingFrost(state)
+    LazyColumn(modifier = modifier, contentPadding = contentPadding, state = state) {
         itemsIndexed(items = blocks, key = { _, block -> block.offset }) { index, block ->
             val gap = markdownBlockGap(blocks.getOrNull(index - 1), block, style.tone)
             if (gap.value > 0f) Spacer(Modifier.height(with(density) { gap.toDp() }))

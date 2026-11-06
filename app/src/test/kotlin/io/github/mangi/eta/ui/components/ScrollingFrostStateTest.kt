@@ -105,4 +105,39 @@ class ScrollingFrostStateTest {
         state.setRouteTransition(false)
         assertFalse(state.isScrolling)
     }
+
+    /** 流式输出独立驱动让路：与滚动无关，输出结束才恢复。 */
+    @Test
+    fun streamingPausesFrostIndependently() {
+        val state = ScrollingFrostState()
+        state.setStreaming(true)
+        assertTrue(state.isScrolling)
+        state.setStreaming(false)
+        assertFalse(state.isScrolling)
+    }
+
+    /** 流式与滚动任一在动都让路；两者都停才恢复。 */
+    @Test
+    fun streamingAndScrollingCompose() {
+        val state = ScrollingFrostState()
+        state.attach()
+        state.update(true)
+        state.setStreaming(true)
+        state.update(false)
+        assertTrue(state.isScrolling)
+        state.setStreaming(false)
+        assertFalse(state.isScrolling)
+    }
+
+    /** 列表 detach 只清滚动来源，不能连带清掉仍在进行的流式让路。 */
+    @Test
+    fun detachKeepsStreamingHold() {
+        val state = ScrollingFrostState()
+        state.attach()
+        state.setStreaming(true)
+        state.detach()
+        assertTrue(state.isScrolling)
+        state.setStreaming(false)
+        assertFalse(state.isScrolling)
+    }
 }

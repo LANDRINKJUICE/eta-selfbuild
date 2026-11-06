@@ -109,6 +109,9 @@ fun MiuixScaffoldPage(
 /**
  * 自定义内容二级页的低层骨架。调用方负责把顶部 padding、横向安全区与 nested scroll
  * 接入自己的内容；[sidePadding] 用于在宽屏限制实际内容宽度，滚动容器本身仍应保持全宽。
+ *
+ * 建议调用方在自己列表的 [LazyListState] 上调用 [ReportScrollingFrost]，滚动时顶栏磨砂
+ * 自动让路。
  */
 @Composable
 fun MiuixScaffold(
@@ -160,7 +163,13 @@ fun MiuixScaffold(
                 }
             },
         ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize().captureForTopBar(backdrop)) {
+            // 滚动中不录制顶栏采样层，与 MiuixScaffoldPage 对齐：内容每帧都在变，
+            // 离屏录制与模糊是落帧大头。由内容内部的列表通过 ReportScrollingFrost 上报。
+            FrostCaptureBox(
+                capture = true,
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 WidePageContent { sidePadding ->
                     content(paddingValues, scrollBehavior, sidePadding)
                 }

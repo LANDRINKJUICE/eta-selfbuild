@@ -33,14 +33,15 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 internal class ScrollingFrostState {
     private var reporters by mutableIntStateOf(0)
     private var scrollingReported by mutableStateOf(false)
+    private var streamingReported by mutableStateOf(false)
     private var routeTransitionActive by mutableStateOf(false)
 
-    /** true 表示此刻不该挂磨砂采样层（滚动中，或页面切换过渡中）。 */
+    /** true 表示此刻不该挂磨砂采样层（滚动中、流式输出中，或页面切换过渡中）。 */
     var isScrolling by mutableStateOf(false)
         private set
 
     private fun recompute() {
-        val next = scrollingReported || routeTransitionActive
+        val next = scrollingReported || streamingReported || routeTransitionActive
         if (isScrolling != next) isScrolling = next
     }
 
@@ -61,6 +62,14 @@ internal class ScrollingFrostState {
     fun update(scrolling: Boolean) {
         if (scrollingReported != scrolling) {
             scrollingReported = scrolling
+            recompute()
+        }
+    }
+
+    /** 流式输出期间也让路：文字逐帧显现时，磨砂每帧都要重录整屏。 */
+    fun setStreaming(active: Boolean) {
+        if (streamingReported != active) {
+            streamingReported = active
             recompute()
         }
     }
@@ -112,6 +121,24 @@ internal fun ReportScrollingFrost(scrollState: LazyListState) {
         snapshotFlow { scrollState.isScrollInProgress }
             .distinctUntilChanged()
             .collect { frost.update(it) }
+    }
+}
+
+/**
+ * 把「正在流式输出」上报给磨砂层。
+ *
+ * 流式期间文字由逐字显现逐帧驱动，内容每帧都在变，磨砂跟着每帧重录整屏离屏层，
+ * 正是「看 AI 打字时掉帧」的主因之一。这里不参与 [ScrollingFrostState] 的引用计数，
+ * 而是独立于滚动的一个让路源：离开组合时无条件清掉，避免残留导致磨砂永久消失。
+ */
+@Composable
+internal fun ReportStreamingFrost(streaming: Boolean) {
+    val frost = LocalScrollingFrost.current
+    DisposableEffect(frost) {
+        onDispose { frost.setStreaming(false) }
+    }
+    LaunchedEffect(frost, streaming) {
+        frost.setStreaming(streaming)
     }
 }
 
