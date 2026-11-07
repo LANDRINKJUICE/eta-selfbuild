@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.schedule
 
 import android.content.Context
+import io.github.mangi.eta.agent.style.SpeechStyleStore
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -66,7 +67,11 @@ internal object ScheduledWorkspaceActions {
             runCatching { target.delete() }
             return ScheduledShell.failure("脚本跑完但没有产出有效内容（${target.name}）")
         }
-        return "快照已保存：${target.name}（${ScheduledHealthCheck.formatBytes(target.length())}）"
+        val size = ScheduledHealthCheck.formatBytes(target.length())
+        return tone(
+            "📸 拍好了 —— ${target.name}，$size，收进档案柜～",
+            "快照已保存：${target.name}（$size）",
+        )
     }
 
     /** 小于这个体积基本可以认定是空跑（正常快照有十几 KB）。 */
@@ -141,7 +146,10 @@ internal object ScheduledWorkspaceActions {
      */
     fun cleanTmp(): String {
         val tmp = ScheduledShell.Paths.tmp
-        if (!tmp.isDirectory) return "跳过：工作区没有 tmp 目录（${tmp.absolutePath}）"
+        if (!tmp.isDirectory) return tone(
+            "找不到 tmp 目录（${tmp.absolutePath}），这轮就不动手啦",
+            "跳过：工作区没有 tmp 目录（${tmp.absolutePath}）",
+        )
 
         val quoted = "'${tmp.absolutePath}'"
         // 数量、体积、删除分三趟：本机实测 `find -exec ls/stat { } +` 会把同一个文件报两行（toybox 的
@@ -155,7 +163,10 @@ internal object ScheduledWorkspaceActions {
         if (!countOutcome.ok) return ScheduledShell.failure("统计待清理文件失败：${countOutcome.reason}")
         val count = countOutcome.stdout.trim().toIntOrNull()
             ?: return ScheduledShell.failure("统计待清理文件失败：输出无法解析")
-        if (count == 0) return "无需清理：tmp 里没有超过 $TMP_KEEP_DAYS 天的文件"
+        if (count == 0) return tone(
+            "翻了一遍，tmp 里没有超过 $TMP_KEEP_DAYS 天的老东西，这轮不用清～",
+            "无需清理：tmp 里没有超过 $TMP_KEEP_DAYS 天的文件",
+        )
 
         val sizeOutcome = ScheduledShell.run(
             command = "cd $quoted && find . -type f -mtime +$TMP_KEEP_DAYS 2>/dev/null | " +
@@ -178,7 +189,10 @@ internal object ScheduledWorkspaceActions {
         )
         if (!deleteOutcome.ok) return ScheduledShell.failure("删除阶段失败：${deleteOutcome.reason}")
 
-        return "已清理 $count 个文件，释放 $sizeText（保留 $TMP_KEEP_DAYS 天内与目录骨架）"
+        return tone(
+            "清掉 $count 个老文件，腾出 $sizeText；$TMP_KEEP_DAYS 天内的和目录骨架都留着～",
+            "已清理 $count 个文件，释放 $sizeText（保留 $TMP_KEEP_DAYS 天内与目录骨架）",
+        )
     }
 
     // ================================================================ 漂移检测
@@ -201,7 +215,10 @@ internal object ScheduledWorkspaceActions {
      */
     fun driftCheck(): String {
         val snapshot = latestSnapshot()
-            ?: return "未执行：${ScheduledShell.Paths.analysis.absolutePath} 下没有 SYSTEM-SNAPSHOT-*.md"
+            ?: return tone(
+                "翻了一下，没找到 SYSTEM-SNAPSHOT-*.md，没东西可对比～",
+                "未执行：${ScheduledShell.Paths.analysis.absolutePath} 下没有 SYSTEM-SNAPSHOT-*.md",
+            )
         val outcome = ScheduledShell.run(
             command = "/system/bin/awk '${driftAwkScript()}' '${snapshot.absolutePath}' 2>/dev/null",
             timeoutSeconds = DRIFT_TIMEOUT_SECONDS,
@@ -294,7 +311,11 @@ internal object ScheduledWorkspaceActions {
         val head = "对比 $snapshotName："
         if (drifts.isEmpty()) {
             val modules = if (moduleTotal > 0) "，$moduleTotal 个模块都在" else ""
-            return head + "无漂移（${okItems.size} 项关键值一致$modules）"
+            // 漂移本身是「要注意的事」，只有「一切正常」才用轻松口吻。
+            return tone(
+                "对着 $snapshotName 检查完了，一切正常 ✓（${okItems.size} 项关键值一致$modules）",
+                head + "无漂移（${okItems.size} 项关键值一致$modules）",
+            )
         }
         val text = buildString {
             append(head).append("发现 ").append(drifts.size).append(" 处变化 → ")
@@ -304,6 +325,16 @@ internal object ScheduledWorkspaceActions {
     }
 
     // ================================================================ 公共
+
+    /**
+     * 按当前语气风格挑文案。
+     *
+     * 只有选了「可爱」才用活泼版；「简洁」和「自然」保持中性原话 ——
+     * 用户选的是简洁，通知里却蹦一堆「～」，那比机械文案更出戏。
+     * runCatching 兜住：读设置失败时退回中性文案，不因为一句文案让任务挂掉。
+     */
+    private fun tone(cute: String, plain: String): String =
+        if (runCatching { SpeechStyleStore.selectedId() }.getOrDefault("") == "cute") cute else plain
 
     /** 失败详细说明里补一句退出码/耗时，便于用户判断是脚本坏了还是超时。 */
     private fun suffixFor(outcome: ScheduledShell.Outcome): String = when {
