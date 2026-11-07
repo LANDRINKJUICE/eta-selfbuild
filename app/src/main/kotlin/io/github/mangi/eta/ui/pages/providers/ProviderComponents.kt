@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +22,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.data.model.CustomProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
@@ -101,6 +103,11 @@ internal fun ProviderIcon(
     when (provider) {
         is CustomProviderSetting -> EtaPreferenceIcon(
             icon = Icons.Rounded.Dns,
+            modifier = modifier,
+            tint = EtaPreferenceColors.Blue,
+        )
+        is OpenCodeProviderSetting -> EtaPreferenceIcon(
+            icon = Icons.Rounded.Memory,
             modifier = modifier,
             tint = EtaPreferenceColors.Blue,
         )

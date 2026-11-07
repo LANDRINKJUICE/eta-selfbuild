@@ -6,6 +6,7 @@ import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.runtimeProviderType
 
@@ -30,6 +31,6 @@ internal class RemoteModelCatalog(
     private fun ProviderSetting.endpointMode(): String? = when (this) {
         is OpenAiCompatibleProviderSetting -> endpointMode
         is CustomProviderSetting -> endpointMode
-        is AnthropicProviderSetting, is GeminiProviderSetting -> null
+        is AnthropicProviderSetting, is GeminiProviderSetting, is OpenCodeProviderSetting -> null
     }
 }
