@@ -91,6 +91,36 @@ class DangerousOperationPolicyTest {
         assertFalse(DangerousOperationPolicy.evaluate("write_file", args).dangerous)
     }
 
+    // ------------------------------------------- 逐段判定（2026-11-07 误报回归）
+
+    /**
+     * 实测误报：一条命令里既有写动作、又在**另一段**只读 grep 启动链脚本，不该判成「写启动链」。
+     * 这就是 2026-11-07 真实触发的那条命令（删自己建的目录 + 末尾 grep service.d）。
+     */
+    @Test
+    fun readOnlyMentionOfBootChainAlongsideUnrelatedWriteIsAllowed() {
+        val cmd = "set -x\n" +
+            "rm -rf /workspace/AI网关/09-zcode\n" +
+            "rmdir /workspace/zcode 2>/dev/null || rm -rf /workspace/zcode\n" +
+            "grep -n 'zcode' /data/adb/service.d/99-ai-gateway.sh 2>/dev/null || echo '(无引用)'"
+        assertFalse(terminal(cmd).dangerous)
+    }
+
+    /** 反过来：写动词和敏感路径落在同一段里，必须照旧拦。 */
+    @Test
+    fun writeAndSensitivePathInSameSegmentIsBlocked() {
+        assertTrue(terminal("rm -rf /data/adb/service.d/99-x.sh").dangerous)
+        assertTrue(terminal("echo x > /data/adb/post-fs-data.d/x.sh").dangerous)
+        assertTrue(terminal("rm -rf /sdcard/tmp && cp /sdcard/a /system/app/b").dangerous)
+        assertTrue(terminal("ls /system\ncp /sdcard/x.sh /data/adb/service.d/x.sh").dangerous)
+    }
+
+    /** 只读引用敏感路径，即使同条命令里别处有写动作，也不该被牵连。 */
+    @Test
+    fun readOnlySensitivePathIsNotAffectedByOtherSegments() {
+        assertFalse(terminal("rm -f /tmp/x\nls -la /system\ncat /vendor/build.prop").dangerous)
+    }
+
     // ---------------------------------------------------------------- 空值
 
     @Test

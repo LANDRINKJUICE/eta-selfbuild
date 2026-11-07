@@ -100,6 +100,9 @@ internal object DangerousOperationPolicy {
     /** 敏感路径：只有**配合写动词**出现时才拦。 */
     private val SENSITIVE_PATHS = BOOT_CHAIN_PATHS + SYSTEM_PARTITION_PATHS
 
+    /** shell 子命令分隔符（换行、`;`、`&&`、`||`、`|`、`&`）：逐段判定的切分依据。 */
+    private val COMMAND_SEGMENT_SEPARATORS = Regex("[\\n;|&]+")
+
     private val WRITE_TOOLS = setOf("write_file", "edit_file")
 
     fun evaluate(toolName: String, args: JSONObject?): Verdict {
@@ -140,9 +143,9 @@ internal object DangerousOperationPolicy {
         DESTRUCTIVE_FRAGMENTS.firstOrNull { normalized.contains(it) }?.let { hit ->
             return Verdict.danger(
                 rule = "变砖级命令片段",
-                reason = "命令里有「$hit」这种本身就代表破坏动作的写法",
-                impact = "这类写法直接改写分区、启动链或 SELinux，写错不是应用出问题，是手机起不来。",
-                recovery = "撤不了。得在电脑上重新刷机。",
+                reason = "「$hit」本身就是破坏动作",
+                impact = "会改写分区或启动链",
+                recovery = "撤不了，只能刷机",
                 severity = Severity.CRITICAL,
             )
         }
@@ -151,9 +154,9 @@ internal object DangerousOperationPolicy {
         if (isRootWipe(normalized)) {
             return Verdict.danger(
                 rule = "清空根目录或整个分区",
-                reason = "命令会删掉根目录或某个整分区的数据",
-                impact = "整个分区的内容会被清掉，系统多半起不来。",
-                recovery = "数据找不回来，得重刷系统。",
+                reason = "会删掉根目录或整个分区",
+                impact = "分区会被清空",
+                recovery = "数据找不回，得重刷系统",
                 severity = Severity.CRITICAL,
             )
         }
@@ -173,10 +176,15 @@ internal object DangerousOperationPolicy {
             return Verdict.Safe
         }
 
-        // ④ 写操作 + 敏感路径 = 危险
+        // ④ 写操作 + 敏感路径 = 危险。这里必须**逐段**判：
+        // 整条命令里既有 `rm .../x`，另一段又只是 `grep ... /data/adb/service.d/...`（只读引用）时，
+        // 不算「写启动链」。2026-11-07 实测误报过：删自己建的目录 + 末尾只读 grep 启动链脚本被拦。
         if (isWrite) {
-            SENSITIVE_PATHS.firstOrNull { normalized.contains(it) }?.let { hit ->
-                return pathVerdict(hit, "命令会写入")
+            for (segment in COMMAND_SEGMENT_SEPARATORS.split(withoutNullRedirect)) {
+                if (WRITE_VERBS.none { segment.contains(it) }) continue
+                SENSITIVE_PATHS.firstOrNull { segment.contains(it) }?.let { hit ->
+                    return pathVerdict(hit, "命令会写入")
+                }
             }
         }
 
@@ -216,16 +224,16 @@ internal object DangerousOperationPolicy {
             Verdict.danger(
                 rule = "写入系统启动链目录",
                 reason = "$what「$hit」",
-                impact = "这个目录里的脚本每次开机都会自动运行。内容写错，手机可能起不来。",
-                recovery = "能救。把写进去的那个文件删掉就恢复了，不用刷机。",
+                impact = "写坏可能开不了机",
+                recovery = "删掉写进去的文件就能恢复",
                 severity = Severity.WARNING,
             )
         } else {
             Verdict.danger(
                 rule = "写入系统分区",
                 reason = "$what「$hit」",
-                impact = "$hit 是系统分区的一部分，改动会直接作用到系统本身。",
-                recovery = "不好撤。轻则重刷该分区，重则要线刷整机。",
+                impact = "改的是系统分区本身",
+                recovery = "不好撤，可能要线刷整机",
                 severity = Severity.CRITICAL,
             )
         }

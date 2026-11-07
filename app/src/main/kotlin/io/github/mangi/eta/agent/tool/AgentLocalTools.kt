@@ -2469,10 +2469,13 @@ private fun dangerousDetail(toolName: String, args: JSONObject?): String {
     }.trim()
     return when {
         raw.isEmpty() -> ""
-        raw.length <= 400 -> raw
-        else -> raw.take(400) + " …（还有 ${raw.length - 400} 字未显示）"
+        raw.length <= MAX_DETAIL_CHARS -> raw
+        else -> raw.take(MAX_DETAIL_CHARS) + " …（还有 ${raw.length - MAX_DETAIL_CHARS} 字）"
     }
 }
+
+/** 卡片里命令原文的字符上限：只防极端超长，截断展示交给 UI（2026-11-07 由 400 放宽）。 */
+private const val MAX_DETAIL_CHARS = 4000
 
 /** ask_user 的问题长度上限：再长就不该用确认卡片，而该直接问。 */
 private const val MAX_ASK_CHARS = 400

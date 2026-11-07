@@ -9,11 +9,18 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -35,6 +44,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -103,6 +114,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.layout.DialogDefaults
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
@@ -110,6 +122,7 @@ import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
@@ -981,13 +994,25 @@ fun AgentAppRoot(
         // 命令详情默认收起，卡片先短一些；换一条请求自动复位成收起。
         var detailExpanded by remember(dangerousTarget.id) { mutableStateOf(false) }
         val detail = dangerousTarget.detail
-        val canExpand = detail.length > 80
+        // 预览按**完整行**截断：硬切字符会把一行切一半（2026-11-07 实测出现 "…|| rm …"）。
+        val detailLines = detail.lines()
+        val canExpand = detailLines.size > DETAIL_PREVIEW_LINES ||
+            detail.length > DETAIL_PREVIEW_CHARS
+        val shown = if (detailExpanded || !canExpand) {
+            detail
+        } else if (detailLines.size > DETAIL_PREVIEW_LINES) {
+            detailLines.take(DETAIL_PREVIEW_LINES).joinToString("\n").trimEnd() +
+                "\n…（共 ${detailLines.size} 行）"
+        } else {
+            detail.take(DETAIL_PREVIEW_CHARS).trimEnd() + "…"
+        }
+        // 风险只用**一行**说清：「能不能救」比逐条解释更有用（2026-11-07 用户两次说文案多）。
+        val riskLine = listOf(dangerousTarget.impact, dangerousTarget.recovery)
+            .filter { it.isNotBlank() }
+            .joinToString("；")
         // stringResource 只能在 @Composable 上下文里调，buildString 里不行，所以先算好。
-        val labelAction = stringResource(R.string.dangerous_label_action)
-        val labelWhy = stringResource(R.string.dangerous_label_why)
-        val labelRecover = stringResource(R.string.dangerous_label_recover)
-        val ruleText = stringResource(R.string.dangerous_rule_line, dangerousTarget.rule)
         val timeoutHint = stringResource(R.string.dangerous_timeout_hint)
+        val isCritical = dangerousTarget.critical
 
         EtaWindowDialog(
             show = true,
@@ -996,44 +1021,74 @@ fun AgentAppRoot(
                 dangerousTarget.critical -> stringResource(R.string.dangerous_title_critical)
                 else -> stringResource(R.string.dangerous_title_warning)
             },
-            summary = if (isQuestion) {
-                dangerousTarget.reason
-            } else {
-                val shown = if (detailExpanded || !canExpand) detail else detail.take(80) + "…"
-                buildString {
-                    if (detail.isNotBlank()) {
-                        append(labelAction).append('\n')
-                        append("    ").append(shown).append("\n\n")
-                    }
-                    if (dangerousTarget.impact.isNotBlank()) {
-                        append(labelWhy).append('\n')
-                        append("    ").append(dangerousTarget.impact).append("\n\n")
-                    }
-                    if (dangerousTarget.recovery.isNotBlank()) {
-                        append(labelRecover).append('\n')
-                        append("    ").append(dangerousTarget.recovery).append("\n\n")
-                    }
-                    if (dangerousTarget.rule.isNotBlank()) append(ruleText).append('\n')
-                    append(timeoutHint)
-                }
-            },
+            // 正文不再走居中的 summary：Miuix 的 summary 是居中文本，命令居中后没法读
+            // （2026-11-07 真机截图实证）。危险操作的正文全部在 content 里自己排版。
+            summary = if (isQuestion) dangerousTarget.reason else null,
             // 不用手动清状态：工具线程的 finally 会把 pendingFlow 置空（≤150ms 内）。
             onDismissRequest = { DangerousOperationGuard.deny(dangerousTarget.id) },
         ) {
-            Column {
-                if (!isQuestion && canExpand) {
-                    EtaTextButton(
-                        text = stringResource(
-                            if (detailExpanded) R.string.dangerous_hide_full else R.string.dangerous_show_full,
-                        ),
-                        onClick = { detailExpanded = !detailExpanded },
+            // 排版约定（2026-11-07 重排，参考 M3 的按钮层级：主操作 filled、次要 tonal、低优先级 text）：
+            // · 命令原文 —— 等宽字体、左对齐、浅底圆角代码块，长按可选中复制
+            // · 说明 —— 「小标签（次要色小字）+ 一句话正文」两段，左对齐
+            // · 低优先级操作（看完整命令 / 这类别再问）—— 文字按钮，不做成和主操作一样的大按钮
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (!isQuestion && detail.isNotBlank()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        SelectionContainer {
+                            Text(
+                                text = shown,
+                                style = MiuixTheme.textStyles.footnote2.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                                color = MiuixTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Start,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MiuixTheme.colorScheme.surfaceContainerHighest)
+                                    .heightIn(max = COMMAND_BLOCK_MAX_HEIGHT)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                            )
+                        }
+                        if (canExpand) {
+                            EtaTextButton(
+                                text = stringResource(
+                                    if (detailExpanded) R.string.dangerous_hide_full
+                                    else R.string.dangerous_show_full,
+                                ),
+                                onClick = { detailExpanded = !detailExpanded },
+                                modifier = Modifier.align(Alignment.End),
+                            )
+                        }
+                    }
+                }
+                if (!isQuestion && riskLine.isNotEmpty()) {
+                    Text(
+                        text = riskLine,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Start,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 if (!isQuestion && dangerousTarget.allowSessionOption) {
+                    // 「这类别再问」是低优先级选项：文字按钮，别和「就这一次」长成一样（防误触）。
                     EtaTextButton(
                         text = stringResource(R.string.dangerous_allow_session),
                         onClick = { DangerousOperationGuard.approveSession(dangerousTarget.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (!isQuestion) {
+                    Text(
+                        text = timeoutHint,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Start,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -1044,7 +1099,8 @@ fun AgentAppRoot(
                     cancelText = stringResource(
                         if (isQuestion) R.string.dangerous_operation_deny else R.string.dangerous_deny_now,
                     ),
-                    destructive = !isQuestion,
+                    // 只有「可能变砖」才把确认按钮标红；WARNING 档能恢复，用主色就好，别拿红色吓人。
+                    destructive = !isQuestion && isCritical,
                     onCancel = { DangerousOperationGuard.deny(dangerousTarget.id) },
                     onConfirm = { DangerousOperationGuard.approve(dangerousTarget.id) },
                 )
@@ -1052,6 +1108,14 @@ fun AgentAppRoot(
         }
     }
 }
+
+/** 卡片里的命令预览：最多显示几行；单行时最多几个字。 */
+private const val DETAIL_PREVIEW_LINES = 3
+private const val DETAIL_PREVIEW_CHARS = 200
+
+/** 命令代码块展开后的最大高度：超了在块内滚动，别把对话框撑到整屏。 */
+private val COMMAND_BLOCK_MAX_HEIGHT = 220.dp
+
 
 private data class MessageMutationTarget(
     /** 发起操作时所属的会话：确认前要复核，避免切会话后删到别人头上。 */
