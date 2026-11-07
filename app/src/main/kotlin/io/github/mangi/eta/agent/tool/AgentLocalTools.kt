@@ -261,16 +261,28 @@ internal class AgentLocalTools(
                     )
                 }
             }
-            // 危险操作闸门：命中策略就挂起等用户确认；超时或用户取消都按拒绝处理。
+            // 危险操作闸门：命中策略就挂起等用户选；超时或用户拒绝都按拒绝处理。
             val dangerous = DangerousOperationPolicy.evaluate(toolCall.name, args)
             if (dangerous.dangerous) {
-                val approved = DangerousOperationGuard.requestApproval(toolCall.name, dangerous.reason)
-                DangerousOperationGuard.log(context, toolCall.name, dangerous.reason, approved)
-                if (!approved) {
+                val decision = DangerousOperationGuard.requestApproval(
+                    toolName = toolCall.name,
+                    reason = dangerous.reason,
+                    rule = dangerous.rule,
+                    impact = dangerous.impact,
+                    recovery = dangerous.recovery,
+                    critical = dangerous.severity == DangerousOperationPolicy.Severity.CRITICAL,
+                    detail = dangerousDetail(toolCall.name, args),
+                    // 这里是系统级危险，规则粒度可控（如「写入系统启动链目录」），允许本会话放行。
+                    allowSessionOption = true,
+                )
+                DangerousOperationGuard.log(context, toolCall.name, dangerous.reason, decision)
+                if (decision == DangerousOperationGuard.Decision.DENY) {
                     return@runCatching textResult(
                         errorResult(
                             code = "DANGEROUS_OPERATION_DENIED",
-                            message = "该操作被判定为高危（${dangerous.reason}），用户未确认，已拒绝执行。如需执行请让用户明确授权后重试。",
+                            message = "用户没有批准这个操作（${dangerous.reason}）。" +
+                                "不要原样重试，也不要换个写法绕过去；" +
+                                "改用不触碰系统分区的做法，或者先跟用户说清你要做什么、为什么非这样做不可。",
                         ),
                     )
                 }
@@ -855,8 +867,10 @@ internal class AgentLocalTools(
         if (question.length > MAX_ASK_CHARS) {
             return errorResult("INVALID_ARGUMENT", "question 太长（上限 $MAX_ASK_CHARS 字符）")
         }
-        val approved = DangerousOperationGuard.requestApproval(ASK_USER_TOOL, question)
-        DangerousOperationGuard.log(context, ASK_USER_TOOL, question, approved)
+        val decision = DangerousOperationGuard.requestApproval(ASK_USER_TOOL, question)
+        DangerousOperationGuard.log(context, ASK_USER_TOOL, question, decision)
+        // ask_user 只有「同意 / 否决」两种语义，不提供「这类别问了」——问答不该被静默跳过。
+        val approved = decision != DangerousOperationGuard.Decision.DENY
         return JSONObject()
             .put("ok", true)
             .put("tool", ASK_USER_TOOL)
@@ -882,8 +896,10 @@ internal class AgentLocalTools(
     private fun uiRiskDenial(toolName: String, vararg labels: String): String? {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_UI_RISK_GUARD)) return null
         val reason = UiRiskPolicy.evaluate(labels.toList()) ?: return null
-        val approved = DangerousOperationGuard.requestApproval(toolName, reason)
-        DangerousOperationGuard.log(context, toolName, reason, approved)
+        val decision = DangerousOperationGuard.requestApproval(toolName, reason)
+        DangerousOperationGuard.log(context, toolName, reason, decision)
+        // UI 风险（「删除」这类按钮文案）粒度太粗，记住它等于以后所有删除都不再拦，所以不给「这类别问了」。
+        val approved = decision != DangerousOperationGuard.Decision.DENY
         if (approved) return null
         return errorResult(
             "UI_RISK_DENIED",
@@ -1104,13 +1120,14 @@ internal class AgentLocalTools(
                     null
                 }
                 if (riskReason != null) {
-                    val approved = DangerousOperationGuard.requestApproval("gui_macro", riskReason)
-                    DangerousOperationGuard.log(context, "gui_macro", riskReason, approved)
-                    if (!approved) {
+                    val decision = DangerousOperationGuard.requestApproval("gui_macro", riskReason)
+                    DangerousOperationGuard.log(context, "gui_macro", riskReason, decision)
+                    // 宏里每一步都可能是「删除」这类文案，粒度太粗，同样不给「这类别问了」。
+                    if (decision == DangerousOperationGuard.Decision.DENY) {
                         return MacroStepOutcome.Failed(
                             "UI_RISK_DENIED",
                             "这一步要点的「${target.text.ifBlank { step.text }}」属于不可逆操作（$riskReason），" +
-                                "用户未确认，宏已中止",
+                                "用户没有批准，宏已中止",
                         )
                     }
                 }
@@ -2436,6 +2453,27 @@ private val MACRO_OBSERVE_OPTIONS = AgentScreenObservationContract.Options(
 /** 按文字定位时的轮询间隔（毫秒）。 */
 private const val MACRO_TAP_TEXT_POLL_MS = 200L
 
+/**
+ * 把待执行的命令 / 路径摘出来，给确认卡片显示。
+ *
+ * 用户批准的是「一个具体动作」，所以必须让他看见动作本身长什么样；
+ * 只写一句「会写系统分区」等于让人盲批。超长时截断，免得撑爆弹窗。
+ */
+private fun dangerousDetail(toolName: String, args: JSONObject?): String {
+    val raw = when (toolName) {
+        "write_file", "edit_file" -> args?.optString("path").orEmpty()
+        else -> listOf(
+            args?.optString("command").orEmpty(),
+            args?.optString("cmd").orEmpty(),
+        ).filter { it.isNotBlank() }.joinToString(" ")
+    }.trim()
+    return when {
+        raw.isEmpty() -> ""
+        raw.length <= 400 -> raw
+        else -> raw.take(400) + " …（还有 ${raw.length - 400} 字未显示）"
+    }
+}
+
 /** ask_user 的问题长度上限：再长就不该用确认卡片，而该直接问。 */
 private const val MAX_ASK_CHARS = 400
 
@@ -2449,7 +2487,15 @@ private const val MACRO_CHANGE_POLL_MS = 120L
 /** 抓快照时等布局稳定的上限与轮询间隔。 */
 private const val MACRO_AFTER_SETTLE_MAX_MS = 1_200L
 private const val AFTER_ACTION_SETTLE_MAX_MS = 900L
-private const val SETTLE_POLL_MS = 120L
+/**
+ * 稳定轮询间隔。2026-11-07 由 120ms 调到 60ms。
+ *
+ * 背景：`settledObservation()` 要求「连续两次快照的 stabilityKey 相同」才算稳定，
+ * 所以每一步动作最少要读两遍完整无障碍树，中间还要 sleep 一次这个间隔。实测
+ * gui_macro 连点 9 步约 5.9s（每步约 660ms），其中约 500ms 是固定开销，主要在这里。
+ * 120 → 60 后每步省约 60ms；判据仍是「两次一致」而不是「等了多久」，所以不会更不可靠。
+ */
+private const val SETTLE_POLL_MS = 60L
 
 /** 宏的一步执行结果；[Failed] 会带着原因中止整个宏，[OkUnverified] 表示做了但无法判断是否生效。 */
 private sealed interface MacroStepOutcome {

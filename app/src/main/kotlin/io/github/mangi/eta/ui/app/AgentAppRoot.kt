@@ -52,6 +52,7 @@ import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
 import io.github.mangi.eta.ui.components.MiuixDialogActions
+import io.github.mangi.eta.ui.components.EtaTextButton
 import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.model.AgentHomeAction
 import io.github.mangi.eta.ui.model.AgentMemoryAction
@@ -977,32 +978,77 @@ fun AgentAppRoot(
     if (dangerousTarget != null) {
         // ask_user 复用这张卡片：标题和按钮换成「问」的语气，正文直接显示模型的问题。
         val isQuestion = dangerousTarget.toolName == "ask_user"
+        // 命令详情默认收起，卡片先短一些；换一条请求自动复位成收起。
+        var detailExpanded by remember(dangerousTarget.id) { mutableStateOf(false) }
+        val detail = dangerousTarget.detail
+        val canExpand = detail.length > 80
+        // stringResource 只能在 @Composable 上下文里调，buildString 里不行，所以先算好。
+        val labelAction = stringResource(R.string.dangerous_label_action)
+        val labelWhy = stringResource(R.string.dangerous_label_why)
+        val labelRecover = stringResource(R.string.dangerous_label_recover)
+        val ruleText = stringResource(R.string.dangerous_rule_line, dangerousTarget.rule)
+        val timeoutHint = stringResource(R.string.dangerous_timeout_hint)
+
         EtaWindowDialog(
             show = true,
-            title = stringResource(
-                if (isQuestion) R.string.ask_user_title else R.string.dangerous_operation_title,
-            ),
+            title = when {
+                isQuestion -> stringResource(R.string.ask_user_title)
+                dangerousTarget.critical -> stringResource(R.string.dangerous_title_critical)
+                else -> stringResource(R.string.dangerous_title_warning)
+            },
             summary = if (isQuestion) {
                 dangerousTarget.reason
             } else {
-                stringResource(
-                    R.string.dangerous_operation_summary,
-                    dangerousTarget.toolName,
-                    dangerousTarget.reason,
-                )
+                val shown = if (detailExpanded || !canExpand) detail else detail.take(80) + "…"
+                buildString {
+                    if (detail.isNotBlank()) {
+                        append(labelAction).append('\n')
+                        append("    ").append(shown).append("\n\n")
+                    }
+                    if (dangerousTarget.impact.isNotBlank()) {
+                        append(labelWhy).append('\n')
+                        append("    ").append(dangerousTarget.impact).append("\n\n")
+                    }
+                    if (dangerousTarget.recovery.isNotBlank()) {
+                        append(labelRecover).append('\n')
+                        append("    ").append(dangerousTarget.recovery).append("\n\n")
+                    }
+                    if (dangerousTarget.rule.isNotBlank()) append(ruleText).append('\n')
+                    append(timeoutHint)
+                }
             },
             // 不用手动清状态：工具线程的 finally 会把 pendingFlow 置空（≤150ms 内）。
             onDismissRequest = { DangerousOperationGuard.deny(dangerousTarget.id) },
         ) {
-            MiuixDialogActions(
-                confirmText = stringResource(
-                    if (isQuestion) R.string.ask_user_confirm else R.string.dangerous_operation_allow,
-                ),
-                cancelText = stringResource(R.string.dangerous_operation_deny),
-                destructive = !isQuestion,
-                onCancel = { DangerousOperationGuard.deny(dangerousTarget.id) },
-                onConfirm = { DangerousOperationGuard.approve(dangerousTarget.id) },
-            )
+            Column {
+                if (!isQuestion && canExpand) {
+                    EtaTextButton(
+                        text = stringResource(
+                            if (detailExpanded) R.string.dangerous_hide_full else R.string.dangerous_show_full,
+                        ),
+                        onClick = { detailExpanded = !detailExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (!isQuestion && dangerousTarget.allowSessionOption) {
+                    EtaTextButton(
+                        text = stringResource(R.string.dangerous_allow_session),
+                        onClick = { DangerousOperationGuard.approveSession(dangerousTarget.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                MiuixDialogActions(
+                    confirmText = stringResource(
+                        if (isQuestion) R.string.ask_user_confirm else R.string.dangerous_allow_once,
+                    ),
+                    cancelText = stringResource(
+                        if (isQuestion) R.string.dangerous_operation_deny else R.string.dangerous_deny_now,
+                    ),
+                    destructive = !isQuestion,
+                    onCancel = { DangerousOperationGuard.deny(dangerousTarget.id) },
+                    onConfirm = { DangerousOperationGuard.approve(dangerousTarget.id) },
+                )
+            }
         }
     }
 }

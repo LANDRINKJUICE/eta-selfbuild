@@ -19,10 +19,31 @@ import org.json.JSONObject
  */
 internal object DangerousOperationPolicy {
 
-    internal data class Verdict(val dangerous: Boolean, val reason: String = "") {
+    /** 危险等级：CRITICAL 可能变砖，WARNING 能恢复但会动系统。 */
+    internal enum class Severity { CRITICAL, WARNING }
+
+    internal data class Verdict(
+        val dangerous: Boolean,
+        /** 命中的规则名，短标签，用于「本会话别问了」的记忆键，也给用户看。 */
+        val rule: String = "",
+        /** 一句话原因，保留原样（日志与旧调用方仍在用）。 */
+        val reason: String = "",
+        /** 人话解释：这个操作到底会动到什么。 */
+        val impact: String = "",
+        /** 万一出事的补救办法；空串表示「不好撤」。 */
+        val recovery: String = "",
+        val severity: Severity = Severity.WARNING,
+    ) {
         companion object {
             val Safe = Verdict(false)
-            fun danger(reason: String) = Verdict(true, reason)
+
+            fun danger(
+                rule: String,
+                reason: String,
+                impact: String,
+                recovery: String = "",
+                severity: Severity = Severity.WARNING,
+            ) = Verdict(true, rule, reason, impact, recovery, severity)
         }
     }
 
@@ -57,19 +78,27 @@ internal object DangerousOperationPolicy {
         "getprop", "dumpsys", "pm list", "cmd ", "echo ",
     )
 
-    /** 文件工具的写操作：只有落到这些分区才算变砖级。 */
-    private val BRICK_PATH_PREFIXES = listOf(
-        "/system", "/vendor", "/product", "/my_product", "/odm", "/boot",
-        "/dev/block", "/data/adb/modules", "/data/adb/service.d", "/data/adb/post-fs-data.d",
+    /**
+     * 启动链目录：写坏了会影响开机，但**删掉写入的文件就能恢复**。
+     * 这类给 WARNING，措辞上说清「能救」。
+     */
+    private val BOOT_CHAIN_PATHS = listOf(
+        "/data/adb/service.d", "/data/adb/post-fs-data.d", "/data/adb/modules", "init.rc",
     )
 
-    /** 敏感路径：只有**配合写动词**出现时才拦。 */
-    private val SENSITIVE_PATHS = listOf(
+    /**
+     * 系统分区与块设备：改动不可逆或极难恢复，出错通常只能刷机。这类给 CRITICAL。
+     */
+    private val SYSTEM_PARTITION_PATHS = listOf(
         "/system", "/vendor", "/product", "/my_product", "/odm", "/boot",
         "/dev/block", "by-name",
-        "/data/adb/service.d", "/data/adb/post-fs-data.d", "/data/adb/modules",
-        "init.rc",
     )
+
+    /** 文件工具的写操作：只有落到这些前缀才算变砖级。 */
+    private val BRICK_PATH_PREFIXES = SYSTEM_PARTITION_PATHS + BOOT_CHAIN_PATHS
+
+    /** 敏感路径：只有**配合写动词**出现时才拦。 */
+    private val SENSITIVE_PATHS = BOOT_CHAIN_PATHS + SYSTEM_PARTITION_PATHS
 
     private val WRITE_TOOLS = setOf("write_file", "edit_file")
 
@@ -78,7 +107,7 @@ internal object DangerousOperationPolicy {
             val path = args?.optString("path").orEmpty()
             val hit = BRICK_PATH_PREFIXES.firstOrNull { path.startsWith(it) }
             return if (hit != null) {
-                Verdict.danger("会写系统分区或启动链：$hit")
+                pathVerdict(hit, "会写入")
             } else {
                 Verdict.Safe
             }
@@ -109,12 +138,24 @@ internal object DangerousOperationPolicy {
 
         // ① 破坏型片段：无条件拦
         DESTRUCTIVE_FRAGMENTS.firstOrNull { normalized.contains(it) }?.let { hit ->
-            return Verdict.danger("命令包含可能导致手机变砖的片段「$hit」")
+            return Verdict.danger(
+                rule = "变砖级命令片段",
+                reason = "命令里有「$hit」这种本身就代表破坏动作的写法",
+                impact = "这类写法直接改写分区、启动链或 SELinux，写错不是应用出问题，是手机起不来。",
+                recovery = "撤不了。得在电脑上重新刷机。",
+                severity = Severity.CRITICAL,
+            )
         }
 
         // ①' 直接删根目录 / 清空整个分区：单独判，避免 "rm -rf /" 误伤 "rm -rf /sdcard/x"
         if (isRootWipe(normalized)) {
-            return Verdict.danger("命令会清空根目录或整个分区")
+            return Verdict.danger(
+                rule = "清空根目录或整个分区",
+                reason = "命令会删掉根目录或某个整分区的数据",
+                impact = "整个分区的内容会被清掉，系统多半起不来。",
+                recovery = "数据找不回来，得重刷系统。",
+                severity = Severity.CRITICAL,
+            )
         }
 
         // ② 判断是否为写操作。
@@ -135,7 +176,7 @@ internal object DangerousOperationPolicy {
         // ④ 写操作 + 敏感路径 = 危险
         if (isWrite) {
             SENSITIVE_PATHS.firstOrNull { normalized.contains(it) }?.let { hit ->
-                return Verdict.danger("命令会写入受保护位置「$hit」")
+                return pathVerdict(hit, "命令会写入")
             }
         }
 
@@ -163,6 +204,31 @@ internal object DangerousOperationPolicy {
         val cleaned = target.trimEnd('/')
         return cleaned in WIPE_TARGETS
     }
+
+    /**
+     * 按命中的路径生成判定。
+     *
+     * `hit` 一定来自 [BOOT_CHAIN_PATHS] 或 [SYSTEM_PARTITION_PATHS] 其中之一，
+     * 所以直接判归属即可：启动链能靠删文件恢复（WARNING），系统分区不能（CRITICAL）。
+     */
+    private fun pathVerdict(hit: String, what: String): Verdict =
+        if (hit in BOOT_CHAIN_PATHS) {
+            Verdict.danger(
+                rule = "写入系统启动链目录",
+                reason = "$what「$hit」",
+                impact = "这个目录里的脚本每次开机都会自动运行。内容写错，手机可能起不来。",
+                recovery = "能救。把写进去的那个文件删掉就恢复了，不用刷机。",
+                severity = Severity.WARNING,
+            )
+        } else {
+            Verdict.danger(
+                rule = "写入系统分区",
+                reason = "$what「$hit」",
+                impact = "$hit 是系统分区的一部分，改动会直接作用到系统本身。",
+                recovery = "不好撤。轻则重刷该分区，重则要线刷整机。",
+                severity = Severity.CRITICAL,
+            )
+        }
 
     /** 删掉这些目录本身 = 清空整个分区，属于危险操作。 */
     private val WIPE_TARGETS = setOf(
