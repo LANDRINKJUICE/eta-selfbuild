@@ -14,9 +14,6 @@ internal class AgentModelFailure(
     cause: Throwable? = null,
 ) : IllegalStateException(message, cause) {
     companion object {
-        /** 服务端判定的上下文超限：Loop 见到它会强制压缩后重试一次（见 AgentLoop）。 */
-        const val CODE_CONTEXT_OVERFLOW = "CONTEXT_OVERFLOW"
-
         private val transientStatus = setOf(408, 429, 500, 502, 503, 504, 524, 529)
         private val permanentCodes = setOf(
             "insufficient_quota", "quota_exceeded", "billing_error", "usage_limit_reached",
@@ -37,7 +34,7 @@ internal class AgentModelFailure(
             }
             authenticationFailure(error)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
-                CODE_CONTEXT_OVERFLOW, false, "模型上下文超过容量限制。",
+                "CONTEXT_OVERFLOW", false, "模型上下文超过容量限制。",
             )
             val permanent = isPermanent(error, body)
             if (status == 400 && includeParameterDetails && !permanent) {
@@ -63,7 +60,7 @@ internal class AgentModelFailure(
         fun stream(error: JSONObject, message: String): AgentModelFailure {
             authenticationFailure(error)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
-                CODE_CONTEXT_OVERFLOW, false, "模型上下文超过容量限制。",
+                "CONTEXT_OVERFLOW", false, "模型上下文超过容量限制。",
             )
             val codes = listOf(
                 error.optString("code"),
