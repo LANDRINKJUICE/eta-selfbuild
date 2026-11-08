@@ -1638,6 +1638,13 @@
   <string name="plugin_permissions_title">Permissions</string>
   <string name="plugin_missing_grant">Missing %1$s — plugin unusable for now</string>
   <string name="plugin_no_permission">This plugin needs no extra permission</string>
+  <string name="plugin_try_running">Running…</string>
+  <string name="plugin_try_ok">Success · %1$d ms</string>
+  <string name="plugin_try_failed">Failed · %1$d ms</string>
+  <string name="plugin_try_copy">Copy</string>
+  <string name="plugin_try_dismiss">Dismiss</string>
+  <string name="plugin_try_expand_all">Show all</string>
+  <string name="plugin_try_collapse">Collapse</string>
   <string name="plugin_try_title">Run once</string>
   <string name="plugin_try_summary">Calls the plugin with no arguments and shows the raw result.</string>
   <string name="plugin_try_summary_blocked">Grant the missing permissions first.</string>

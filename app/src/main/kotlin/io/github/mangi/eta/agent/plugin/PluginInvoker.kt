@@ -25,6 +25,24 @@ internal object PluginInvoker {
         context: Context,
         pluginId: String,
         argumentsJson: String = "",
+    ): Outcome = invoke(context, pluginId, argumentsJson, interactive = false)
+
+    /**
+     * 用户主动点「试跑一次」：**允许弹确认卡片**。
+     *
+     * 2026-11-08 修：详情页的试跑一开始复用了 [invokeUnattended]，而它内部是
+     * `interactive = false`，于是 `confirm: first` 的插件试跑时会被直接拒成
+     * 「无人值守时已跳过」—— 用户明明就坐在屏幕前点按钮，却被告知无人值守。
+     * 试跑是前台交互行为，确认门禁要按交互式走。
+     */
+    fun invokeFromUi(context: Context, pluginId: String): Outcome =
+        invoke(context, pluginId, "", interactive = true)
+
+    private fun invoke(
+        context: Context,
+        pluginId: String,
+        argumentsJson: String,
+        interactive: Boolean,
     ): Outcome {
         val id = pluginId.trim()
         if (id.isEmpty()) return Outcome.Failure("没指定插件")
@@ -56,7 +74,7 @@ internal object PluginInvoker {
         val executor = PluginToolExecutor(
             context = context,
             snapshot = PluginRunSnapshot(listOf(tool)),
-            interactive = false,
+            interactive = interactive,
         )
         return try {
             val result = executor.execute(

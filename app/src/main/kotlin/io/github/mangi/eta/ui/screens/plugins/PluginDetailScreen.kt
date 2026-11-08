@@ -46,6 +46,27 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
+import io.github.mangi.eta.ui.components.EtaMonospace
+import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.Icon
 
 /**
  * 插件详情页：**启用开关 + 执行身份说明 + 权限逐项授权 + 参数 + 最近调用 + 删除**。
@@ -68,6 +89,8 @@ internal fun PluginDetailScreen(
     var state by remember { mutableStateOf<PluginDetailState?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var trying by remember { mutableStateOf(false) }
+    // 试跑结果（2026-11-08 改：以前只弹一个 300 字的 Toast，长输出被砍、几秒就没了、还不能复制）。
+    var tryResult by remember { mutableStateOf<PluginTryResult?>(null) }
     val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(reloadToken) {
@@ -211,20 +234,43 @@ internal fun PluginDetailScreen(
                         onClick = {
                             if (trying) return@EtaArrowPreference
                             trying = true
+                            tryResult = null
                             scope.launch {
-                                val text = withContext(Dispatchers.IO) {
-                                    PluginInvoker.invokeUnattended(context, manifest.id).let { outcome ->
-                                        when (outcome) {
-                                            is PluginInvoker.Outcome.Ok -> outcome.output.ifBlank { "ok" }
-                                            is PluginInvoker.Outcome.Failure -> outcome.message
-                                        }
-                                    }
+                                val startedAt = System.currentTimeMillis()
+                                val outcome = withContext(Dispatchers.IO) {
+                                    // 试跑是用户点的，走交互式入口，confirm:first 的插件才会弹卡而不是被当成无人值守拒绝。
+                                    PluginInvoker.invokeFromUi(context, manifest.id)
                                 }
+                                val millis = System.currentTimeMillis() - startedAt
                                 trying = false
-                                Toast.makeText(context, text.take(300), Toast.LENGTH_LONG).show()
+                                tryResult = when (outcome) {
+                                    is PluginInvoker.Outcome.Ok -> PluginTryResult(
+                                        ok = true,
+                                        millis = millis,
+                                        output = outcome.output.ifBlank { "（没有输出）" },
+                                    )
+
+                                    is PluginInvoker.Outcome.Failure -> PluginTryResult(
+                                        ok = false,
+                                        millis = millis,
+                                        output = outcome.message.ifBlank { "执行失败，没拿到原因" },
+                                    )
+                                }
                                 reloadToken += 1
                             }
                         },
+                    )
+                }
+            }
+
+            // 试跑结果（2026-11-08）：不再用 Toast，直接铺在试跑行下面。
+            // 状态行给图标+文字（不只靠颜色），输出块等宽、可选中、限高滚动、可展开。
+            if (trying || tryResult != null) {
+                item(key = "try-result") {
+                    PluginTryResultCard(
+                        running = trying,
+                        result = tryResult,
+                        onDismiss = { tryResult = null },
                     )
                 }
             }
@@ -390,3 +436,137 @@ private fun permissionSummary(permission: PluginPermission): Int = when (permiss
     PluginPermission.NETWORK_LOCALHOST -> R.string.plugin_permission_network_localhost_summary
     PluginPermission.NETWORK_ANY -> R.string.plugin_permission_network_any_summary
 }
+
+/** 一次试跑的结果；UI 只关心成没成、花了多久、输出是什么。 */
+private data class PluginTryResult(
+    val ok: Boolean,
+    val millis: Long,
+    val output: String,
+)
+
+/**
+ * 试跑结果卡片（2026-11-08）。
+ *
+ * 为什么不用 Toast：命令输出经常几十行，Toast 只能放 300 字、几秒就消失、还没法复制 ——
+ * 用户想对照报错改插件时根本抓不住。
+ *
+ * 排版参照项目里已有的两处成熟做法（危险确认卡片的命令块、AgentToolActivity 的工具输出）：
+ * 等宽字体 + 圆角 + 浅底 + 限高内部滚动 + 可选中。
+ * 状态行同时给图标与文字，不靠颜色单独表意（色盲可用）。
+ */
+@Composable
+private fun PluginTryResultCard(
+    running: Boolean,
+    result: PluginTryResult?,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var expanded by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    val statusColor = when {
+        running -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+        result?.ok == true -> MiuixTheme.colorScheme.primary
+        else -> MiuixTheme.colorScheme.error
+    }
+    val statusText = when {
+        running -> stringResource(R.string.plugin_try_running)
+        result?.ok == true -> stringResource(R.string.plugin_try_ok, result.millis)
+        else -> stringResource(R.string.plugin_try_failed, result?.millis ?: 0L)
+    }
+    val statusIcon = when {
+        running -> Icons.Rounded.Schedule
+        result?.ok == true -> Icons.Rounded.CheckCircle
+        else -> Icons.Rounded.ErrorOutline
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = EtaPreferenceDefaults.SidePadding)
+            .padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainerHighest)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = statusIcon,
+                contentDescription = null,
+                tint = statusColor,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = statusText,
+                style = MiuixTheme.textStyles.footnote2,
+                color = statusColor,
+                modifier = Modifier.weight(1f),
+            )
+            if (!running) {
+                EtaTextButton(
+                    text = stringResource(R.string.plugin_try_dismiss),
+                    onClick = onDismiss,
+                )
+            }
+        }
+
+        if (running) {
+            // 用 miuix 的环形指示器：项目里统一是这个（没有 material3，也没有横向进度条）。
+            // 放在状态行右侧而不是新起一行，避免结果块高度跳动。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(
+                    progress = null,
+                    size = 20.dp,
+                    strokeWidth = 2.dp,
+                )
+            }
+        } else if (result != null) {
+            val lines = result.output.trimEnd().lines()
+            val shown = if (expanded) lines else lines.take(PLUGIN_TRY_PREVIEW_LINES)
+            SelectionContainer {
+                Text(
+                    text = shown.joinToString("\n"),
+                    style = MiuixTheme.textStyles.footnote2.copy(fontFamily = EtaMonospace),
+                    color = MiuixTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = PLUGIN_TRY_BLOCK_MAX_HEIGHT)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                EtaTextButton(
+                    text = stringResource(R.string.plugin_try_copy),
+                    onClick = { clipboard.setText(AnnotatedString(result.output)) },
+                )
+                if (lines.size > PLUGIN_TRY_PREVIEW_LINES) {
+                    EtaTextButton(
+                        text = stringResource(
+                            if (expanded) R.string.plugin_try_collapse else R.string.plugin_try_expand_all,
+                        ),
+                        onClick = { expanded = !expanded },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 默认显示多少行；超过就给「展开全部」。 */
+private const val PLUGIN_TRY_PREVIEW_LINES = 20
+
+/** 输出块最大高度；超出内部滚动，不把整页撑长。 */
+private val PLUGIN_TRY_BLOCK_MAX_HEIGHT = 220.dp

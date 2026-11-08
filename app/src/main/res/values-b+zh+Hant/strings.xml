@@ -1475,6 +1475,13 @@
   <string name="plugin_permissions_title">權限</string>
   <string name="plugin_missing_grant">還缺 %1$s，外掛暫時不能用</string>
   <string name="plugin_no_permission">這個外掛不需要額外權限</string>
+  <string name="plugin_try_running">正在執行…</string>
+  <string name="plugin_try_ok">成功 · %1$d 毫秒</string>
+  <string name="plugin_try_failed">失敗 · %1$d 毫秒</string>
+  <string name="plugin_try_copy">複製</string>
+  <string name="plugin_try_dismiss">收合</string>
+  <string name="plugin_try_expand_all">展開全部</string>
+  <string name="plugin_try_collapse">收合</string>
   <string name="plugin_try_title">試跑一次</string>
   <string name="plugin_try_summary">不帶參數呼叫一次，直接把結果給你看。</string>
   <string name="plugin_try_summary_blocked">先把缺的權限勾上。</string>

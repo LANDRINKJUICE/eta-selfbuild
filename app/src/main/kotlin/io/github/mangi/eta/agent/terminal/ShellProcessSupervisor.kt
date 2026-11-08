@@ -317,7 +317,7 @@ internal class ShellProcessSupervisor(
             "eta_mount_shared ${shellQuote(mount.sourcePath)} " +
                 "\"\$eta_rootfs${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}\" $mode"
         }
-        // 额外只读目录（插件自己的目录）。source/target 在这里再校验一次：
+        // 额外绑定目录（插件自己的目录）。source/target 在这里再校验一次：
         // 必须是绝对路径、target 必须在 /opt 下、都不含单引号。
         // 调用方虽然只传插件目录，但路径最终来自扫描到的目录名，不该只靠上游保证
         // （2026-11-08 复查指出：注释写了「校验过」，实际没有，还留了个没用的 guard 变量）。
@@ -376,7 +376,10 @@ internal class ShellProcessSupervisor(
                 echo "ETA_MOUNT_FAILED ${'$'}eta_target" >&2
                 return 0
               }
-              # 插件目录一律只读挂载：插件不该在运行时改自己的脚本，也不该借这条路写系统路径。
+              # 把绑定改成只读。2026-11-08 真机实测确认有效：
+              # 插件目录在 chroot 内写文件会报 "Read-only file system"，
+              # /proc/mounts 里也确实是 ro。前提是先 readlink -f 解析出挂载表里的真名
+              # （见下方注释），否则 remount 会静默失败。
               eta_real=${'$'}("${'$'}eta_busybox" readlink -f "${'$'}eta_target")
               [ -n "${'$'}eta_real" ] || eta_real=${'$'}eta_target
               "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_real" 2>/dev/null ||

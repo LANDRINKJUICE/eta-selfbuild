@@ -1619,6 +1619,13 @@
   <string name="plugin_permissions_title">权限</string>
   <string name="plugin_missing_grant">还缺 %1$s，插件暂不可用</string>
   <string name="plugin_no_permission">这个插件不需要额外权限</string>
+  <string name="plugin_try_running">正在执行…</string>
+  <string name="plugin_try_ok">成功 · %1$d 毫秒</string>
+  <string name="plugin_try_failed">失败 · %1$d 毫秒</string>
+  <string name="plugin_try_copy">复制</string>
+  <string name="plugin_try_dismiss">收起</string>
+  <string name="plugin_try_expand_all">展开全部</string>
+  <string name="plugin_try_collapse">收起</string>
   <string name="plugin_try_title">试跑一次</string>
   <string name="plugin_try_summary">不带参数调一次，直接把结果给你看。</string>
   <string name="plugin_try_summary_blocked">先把缺的权限勾上。</string>
