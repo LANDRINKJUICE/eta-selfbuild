@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.plugin.PluginEntry
@@ -51,6 +52,9 @@ internal fun PluginsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    // lint：Composable 里不能用 LocalContext 取字符串资源（配置变化不会失效），
+    // 必须走 LocalResources.current —— 这里也正好是项目其它页面的既有写法。
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<PluginRow>>(emptyList()) }
     var scanToken by remember { mutableIntStateOf(0) }
@@ -66,7 +70,7 @@ internal fun PluginsScreen(
         scope.launch {
             val result = withContext(Dispatchers.IO) { PluginInstaller.importZip(context, uri) }
             val message = when (result) {
-                is PluginImportResult.Ok -> context.getString(R.string.plugins_import_ok, result.name)
+                is PluginImportResult.Ok -> resources.getString(R.string.plugins_import_ok, result.name)
                 is PluginImportResult.Failure -> result.message
             }
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
