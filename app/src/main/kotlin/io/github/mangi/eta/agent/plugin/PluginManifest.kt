@@ -43,9 +43,11 @@ internal enum class PluginPermission(val wire: String) {
     SHELL_ROOT("shell:root"),
     NETWORK_LOCALHOST("network:localhost"),
     NETWORK_ANY("network:any"),
-    FILES_READ("files:read"),
-    FILES_WRITE("files:write"),
     ;
+    // 刻意**不提供** `files:read` / `files:write`（2026-11-08 改动）。
+    // 原因：不给 root 的插件本来就以 App 身份跑，能读到的只有自己目录与 /sdcard，
+    // 给了 root 的插件则整机可读 —— 这两种情况下那两行"文件权限"都强制不了任何东西。
+    // 与其给用户一个按下去没有实际效果的开关，不如不给，并把执行身份写清楚。
 
     companion object {
         fun from(raw: String): PluginPermission? = entries.firstOrNull { it.wire == raw }

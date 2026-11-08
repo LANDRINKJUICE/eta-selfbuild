@@ -1652,8 +1652,20 @@
   <string name="plugin_permission_network_localhost_summary">Only 127.0.0.1 services</string>
   <string name="plugin_permission_network_any">Reach any network address</string>
   <string name="plugin_permission_network_any_summary">Internet or LAN devices</string>
-  <string name="plugin_permission_files_read">Read files</string>
-  <string name="plugin_permission_files_read_summary">Reads files in the workspace and its own folder</string>
-  <string name="plugin_permission_files_write">Write files</string>
-  <string name="plugin_permission_files_write_summary">Writes into the workspace or gallery</string>
+  <!-- Plugins v1.1: import / execution identity / call log -->
+  <string name="plugins_import">Import plugin</string>
+  <string name="plugins_import_ok">Imported “%1$s” — grant permissions to use it</string>
+  <string name="plugin_identity_app">Commands run as Eta and can only touch its own folders and the gallery</string>
+  <string name="plugin_identity_root">Commands run as root and ask you every time</string>
+  <string name="plugin_identity_linux">Commands run inside the Debian environment (chroot, needs root)</string>
+  <string name="plugin_identity_http">Works over HTTP only — nothing runs on this device</string>
+  <string name="plugin_recent_calls">Recent calls</string>
+  <string name="plugin_no_calls">No calls yet</string>
+  <string name="plugin_call_ok">OK</string>
+  <string name="plugin_call_failed">Failed</string>
+  <string name="plugin_call_duration">took %1$s</string>
+  <!-- Scheduled task: run a plugin -->
+  <string name="scheduled_tasks_action_plugin">Run a plugin</string>
+  <string name="scheduled_tasks_plugin_label">Plugin ID</string>
+  <string name="scheduled_tasks_plugin_placeholder">Plugin id (e.g. gateway_status). Runs unattended — plugins that need confirmation are skipped</string>
 </resources>

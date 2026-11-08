@@ -576,6 +576,7 @@ private fun ScheduleEditorDialog(
     var minute by remember(task?.id) { mutableStateOf(task?.minute ?: DefaultMinute) }
     var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.DEVICE_STATUS) }
     var prompt by remember(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
+    var pluginId by remember(task?.id) { mutableStateOf(task?.pluginId.orEmpty()) }
     var repeat by remember(task?.id) { mutableStateOf(task?.repeat ?: ScheduledRepeat.DAILY) }
     var dayOfWeek by remember(task?.id) { mutableStateOf(task?.dayOfWeek ?: java.util.Calendar.MONDAY) }
     var dayOfMonth by remember(task?.id) { mutableStateOf(task?.dayOfMonth ?: 1) }
@@ -889,6 +890,28 @@ private fun ScheduleEditorDialog(
                 )
             }
 
+            // 选「调用插件」时填插件 id：无人值守跑，需要确认的插件会被跳过。
+            if (action == ScheduledActionKind.PLUGIN) {
+                EditorSectionLabel(stringResource(R.string.scheduled_tasks_plugin_label))
+                TextField(
+                    value = pluginId,
+                    onValueChange = { pluginId = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = EtaPreferenceDefaults.SidePadding),
+                )
+                Text(
+                    text = stringResource(R.string.scheduled_tasks_plugin_placeholder),
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(
+                        start = EtaPreferenceDefaults.SidePadding,
+                        end = EtaPreferenceDefaults.SidePadding,
+                        top = 4.dp,
+                    ),
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
             MiuixDialogActions(
                 confirmText = stringResource(R.string.scheduled_tasks_save),
@@ -920,6 +943,7 @@ private fun ScheduleEditorDialog(
                                 name = name.trim(),
                                 readOnly = readOnly,
                                 prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
+                                pluginId = if (action == ScheduledActionKind.PLUGIN) pluginId.trim() else "",
                                 repeat = repeat,
                                 dayOfWeek = dayOfWeek,
                                 dayOfMonth = dayOfMonth,
@@ -1063,6 +1087,7 @@ private fun actionLabelRes(kind: ScheduledActionKind): Int = when (kind) {
     ScheduledActionKind.CLEAN_TMP -> R.string.scheduled_tasks_action_clean_tmp
     ScheduledActionKind.DRIFT_CHECK -> R.string.scheduled_tasks_action_drift_check
     ScheduledActionKind.CUSTOM_PROMPT -> R.string.scheduled_tasks_kind_custom
+    ScheduledActionKind.PLUGIN -> R.string.scheduled_tasks_action_plugin
 }
 
 /** 长按菜单里的一行（极简：只有文字，危险操作用红色）。 */

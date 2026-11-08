@@ -115,6 +115,13 @@ internal class PluginRunSnapshot(
 internal class PluginToolExecutor(
     private val context: Context,
     private val snapshot: PluginRunSnapshot,
+    /**
+     * false = 无人值守场景（定时任务）。
+     *
+     * 定时任务是在没有用户在场时跑的，**不能弹确认卡片**：需要确认的调用直接拒绝并
+     * 记原因，而不是默默执行 —— 否则「每次都确认」这条安全承诺就被定时任务绕过去了。
+     */
+    private val interactive: Boolean = true,
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
 
     private val rootExecutor = BoundedRootCommandExecutor(logger = AndroidAgentLogger)
@@ -158,10 +165,22 @@ internal class PluginToolExecutor(
         AndroidAgentLogger.info(
             "plugin_run id=${manifest.id} kind=${manifest.kind.wire} args=${args.toString().take(200)}",
         )
-        return when (manifest.kind) {
+        val startedAt = System.currentTimeMillis()
+        val result = when (manifest.kind) {
             PluginKind.SHELL -> runShell(manifest, rendered)
             PluginKind.HTTP -> runHttp(manifest, rendered)
         }
+        val parsed = runCatching { JSONObject(result.content) }.getOrNull()
+        PluginRepository.appendCall(
+            context = context,
+            id = manifest.id,
+            ok = parsed?.optBoolean("ok") ?: true,
+            millis = System.currentTimeMillis() - startedAt,
+            note = parsed?.optString("message").orEmpty().ifBlank {
+                parsed?.optString("code").orEmpty()
+            },
+        )
+        return result
     }
 
     private sealed interface PluginGate {
@@ -181,6 +200,9 @@ internal class PluginToolExecutor(
         val needsConfirm = verdict.dangerous || rootDeclared ||
             manifest.confirm == PluginConfirm.ALWAYS || firstTime
         if (!needsConfirm) return PluginGate.Allowed
+        if (!interactive) {
+            return PluginGate.Denied("这一步需要你本人确认，无人值守时已跳过")
+        }
 
         val decision = if (verdict.dangerous) {
             DangerousOperationGuard.requestApproval(
@@ -242,12 +264,22 @@ internal class PluginToolExecutor(
         } else {
             wrapped
         }
-        // 注意：底层执行器把单次超时夹在 30 秒内（它自己的上限），插件里写更长也不会生效。
-        val result = rootExecutor.execute(
-            command = payload,
-            timeoutMillis = target.timeoutMs,
-            maxOutputBytes = MAX_OUTPUT_BYTES,
-        )
+        // 执行身份（2026-11-08 改诚实）：
+        // · linux 环境 → 进 Debian chroot，本身就要 su
+        // · 声明了 shell:root → su 执行（confirmIfNeeded 已保证每次调用都要确认）
+        // · 其余 → **以 App 身份**跑，天然只能碰自己的目录和 /sdcard
+        val useRoot = target.environment == "linux" ||
+            PluginPermission.SHELL_ROOT in manifest.permissions
+        // 注意：root 通道把单次超时夹在 30 秒内（它自己的上限），插件里写更长也不会生效。
+        val result = if (useRoot) {
+            rootExecutor.execute(
+                command = payload,
+                timeoutMillis = target.timeoutMs,
+                maxOutputBytes = MAX_OUTPUT_BYTES,
+            )
+        } else {
+            runAsApp(payload, target.timeoutMs)
+        }
         val output = buildString {
             append("exit=").append(result.exitCode)
             if (result.timedOut) append("（超时）")
@@ -305,6 +337,52 @@ internal class PluginToolExecutor(
                     .toString(),
             )
         }
+    }
+
+    /**
+     * 以 App 身份执行命令（没声明 root 的插件走这条）。
+     *
+     * 与 root 通道保持同样的输出上限；超时强杀，避免留孤儿进程。
+     */
+    private fun runAsApp(command: String, timeoutMillis: Long): BoundedRootCommandExecutor.Result {
+        val process = runCatching {
+            ProcessBuilder("/system/bin/sh", "-c", command).redirectErrorStream(false).start()
+        }.getOrElse { return BoundedRootCommandExecutor.Result.failed("SHELL_UNAVAILABLE") }
+        var stdout = ""
+        var stderr = ""
+        val reader = Thread {
+            stdout = runCatching {
+                process.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrDefault("")
+            stderr = runCatching {
+                process.errorStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrDefault("")
+        }
+        reader.isDaemon = true
+        reader.start()
+        val finished = runCatching {
+            process.waitFor(timeoutMillis.coerceAtLeast(1_000L), TimeUnit.MILLISECONDS)
+        }.getOrDefault(false)
+        if (!finished) {
+            runCatching { process.destroyForcibly() }
+            runCatching { reader.join(500) }
+            return BoundedRootCommandExecutor.Result(
+                exitCode = -1,
+                stdout = "",
+                stderr = "",
+                timedOut = true,
+                truncated = false,
+            )
+        }
+        runCatching { reader.join(1_000) }
+        val truncated = stdout.length > MAX_RESULT_CHARS
+        return BoundedRootCommandExecutor.Result(
+            exitCode = runCatching { process.exitValue() }.getOrDefault(-1),
+            stdout = stdout.take(MAX_RESULT_CHARS),
+            stderr = stderr.take(MAX_RESULT_CHARS),
+            timedOut = false,
+            truncated = truncated,
+        )
     }
 
     /** 按 `a.b.c` 取 JSON 字段；取不到就返回原文。 */

@@ -1,20 +1,27 @@
 package io.github.mangi.eta.ui.screens.plugins
 
 import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.Refresh
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.plugin.PluginEntry
+import io.github.mangi.eta.agent.plugin.PluginImportResult
+import io.github.mangi.eta.agent.plugin.PluginInstaller
 import io.github.mangi.eta.agent.plugin.PluginKind
 import io.github.mangi.eta.agent.plugin.PluginManifest
 import io.github.mangi.eta.agent.plugin.PluginRepository
@@ -27,15 +34,16 @@ import io.github.mangi.eta.ui.components.ListEmptyState
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 
 /**
- * 插件列表页（设置 → 扩展 → 插件，二级页）。
+ * 插件列表页（设置 → 插件 / 首页「⋯」菜单 → 插件）。
  *
  * 列表只回答两件事：**这是什么**（名称 + 类型）和**能不能用**（状态）。
- * 权限与开关都放在详情页 —— 一屏里塞太多东西反而看不清（2026-11-08 用户要求「简洁」）。
+ * 权限、开关、调用记录都放在详情页 —— 一屏塞太多反而看不清（用户要求「简洁」）。
  */
 @Composable
 internal fun PluginsScreen(
@@ -43,6 +51,7 @@ internal fun PluginsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<PluginRow>>(emptyList()) }
     var scanToken by remember { mutableIntStateOf(0) }
 
@@ -51,10 +60,30 @@ internal fun PluginsScreen(
         rows = withContext(Dispatchers.IO) { loadRows(context) }
     }
 
+    val zipTypes = arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { PluginInstaller.importZip(context, uri) }
+            val message = when (result) {
+                is PluginImportResult.Ok -> context.getString(R.string.plugins_import_ok, result.name)
+                is PluginImportResult.Failure -> result.message
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            scanToken += 1
+        }
+    }
+
     MiuixScaffoldPage(
         title = stringResource(R.string.route_plugins),
         onBack = onBack,
         actions = {
+            IconButton(onClick = { importLauncher.launch(zipTypes) }) {
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = stringResource(R.string.plugins_import),
+                )
+            }
             IconButton(onClick = { scanToken += 1 }) {
                 Icon(
                     imageVector = Icons.Rounded.Refresh,
@@ -73,8 +102,8 @@ internal fun PluginsScreen(
                         icon = Icons.Rounded.Extension,
                         action = {
                             EtaTextButton(
-                                text = stringResource(R.string.plugins_rescan),
-                                onClick = { scanToken += 1 },
+                                text = stringResource(R.string.plugins_import),
+                                onClick = { importLauncher.launch(zipTypes) },
                             )
                         },
                     )

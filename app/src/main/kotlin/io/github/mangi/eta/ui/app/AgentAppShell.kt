@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ShortText
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -148,6 +149,7 @@ internal fun AgentAppShell(
                             onNewConversation = onNewConversation,
                             onOpenTerminal = onOpenTerminal,
                             onOpenFileManager = onOpenFileManager,
+                            onOpenPlugins = onOpenPlugins,
                             onLaunchKimiWeb = onLaunchKimiWeb,
                             kimiWebLabel = kimiWebLabel,
                             canStopKimiWeb = canStopKimiWeb,
@@ -218,6 +220,7 @@ private fun AgentTopBar(
     onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenFileManager: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
     canStopKimiWeb: Boolean,
@@ -253,6 +256,7 @@ private fun AgentTopBar(
                 onNewConversation = onNewConversation,
                 onOpenTerminal = onOpenTerminal,
                 onOpenFileManager = onOpenFileManager,
+                onOpenPlugins = onOpenPlugins,
                 onLaunchKimiWeb = onLaunchKimiWeb,
                 kimiWebLabel = kimiWebLabel,
                 canStopKimiWeb = canStopKimiWeb,
@@ -296,6 +300,7 @@ private fun TopBarOverflowMenu(
     onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenFileManager: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
     canStopKimiWeb: Boolean,
@@ -326,6 +331,7 @@ private fun TopBarOverflowMenu(
             val launchKimiWebText = kimiWebLabel
             val stopKimiWebText = stringResource(R.string.capability_kimi_stop)
             val openBrowserText = stringResource(R.string.action_open_browser)
+            val pluginsText = stringResource(R.string.route_plugins)
             val autoReadText = stringResource(
                 if (autoReadEnabled) R.string.speech_disable_auto_read else R.string.speech_enable_auto_read,
             )
@@ -391,6 +397,16 @@ private fun TopBarOverflowMenu(
                             )
                         },
                     ),
+                    DropdownItem(
+                        text = pluginsText,
+                        icon = { modifier ->
+                            Icon(
+                                imageVector = Icons.Rounded.Extension,
+                                contentDescription = null,
+                                modifier = modifier.size(TopBarMenuIconSize),
+                            )
+                        },
+                    ),
                 ) + (if (canStopKimiWeb) {
                     listOf(
                         DropdownItem(
@@ -443,7 +459,8 @@ private fun TopBarOverflowMenu(
                                 2 -> onOpenFileManager()
                                 3 -> onLaunchKimiWeb()
                                 4 -> onOpenBrowser()
-                                5 -> onStopKimiWeb()
+                                5 -> onOpenPlugins()
+                                6 -> onStopKimiWeb()
                             }
                         },
                     )

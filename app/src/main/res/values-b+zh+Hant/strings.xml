@@ -1489,8 +1489,20 @@
   <string name="plugin_permission_network_localhost_summary">只能連 127.0.0.1 上的服務</string>
   <string name="plugin_permission_network_any">存取任意網路位址</string>
   <string name="plugin_permission_network_any_summary">可以連外網或區域網路裝置</string>
-  <string name="plugin_permission_files_read">讀取檔案</string>
-  <string name="plugin_permission_files_read_summary">讀取工作區與外掛目錄裡的檔案</string>
-  <string name="plugin_permission_files_write">寫入檔案</string>
-  <string name="plugin_permission_files_write_summary">往工作區或相簿寫檔案</string>
+  <!-- 外掛 v1.1：匯入 / 執行身分 / 呼叫紀錄 -->
+  <string name="plugins_import">匯入外掛</string>
+  <string name="plugins_import_ok">已匯入「%1$s」，勾好權限就能用</string>
+  <string name="plugin_identity_app">指令以 Eta 的身分執行，只能讀寫它自己的目錄與相簿</string>
+  <string name="plugin_identity_root">指令以 root 執行，每次呼叫都會先問你</string>
+  <string name="plugin_identity_linux">指令在 Debian 環境裡跑（chroot，需要 root）</string>
+  <string name="plugin_identity_http">只透過 HTTP 請求工作，不在本機執行指令</string>
+  <string name="plugin_recent_calls">最近呼叫</string>
+  <string name="plugin_no_calls">還沒呼叫過</string>
+  <string name="plugin_call_ok">成功</string>
+  <string name="plugin_call_failed">失敗</string>
+  <string name="plugin_call_duration">耗時 %1$s</string>
+  <!-- 定時任務呼叫外掛 -->
+  <string name="scheduled_tasks_action_plugin">呼叫外掛</string>
+  <string name="scheduled_tasks_plugin_label">外掛 ID</string>
+  <string name="scheduled_tasks_plugin_placeholder">填外掛 id（例如 gateway_status）。無人值守執行，需要確認的外掛會被跳過</string>
 </resources>

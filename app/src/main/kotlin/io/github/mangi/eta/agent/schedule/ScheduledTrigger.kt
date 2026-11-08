@@ -85,6 +85,13 @@ internal data class ScheduledTask(
     val lastRunAtMillis: Long? = null,
     /** 仅 [ScheduledActionKind.CUSTOM_PROMPT] 使用：交给 Agent 执行的指令内容。 */
     val prompt: String = "",
+
+    /**
+     * 仅 [ScheduledActionKind.PLUGIN] 使用：要调用的插件 id。
+     *
+     * 后加字段，老任务读出来是空串（执行时按「没指定插件」处理），不破坏既有数据。
+     */
+    val pluginId: String = "",
     /** 发起该任务的会话；通知栏「回复」会回到这个会话。本地动作无会话，保持空串。 */
     val conversationId: String = "",
     /** 重复周期：每天 / 每周 / 每月 / 每 N 天 / 每 N 小时。 */
@@ -109,6 +116,7 @@ internal data class ScheduledTask(
         .put("read_only", readOnly ?: JSONObject.NULL)
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
         .put("prompt", prompt)
+        .put("pluginId", pluginId)
         .put("conversation_id", conversationId)
         .put("repeat", repeat.id)
         .put("day_of_week", dayOfWeek)
@@ -174,6 +182,7 @@ internal data class ScheduledTask(
                 },
                 lastRunAtMillis = lastRun,
                 prompt = json.optString("prompt", ""),
+                pluginId = json.optString("pluginId", ""),
                 conversationId = json.optString("conversation_id", ""),
                 repeat = ScheduledRepeat.fromId(json.optString("repeat")) ?: ScheduledRepeat.DAILY,
                 dayOfWeek = json.optInt("day_of_week", java.util.Calendar.MONDAY),

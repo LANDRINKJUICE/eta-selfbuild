@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.plugin.PluginCallRecord
 import io.github.mangi.eta.agent.plugin.PluginEntry
 import io.github.mangi.eta.agent.plugin.PluginKind
 import io.github.mangi.eta.agent.plugin.PluginManifest
@@ -33,6 +34,9 @@ import io.github.mangi.eta.ui.components.ListEmptyState
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -40,12 +44,14 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 插件详情页：**启用开关 + 权限逐项授权 + 参数说明 + 删除**。
+ * 插件详情页：**启用开关 + 执行身份说明 + 权限逐项授权 + 参数 + 最近调用 + 删除**。
  *
  * 设计取舍（2026-11-08）：
- * - 权限默认全关，逐项列出来并各带一句人话说明 —— 用户要能一眼看出「它想干什么」。
- * - 必填权限没给齐时，页面顶部明确写出「还缺什么、所以不可用」，不留悬案。
- * - 删除是不可逆操作，走确认弹窗（和 MCP 服务器一致）。
+ * - 权限默认全关、逐项列出一句人话说明；不给"按下去没有实际效果"的假开关
+ *   （所以没有 files 权限 —— 见 PluginPermission 的注释）。
+ * - 必填权限没给齐时明确写"还缺什么、所以不可用"，不留悬案。
+ * - 最近调用直接铺在页面上，插件有没有在工作一眼可见。
+ * - 删除是不可逆操作，走确认弹窗。
  */
 @Composable
 internal fun PluginDetailScreen(
@@ -56,6 +62,7 @@ internal fun PluginDetailScreen(
     var reloadToken by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<PluginDetailState?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(reloadToken) {
         state = withContext(Dispatchers.IO) { loadDetail(context, pluginId) }
@@ -107,6 +114,15 @@ internal fun PluginDetailScreen(
                     ),
                     onClick = null,
                 )
+                Text(
+                    text = identityNote(context, manifest),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp),
+                )
             }
         }
 
@@ -139,7 +155,13 @@ internal fun PluginDetailScreen(
 
         if (detail.missing.isNotEmpty()) {
             item(key = "missing") {
-                PluginMissingGrantNotice(detail.missing)
+                PluginNotice(
+                    text = stringResource(
+                        R.string.plugin_missing_grant,
+                        detail.missing.sortedBy { it.wire }.joinToString("、") { it.wire },
+                    ),
+                    color = MiuixTheme.colorScheme.error,
+                )
             }
         }
 
@@ -157,6 +179,27 @@ internal fun PluginDetailScreen(
                             summary = listOf(param.description, requirement)
                                 .filter(String::isNotBlank)
                                 .joinToString(" · "),
+                            onClick = null,
+                        )
+                    }
+                }
+            }
+        }
+
+        item(key = "calls") {
+            EtaPreferenceGroupTitle(stringResource(R.string.plugin_recent_calls))
+            EtaPreferenceGroup {
+                if (detail.calls.isEmpty()) {
+                    EtaArrowPreference(
+                        title = stringResource(R.string.plugin_no_calls),
+                        onClick = null,
+                    )
+                } else {
+                    detail.calls.forEachIndexed { index, call ->
+                        if (index > 0) EtaPreferenceDivider(hasLeading = false)
+                        EtaArrowPreference(
+                            title = timeFormat.format(Date(call.at)),
+                            summary = callSummary(context, call),
                             onClick = null,
                         )
                     }
@@ -206,19 +249,31 @@ internal fun PluginDetailScreen(
 }
 
 @Composable
-private fun PluginMissingGrantNotice(missing: Set<PluginPermission>) {
+private fun PluginNotice(text: String, color: androidx.compose.ui.graphics.Color) {
     Text(
-        text = stringResource(
-            R.string.plugin_missing_grant,
-            missing.sortedBy { it.wire }.joinToString("、") { it.wire },
-        ),
+        text = text,
         style = MiuixTheme.textStyles.footnote1,
-        color = MiuixTheme.colorScheme.error,
+        color = color,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = 16.dp),
     )
+}
+
+private fun callSummary(context: Context, call: PluginCallRecord): String = buildString {
+    append(
+        context.getString(
+            if (call.ok) R.string.plugin_call_ok else R.string.plugin_call_failed,
+        ),
+    )
+    append(" · ").append(context.getString(R.string.plugin_call_duration, formatSeconds(call.millis)))
+    if (call.note.isNotBlank()) append(" · ").append(call.note)
+}
+
+private fun formatSeconds(millis: Long): String = when {
+    millis < 1_000 -> "${millis}ms"
+    else -> String.format(Locale.US, "%.1fs", millis / 1000.0)
 }
 
 private data class PluginDetailState(
@@ -227,6 +282,7 @@ private data class PluginDetailState(
     val enabled: Boolean,
     val granted: Set<PluginPermission>,
     val missing: Set<PluginPermission>,
+    val calls: List<PluginCallRecord>,
 )
 
 private fun loadDetail(context: Context, pluginId: String): PluginDetailState {
@@ -242,11 +298,12 @@ private fun loadDetail(context: Context, pluginId: String): PluginDetailState {
                 enabled = PluginRepository.isEnabled(context, entry.manifest.id),
                 granted = granted,
                 missing = entry.manifest.requiredPermissions() - granted,
+                calls = PluginRepository.recentCalls(context, entry.manifest.id, 5),
             )
         }
 
-        is PluginEntry.Broken -> PluginDetailState(null, entry.reason, false, emptySet(), emptySet())
-        null -> PluginDetailState(null, "", false, emptySet(), emptySet())
+        is PluginEntry.Broken -> PluginDetailState(null, entry.reason, false, emptySet(), emptySet(), emptyList())
+        null -> PluginDetailState(null, "", false, emptySet(), emptySet(), emptyList())
     }
 }
 
@@ -259,14 +316,20 @@ private fun kindLabel(context: Context, manifest: PluginManifest): String = when
         context.getString(R.string.plugins_kind_shell) + " · " + context.getString(R.string.plugins_env_android)
 }
 
+/** 执行身份说明：让用户清楚这条命令到底以什么身份跑（2026-11-08 加）。 */
+private fun identityNote(context: Context, manifest: PluginManifest): String = when {
+    manifest.kind == PluginKind.HTTP -> context.getString(R.string.plugin_identity_http)
+    manifest.exec?.environment == "linux" -> context.getString(R.string.plugin_identity_linux)
+    PluginPermission.SHELL_ROOT in manifest.permissions -> context.getString(R.string.plugin_identity_root)
+    else -> context.getString(R.string.plugin_identity_app)
+}
+
 private fun permissionTitle(permission: PluginPermission): Int = when (permission) {
     PluginPermission.SHELL_ANDROID -> R.string.plugin_permission_shell_android
     PluginPermission.SHELL_LINUX -> R.string.plugin_permission_shell_linux
     PluginPermission.SHELL_ROOT -> R.string.plugin_permission_shell_root
     PluginPermission.NETWORK_LOCALHOST -> R.string.plugin_permission_network_localhost
     PluginPermission.NETWORK_ANY -> R.string.plugin_permission_network_any
-    PluginPermission.FILES_READ -> R.string.plugin_permission_files_read
-    PluginPermission.FILES_WRITE -> R.string.plugin_permission_files_write
 }
 
 private fun permissionSummary(permission: PluginPermission): Int = when (permission) {
@@ -275,6 +338,4 @@ private fun permissionSummary(permission: PluginPermission): Int = when (permiss
     PluginPermission.SHELL_ROOT -> R.string.plugin_permission_shell_root_summary
     PluginPermission.NETWORK_LOCALHOST -> R.string.plugin_permission_network_localhost_summary
     PluginPermission.NETWORK_ANY -> R.string.plugin_permission_network_any_summary
-    PluginPermission.FILES_READ -> R.string.plugin_permission_files_read_summary
-    PluginPermission.FILES_WRITE -> R.string.plugin_permission_files_write_summary
 }

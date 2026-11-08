@@ -1633,8 +1633,20 @@
   <string name="plugin_permission_network_localhost_summary">只能连 127.0.0.1 上的服务</string>
   <string name="plugin_permission_network_any">访问任意网络地址</string>
   <string name="plugin_permission_network_any_summary">可以连外网或局域网设备</string>
-  <string name="plugin_permission_files_read">读取文件</string>
-  <string name="plugin_permission_files_read_summary">读取工作区与插件目录里的文件</string>
-  <string name="plugin_permission_files_write">写入文件</string>
-  <string name="plugin_permission_files_write_summary">往工作区或相册写文件</string>
+  <!-- 插件 v1.1：导入 / 执行身份 / 调用记录 -->
+  <string name="plugins_import">导入插件</string>
+  <string name="plugins_import_ok">已导入「%1$s」，勾好权限就能用</string>
+  <string name="plugin_identity_app">命令以 Eta 的身份运行，只能读写它自己的目录和相册</string>
+  <string name="plugin_identity_root">命令以 root 运行，每次调用都会先问你</string>
+  <string name="plugin_identity_linux">命令在 Debian 环境里跑（chroot，需要 root）</string>
+  <string name="plugin_identity_http">只通过 HTTP 请求工作，不在本机执行命令</string>
+  <string name="plugin_recent_calls">最近调用</string>
+  <string name="plugin_no_calls">还没调用过</string>
+  <string name="plugin_call_ok">成功</string>
+  <string name="plugin_call_failed">失败</string>
+  <string name="plugin_call_duration">用时 %1$s</string>
+  <!-- 定时任务调用插件 -->
+  <string name="scheduled_tasks_action_plugin">调用插件</string>
+  <string name="scheduled_tasks_plugin_label">插件 ID</string>
+  <string name="scheduled_tasks_plugin_placeholder">填插件 id（如 gateway_status）。无人值守运行，需要确认的插件会被跳过</string>
 </resources>

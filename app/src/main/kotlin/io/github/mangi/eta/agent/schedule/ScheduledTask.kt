@@ -36,6 +36,15 @@ internal enum class ScheduledActionKind(val id: String) {
 
     /** 自定义指令：把 `ScheduledTask.prompt` 交给 Agent 执行（**会消耗模型额度**）。 */
     CUSTOM_PROMPT("custom_prompt"),
+
+    /**
+     * 调用某个插件（`ScheduledTask.pluginId`）。
+     *
+     * **无人值守**：需要确认的插件（`confirm: always`、首次确认、危险命令、声明 root）
+     * 会被直接跳过并写明原因 —— 见 `PluginToolExecutor(interactive = false)`。
+     * 所以这里只适合挂「纯读、不需要确认」的插件（例如读网关状态、读构建状态）。
+     */
+    PLUGIN("plugin"),
     ;
 
     /** 是否需要调用模型（决定是否要拉主进程与前台服务）。 */

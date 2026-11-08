@@ -20,6 +20,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.memory.MemoryHealthReport
 import io.github.mangi.eta.agent.notify.EtaNotificationChannels
 import io.github.mangi.eta.agent.notify.ScheduledNotificationBuilder
+import io.github.mangi.eta.agent.plugin.PluginInvoker
 import io.github.mangi.eta.ui.MainActivity
 import java.util.Locale
 
@@ -112,7 +113,19 @@ internal object ScheduledActionRunner {
         // 事件要一起传：通知匹配类任务靠它把「哪条通知」带进 prompt，
         // 否则 Agent 只能自己去打开通知栏看，把用户正在用的界面顶掉。
         ScheduledActionKind.CUSTOM_PROMPT -> ScheduledAgentRunner.run(context, task, event)
+        // 插件：无人值守调用。需要确认的插件会被跳过（并写明原因），不会静默执行。
+        ScheduledActionKind.PLUGIN -> runPlugin(context, task)
     }
+
+    /** 跑一次插件，把结果折成 [ScheduledOutcome]（失败前缀「跳过：」也是失败，别记成成功）。 */
+    private fun runPlugin(context: Context, task: ScheduledTask): ScheduledOutcome =
+        when (val outcome = PluginInvoker.invokeUnattended(context, task.pluginId)) {
+            is PluginInvoker.Outcome.Ok ->
+                ScheduledOutcome(ok = true, summary = outcome.output.ifBlank { "插件执行完成" })
+
+            is PluginInvoker.Outcome.Failure ->
+                ScheduledOutcome(ok = false, summary = "跳过：" + outcome.message)
+        }
 
     /**
      * 期望已注册的闹钟数：启用的「每天定时」任务条数。

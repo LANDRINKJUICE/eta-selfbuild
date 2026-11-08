@@ -93,6 +93,7 @@ internal object ScheduledNotificationBuilder {
             io.github.mangi.eta.agent.schedule.ScheduledActionKind.CLEAN_TMP -> "清理临时文件"
             io.github.mangi.eta.agent.schedule.ScheduledActionKind.DRIFT_CHECK -> "系统漂移检测"
             io.github.mangi.eta.agent.schedule.ScheduledActionKind.CUSTOM_PROMPT -> "定时提醒"
+            io.github.mangi.eta.agent.schedule.ScheduledActionKind.PLUGIN -> "插件任务"
         }
     }
 
