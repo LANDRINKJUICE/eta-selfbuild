@@ -358,13 +358,18 @@ internal class AgentLocalTools(
                     activeDisplayId = Display.DEFAULT_DISPLAY
                     textResult(deviceController.openSystemPanel(args.optString("panel")))
                 }
+                // 三个管理工具必须排在 `in DEVICE_TOOL_NAMES` **之前**。
+                // 它们被登记进 DEVICE_SENSITIVE_ACTION_TOOL_NAMES（只读模式要挡住），
+                // 而 DEVICE_TOOL_NAMES = DIRECT + SENSITIVE_READ + SENSITIVE_ACTION ——
+                // 放在后面会被那个分支先命中，落到 structuredDeviceTools 里
+                // 返回 UNKNOWN_TOOL（2026-11-09 真机实测踩到）。
+                "manage_scheduled_task" -> textResult(manageScheduledTask(args))
+                "manage_provider" -> textResult(manageProvider(args))
+                "manage_mcp" -> textResult(manageMcp(args))
                 in DEVICE_TOOL_NAMES ->
                     structuredDeviceTools.execute(toolCall.name, args)
                         ?: textResult(errorResult("UNKNOWN_TOOL", "未知设备工具"))
                 "suggest_scheduled_tasks" -> textResult(suggestScheduledTasks())
-                "manage_scheduled_task" -> textResult(manageScheduledTask(args))
-                "manage_provider" -> textResult(manageProvider(args))
-                "manage_mcp" -> textResult(manageMcp(args))
                 "read_app_logs" -> textResult(readAppLogs(args))
                 "share_folder" -> textResult(shareFolder(args))
                 "read_image" -> fileVisionTool { imageTools.readImage(args) }
