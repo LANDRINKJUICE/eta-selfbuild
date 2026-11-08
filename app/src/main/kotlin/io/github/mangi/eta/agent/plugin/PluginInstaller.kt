@@ -84,6 +84,14 @@ internal object PluginInstaller {
                 runCatching { destination.deleteRecursively() }
                 return PluginImportResult.Failure("装完之后找不到 plugin.json")
             }
+            // 用户从界面导入的插件：**保持「装了但没启用」**。
+            //
+            // 与「Agent 直接放进插件目录」的路径刻意区分开（2026-11-08）：
+            //  · 用户导入陌生 zip 时，仍需要自己点一下启用与授权 —— 这是他的信任判断；
+            //  · Agent 自己装的插件走另一条路（见 PluginRepository 的默认值说明），
+            //    装完即可用，不必让用户为 Agent 的决定再点两下。
+            PluginRepository.setEnabled(context, manifest.id, false)
+            PluginRepository.setGranted(context, manifest.id, emptySet())
             PluginImportResult.Ok(manifest.id, manifest.name)
         } finally {
             // 成功或失败都把临时目录清掉（成功时它已被 rename 走，exists 为 false）。

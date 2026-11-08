@@ -56,6 +56,13 @@ internal object DangerousOperationGuard {
         val detail: String = "",
         /** 是否提供「这类别问了」——只有真正的危险操作才给，ask_user 不给。 */
         val allowSessionOption: Boolean = false,
+        /**
+         * 卡片标题的覆盖值（2026-11-08 加）。
+         *
+         * 默认标题是固定的「要动系统文件，先确认」，对插件这类「只是跑自己的脚本」
+         * 的场景并不准确 —— 用户会以为要改系统。调用方知道得更清楚就自己给一句。
+         */
+        val titleOverride: String = "",
     )
 
     private val lock = Object()
@@ -106,6 +113,7 @@ internal object DangerousOperationGuard {
         critical: Boolean = false,
         detail: String = "",
         allowSessionOption: Boolean = false,
+        titleOverride: String = "",
     ): Decision {
         // 本会话已放行过同类 → 不再打扰用户。
         if (rule.isNotEmpty()) {
@@ -129,6 +137,7 @@ internal object DangerousOperationGuard {
                 detail = detail,
                 // 没有规则名就没法记忆，所以「这类别问了」必须依赖 rule。
                 allowSessionOption = allowSessionOption && rule.isNotEmpty(),
+                titleOverride = titleOverride,
             )
             current = request
             decision = null

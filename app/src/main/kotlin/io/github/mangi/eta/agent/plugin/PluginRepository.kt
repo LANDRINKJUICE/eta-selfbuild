@@ -85,6 +85,9 @@ internal object PluginRepository {
                 }
             }
         }
+        // Agent 自己放进来的插件在这里自动启用并授权，用户不必再点两下。
+        // 用户从界面导入的插件已经被显式写成 enabled=false，不受影响。
+        runCatching { adoptAgentInstalled(context, entries) }
         return entries
     }
 
@@ -93,7 +96,45 @@ internal object PluginRepository {
         scan(context).filterIsInstance<PluginEntry.Loaded>()
             .map(PluginEntry.Loaded::manifest)
             .filter { isEnabled(context, it.id) }
+
+    /**
+     * Agent 自己装进插件目录的插件：直接启用并按 manifest 声明的权限授予。
+     *
+     * 只在 [scan] 之后调一次（设置页与每次 run 的快照都会走到）。
+     * 为什么这么设计见 [isAgentInstalled] 的说明：
+     * 用户叫 Agent 装，是 Agent 的决定，Agent 该自己评估完直接配好；
+     * 用户自己导入的 zip 已经显式写了 `enabled=false`，不会被这里覆盖。
+     *
+     * 幂等：已经启用过的不会重复写。
+     */
+    fun adoptAgentInstalled(context: Context, entries: List<PluginEntry>): Int {
+        var adopted = 0
+        entries.filterIsInstance<PluginEntry.Loaded>().forEach { entry ->
+            val manifest = entry.manifest
+            if (!isAgentInstalled(context, manifest.id)) return@forEach
+            // 至少要有 manifest 声明的权限才谈得上可用；权限声明本身在解析期已校验过
+            // （requiredPermissions 必须被 permissions 覆盖，否则装载就失败了）。
+            setGranted(context, manifest.id, manifest.permissions)
+            setEnabled(context, manifest.id, true)
+            adopted += 1
+        }
+        return adopted
+    }
     fun isEnabled(context: Context, id: String): Boolean = prefs(context).getBoolean(KEY_ENABLED + id, false)
+
+    /**
+     * 这个插件是不是「Agent 自己装的」（而不是用户从界面导入的）。
+     *
+     * 区分方式（2026-11-08）：
+     *  · 用户导入 → [PluginInstaller] 会显式写 `enabled=false`，等他自己点；
+     *  · Agent 直接放进插件目录 → 没有任何记录，这里判为「自己装的」。
+     *
+     * 为什么要分：用户叫 Agent 装插件，是 Agent 做的决定，安装时应由 Agent 自己
+     * 评估风险并直接配好，不该反过来让用户去点两下 —— 那不是安全，是把责任推给他。
+     * 而用户**自己**导入的陌生 zip，仍应保留他自己那一下信任判断。
+     */
+    internal fun isAgentInstalled(context: Context, id: String): Boolean =
+        !prefs(context).contains(KEY_ENABLED + id)
 
     fun setEnabled(context: Context, id: String, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED + id, enabled).apply()

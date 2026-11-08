@@ -260,6 +260,99 @@ internal object AgentDeviceToolCatalog {
         tools
             .put(
                 function(
+                    "manage_mcp",
+                    "管理 MCP 服务器（2026-11-08 新增）：list 列出全部（token 打码）；" +
+                        "create 新增（name/url 必填，可选 bearer_token）；update 改现有（bearer_token 传空表示不改）；" +
+                        "delete 删除（不可逆，会弹确认卡）；set_tool 开关某个工具。" +
+                        "注意：新建的服务器要等下次连接才会拉到工具列表，首次 tools 为空是正常的。",
+                    properties(
+                        "action" to enumString("要做什么", "list", "create", "update", "delete", "set_tool"),
+                        "server_id" to string("服务器 id（update / delete / set_tool 必填）", 64),
+                        "name" to string("显示名", 100),
+                        "url" to string("MCP 端点地址，必须 http(s):// 开头", 500),
+                        "bearer_token" to string("Bearer token（update 时传空表示不改；返回永远打码）", 500),
+                        "enabled" to boolean("启用/停用服务器，或 set_tool 时开关该工具"),
+                        "tool_name" to string("set_tool 时的工具名", 200),
+                    ),
+                ),
+            )
+
+            .put(
+                function(
+                    "manage_provider",
+                    "管理模型服务商与模型（2026-11-08 新增）：list 列出全部（api_key 打码）；" +
+                        "create 新增（name/base_url 必填，可选 type/api_key/models）；" +
+                        "update 改现有（只改传了的字段，api_key 传空表示不改）；" +
+                        "delete 删除（不可逆，会弹确认卡）；set_active 切换当前模型。" +
+                        "models 可传 [\"m1\",\"m2\"] 或 [{\"model_id\":\"m1\",\"display_name\":\"M1\"}]。",
+                    properties(
+                        "action" to enumString("要做什么", "list", "create", "update", "delete", "set_active"),
+                        "provider_id" to string("服务商 id（update / delete 必填）", 64),
+                        "name" to string("服务商显示名", 100),
+                        "base_url" to string("接口地址，必须 http(s):// 开头", 500),
+                        "type" to enumString(
+                            "接口类型，默认 openai_compatible",
+                            "openai_compatible", "anthropic", "gemini",
+                        ),
+                        "api_key" to string("API Key（update 时传空表示不改；返回永远打码）", 500),
+                        "models" to JSONObject().put("type", "array").put(
+                            "description",
+                            "模型列表；字符串数组或 {model_id, display_name, context_window} 对象数组",
+                        ),
+                        "model_id" to string("set_active 时要切到的模型（行 id 或 modelId 字符串都认）", 200),
+                        "enabled" to boolean("update 时启用/停用这个服务商"),
+                    ),
+                ),
+            )
+
+            .put(
+                function(
+                    "manage_scheduled_task",
+                    "创建、修改、启用/停用、删除、列出定时任务（2026-11-08 新增）。" +
+                        "action=list 列出全部；create 需要 trigger/action/hour/minute；" +
+                        "update 需要 task_id；set_enabled 需要 task_id 与 enabled；delete 需要 task_id。" +
+                        "创建后立即注册闹钟，不需要再去界面点。" +
+                        "注意：action=plugin 的任务在无人值守时无法弹确认卡，需要确认的插件会被跳过。",
+                    properties(
+                        "action" to enumString(
+                            "要做什么",
+                            "list", "create", "update", "set_enabled", "delete",
+                        ),
+                        "task_id" to string("任务 id（update / set_enabled / delete 必填）", 64),
+                        // 用真实 id（与 ScheduledTrigger 保持一致）。
+                        // 以前手抄成 daily_event/battery/boot，全是错的，模型照 schema 传必失败。
+                        "trigger" to enumString(
+                            "触发方式，默认 daily_time",
+                            "daily_time", "power_connected", "power_disconnected",
+                            "battery_low", "battery_ok", "screen_unlocked",
+                            "wifi_connected", "wifi_disconnected", "notification_match",
+                        ),
+                        "task_action" to enumString(
+                            "任务动作，默认 custom_prompt",
+                            "custom_prompt", "plugin", "device_status", "clean_tmp", "snapshot", "drift_check",
+                        ),
+                        "hour" to integer("小时 0-23", 0, 23),
+                        "minute" to integer("分钟 0-59", 0, 59),
+                        "repeat" to enumString(
+                            "重复周期，默认 daily",
+                            "daily", "weekly", "monthly", "every_n_days", "every_n_hours",
+                        ),
+                        "prompt" to string("action=custom_prompt 时交给 Agent 的指令", 2000),
+                        "plugin_id" to string("action=plugin 时要调用的插件 id", 64),
+                        "plugin_arguments" to string("action=plugin 时的参数（JSON 对象文本）", 2000),
+                        "name" to string("任务备注名（可选）", 100),
+                        "enabled" to boolean("启用/停用（set_enabled 必填；create/update 可选）"),
+                        "keyword" to string("trigger=notification_match 时匹配的关键词（必填，否则永不触发）", 200),
+                        "threshold" to integer("trigger=battery_low/battery_ok 时的电量阈值百分比", 1, 100),
+                        "interval" to integer("repeat=every_n_days/every_n_hours 时的 N", 1, 30),
+                        "day_of_week" to integer("repeat=weekly 时的星期：1=周一 … 7=周日", 1, 7),
+                        "day_of_month" to integer("repeat=monthly 时的几号", 1, 31),
+                    ),
+                ),
+            )
+        tools
+            .put(
+                function(
                     "set_setting",
                     "修改一个 Android Settings 值，并读回验证。user_id 默认 Eta 所属用户；global 命名空间影响设备。仅 verified=true 表示已确认目标值，未确认时不要直接重放。",
                     properties(

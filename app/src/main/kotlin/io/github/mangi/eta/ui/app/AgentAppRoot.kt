@@ -1033,6 +1033,9 @@ fun AgentAppRoot(
             show = true,
             title = when {
                 isQuestion -> stringResource(R.string.ask_user_title)
+                // 调用方给了更贴切的标题就用它（例如插件只是跑自己的脚本，
+                // 说成「要动系统文件」会吓人一跳）。2026-11-08。
+                dangerousTarget.titleOverride.isNotBlank() -> dangerousTarget.titleOverride
                 dangerousTarget.critical -> stringResource(R.string.dangerous_title_critical)
                 else -> stringResource(R.string.dangerous_title_warning)
             },

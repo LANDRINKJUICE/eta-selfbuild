@@ -17,8 +17,9 @@ import org.json.JSONObject
 internal object PluginInvoker {
 
     internal sealed interface Outcome {
-        data class Ok(val output: String) : Outcome
-        data class Failure(val message: String) : Outcome
+        /** [millis] 是**纯执行耗时**，不含等确认卡的时间（由执行器回报）。 */
+        data class Ok(val output: String, val millis: Long = 0L) : Outcome
+        data class Failure(val message: String, val millis: Long = 0L) : Outcome
     }
 
     fun invokeUnattended(
@@ -26,6 +27,17 @@ internal object PluginInvoker {
         pluginId: String,
         argumentsJson: String = "",
     ): Outcome = invoke(context, pluginId, argumentsJson, interactive = false)
+
+    /** 定时任务的通知只放摘要，太长会撑爆通知栏。 */
+    private const val NOTIFICATION_MAX_OUTPUT_CHARS = 400
+
+    /**
+     * 详情页试跑要给人看完整输出。
+     *
+     * 与 shell 通道的结果上限一致（PluginRunContext.MAX_RESULT_CHARS = 4000），
+     * 再长也没有意义 —— 那边已经截断了。
+     */
+    private const val UI_MAX_OUTPUT_CHARS = 4_000
 
     /**
      * 用户主动点「试跑一次」：**允许弹确认卡片**。
@@ -36,13 +48,14 @@ internal object PluginInvoker {
      * 试跑是前台交互行为，确认门禁要按交互式走。
      */
     fun invokeFromUi(context: Context, pluginId: String): Outcome =
-        invoke(context, pluginId, "", interactive = true)
+        invoke(context, pluginId, "", interactive = true, maxOutputChars = UI_MAX_OUTPUT_CHARS)
 
     private fun invoke(
         context: Context,
         pluginId: String,
         argumentsJson: String,
         interactive: Boolean,
+        maxOutputChars: Int = NOTIFICATION_MAX_OUTPUT_CHARS,
     ): Outcome {
         val id = pluginId.trim()
         if (id.isEmpty()) return Outcome.Failure("没指定插件")
@@ -85,8 +98,9 @@ internal object PluginInvoker {
                 ),
             )
             val parsed = runCatching { JSONObject(result.content) }.getOrNull()
+            val elapsed = parsed?.optLong("ms") ?: 0L
             if (parsed?.optBoolean("ok") == true) {
-                Outcome.Ok(parsed.optString("output").take(400))
+                Outcome.Ok(parsed.optString("output").take(maxOutputChars), elapsed)
             } else {
                 Outcome.Failure(
                     // 2026-11-08 修：shell 通道的结果里只有 ok/output（没有 message/code），
@@ -98,6 +112,7 @@ internal object PluginInvoker {
                         parsed?.optString("output").orEmpty()
                             .lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
                     }.ifBlank { "执行失败" },
+                    elapsed,
                 )
             }
         } finally {

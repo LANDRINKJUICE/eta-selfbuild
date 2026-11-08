@@ -184,11 +184,12 @@ internal class PluginToolExecutor(
             PluginKind.HTTP -> runHttp(manifest, rendered, args)
         }
         val parsed = runCatching { JSONObject(result.content) }.getOrNull()
+        val elapsedMillis = System.currentTimeMillis() - startedAt
         PluginRepository.appendCall(
             context = context,
             id = manifest.id,
             ok = parsed?.optBoolean("ok") ?: true,
-            millis = System.currentTimeMillis() - startedAt,
+            millis = elapsedMillis,
             // 2026-11-08 修：以前只从 message/code 取，而 shell 通道只产出 ok/output，
             // 于是调用记录里的失败原因永远是空的。这里退回取 output 首行（含 exit=/error=）。
             note = parsed?.optString("message").orEmpty().ifBlank {
@@ -197,7 +198,12 @@ internal class PluginToolExecutor(
                 parsed?.optString("output").orEmpty().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
             },
         )
-        return result
+        // 把**纯执行耗时**带回给调用方。
+        // 2026-11-08 修：UI 那边原本自己在调用前掐表，把「等用户点确认卡」的时间也算进去了
+        // （实测 12.9 秒 vs 真实 111ms），看起来像插件很慢。这里返回的值不含确认等待。
+        return result.copy(
+            content = (parsed ?: JSONObject()).put("ms", elapsedMillis).toString(),
+        )
     }
 
     private sealed interface PluginGate {
@@ -307,6 +313,9 @@ internal class PluginToolExecutor(
                 critical = verdict.severity == DangerousOperationPolicy.Severity.CRITICAL,
                 detail = approvalDetail(manifest, rendered),
                 allowSessionOption = true,
+                // 插件场景给准确标题：默认那句「要动系统文件」在「只是跑插件自带脚本」时
+                // 会让人以为要改系统（2026-11-08 真机实测反馈）。
+                titleOverride = "插件「${manifest.name}」要执行这一步",
             )
         } else {
             DangerousOperationGuard.requestApproval(

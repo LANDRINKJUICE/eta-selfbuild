@@ -45,6 +45,8 @@ import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.ScreenshotMonitor
 import androidx.compose.material.icons.rounded.Search
@@ -110,6 +112,12 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "read_sms_code" -> Icons.Rounded.Key
     "recent_notifications", "search_notification_history" -> Icons.Rounded.Notifications
     "suggest_scheduled_tasks" -> Icons.Rounded.Schedule
+    // 增删改查定时任务：用「编辑日程」语义，与上面那个「推荐」区分开。
+    "manage_scheduled_task" -> Icons.Rounded.EditCalendar
+    // 模型配置：用「设置/齿轮」语义，与日程、插件区分开。
+    "manage_provider" -> Icons.Rounded.Settings
+    // MCP 服务器：用「云端/连接」语义，与本地设置区分开。
+    "manage_mcp" -> Icons.Rounded.Cloud
     // 诊断日志：用「文章/列表」类图标，和定时任务区分开。
     "read_app_logs" -> Icons.AutoMirrored.Rounded.Article
     "share_folder" -> Icons.Rounded.FolderOpen

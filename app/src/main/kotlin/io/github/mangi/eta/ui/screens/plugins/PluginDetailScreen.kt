@@ -236,23 +236,23 @@ internal fun PluginDetailScreen(
                             trying = true
                             tryResult = null
                             scope.launch {
-                                val startedAt = System.currentTimeMillis()
                                 val outcome = withContext(Dispatchers.IO) {
                                     // 试跑是用户点的，走交互式入口，confirm:first 的插件才会弹卡而不是被当成无人值守拒绝。
                                     PluginInvoker.invokeFromUi(context, manifest.id)
                                 }
-                                val millis = System.currentTimeMillis() - startedAt
                                 trying = false
+                                // 耗时用执行器回报的「纯执行时间」，不在这里掐表 ——
+                                // 这里掐会把等确认卡的时间也算进去（实测 12.9s vs 真实 111ms）。
                                 tryResult = when (outcome) {
                                     is PluginInvoker.Outcome.Ok -> PluginTryResult(
                                         ok = true,
-                                        millis = millis,
+                                        millis = outcome.millis,
                                         output = outcome.output.ifBlank { "（没有输出）" },
                                     )
 
                                     is PluginInvoker.Outcome.Failure -> PluginTryResult(
                                         ok = false,
-                                        millis = millis,
+                                        millis = outcome.millis,
                                         output = outcome.message.ifBlank { "执行失败，没拿到原因" },
                                     )
                                 }

@@ -33,8 +33,13 @@ import io.github.mangi.eta.agent.runtime.GuiControlCoordinator
 import io.github.mangi.eta.agent.virtualdisplay.CanvasRoutingPolicy
 import io.github.mangi.eta.agent.virtualdisplay.VirtualDisplayController
 import io.github.mangi.eta.data.repository.NotificationHistoryRepository
+import io.github.mangi.eta.agent.schedule.ScheduledActionKind
+import io.github.mangi.eta.agent.schedule.ScheduledRepeat
 import io.github.mangi.eta.agent.schedule.ScheduledSuggestionEngine
+import io.github.mangi.eta.agent.schedule.ScheduledTask
+import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
 import io.github.mangi.eta.agent.schedule.ScheduledTaskStore
+import io.github.mangi.eta.agent.schedule.ScheduledTrigger
 import io.github.mangi.eta.agent.terminal.SharedFolderMount
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
 import io.github.mangi.eta.agent.skill.SkillErrorJournal
@@ -75,6 +80,19 @@ import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
+import io.github.mangi.eta.data.model.AnthropicProviderSetting
+import io.github.mangi.eta.data.model.GeminiProviderSetting
+import io.github.mangi.eta.data.model.Model
+import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.ProviderTypes
+import io.github.mangi.eta.data.repository.ProviderRepository
+import io.github.mangi.eta.data.repository.RuntimeConfigRepository
+import io.github.mangi.eta.data.model.CustomProviderSetting
+import kotlinx.coroutines.Dispatchers
+import java.util.UUID
+import io.github.mangi.eta.data.model.McpAuthorizationType
+import io.github.mangi.eta.data.model.McpServerSetting
+import io.github.mangi.eta.data.repository.McpServerRepository
 
 internal class AgentLocalTools(
     private val context: Context,
@@ -344,6 +362,9 @@ internal class AgentLocalTools(
                     structuredDeviceTools.execute(toolCall.name, args)
                         ?: textResult(errorResult("UNKNOWN_TOOL", "未知设备工具"))
                 "suggest_scheduled_tasks" -> textResult(suggestScheduledTasks())
+                "manage_scheduled_task" -> textResult(manageScheduledTask(args))
+                "manage_provider" -> textResult(manageProvider(args))
+                "manage_mcp" -> textResult(manageMcp(args))
                 "read_app_logs" -> textResult(readAppLogs(args))
                 "share_folder" -> textResult(shareFolder(args))
                 "read_image" -> fileVisionTool { imageTools.readImage(args) }
@@ -1427,8 +1448,697 @@ internal class AgentLocalTools(
             .toString()
     }
 
-    private fun shareFolder(args: JSONObject): String {
-        // 配置存在 localAgent 里；没初始化时 current() 会返回空列表，直接当成「没有挂载」会误导。
+    /**
+     * 定时任务的增删改查（2026-11-08 加）。
+     *
+     * 为什么需要这个工具：以前**只能**在界面里点出来。用户的原话是
+     * 「为什么你们不能直接导入定时任务必须要走界面，这个也很奇怪」——
+     * 底层 ScheduledTaskStore 一直有 upsert/setEnabled/delete，只是没暴露给模型。
+     *
+     * 安全边界：
+     *  · 只动 Eta 自己的任务表（scheduled_tasks.json），不碰系统闹钟；
+     *  · 创建后立即 schedule() 注册，不用再去界面点；
+     *  · action=plugin 的任务在无人值守时不能弹确认卡，需要确认的插件会被跳过，
+     *    这一点在返回里明确写出来，避免用户以为「设了就会跑」。
+     */
+    private fun manageScheduledTask(args: JSONObject): String {
+        val action = args.optString("action").trim().lowercase()
+        if (action.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 action")
+
+        return when (action) {
+            "list" -> {
+                val tasks = ScheduledTaskStore.load(context)
+                val array = JSONArray()
+                tasks.forEach { task ->
+                    array.put(
+                        JSONObject()
+                            .put("task_id", task.id)
+                            .put("enabled", task.enabled)
+                            .put("trigger", task.trigger.id)
+                            .put("task_action", task.action.id)
+                            .put("hour", task.hour)
+                            .put("minute", task.minute)
+                            .put("repeat", task.repeat.id)
+                            .put("name", task.name)
+                            .put("prompt", task.prompt.take(120))
+                            .put("plugin_id", task.pluginId)
+                            .put("last_run_at", task.lastRunAtMillis ?: JSONObject.NULL),
+                    )
+                }
+                JSONObject()
+                    .put("ok", true)
+                    .put("tool", "manage_scheduled_task")
+                    .put("count", array.length())
+                    .put("tasks", array)
+                    .toString()
+            }
+
+            "create", "update" -> upsertScheduledTask(args, action)
+
+            "set_enabled" -> {
+                val id = args.optString("task_id").trim()
+                if (id.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 task_id")
+                if (!args.has("enabled")) return failureJson("INVALID_ARGUMENT", "缺少 enabled")
+                val exists = ScheduledTaskStore.load(context).any { it.id == id }
+                if (!exists) return failureJson("TASK_NOT_FOUND", "没有这个任务：$id")
+                val enabled = args.optBoolean("enabled")
+                ScheduledTaskStore.setEnabled(context, id, enabled)
+                ScheduledTaskScheduler.rescheduleAll(context)
+                JSONObject()
+                    .put("ok", true)
+                    .put("tool", "manage_scheduled_task")
+                    .put("task_id", id)
+                    .put("enabled", enabled)
+                    .toString()
+            }
+
+            "delete" -> {
+                val id = args.optString("task_id").trim()
+                if (id.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 task_id")
+                val exists = ScheduledTaskStore.load(context).any { it.id == id }
+                if (!exists) return failureJson("TASK_NOT_FOUND", "没有这个任务：$id")
+                ScheduledTaskStore.delete(context, id)
+                ScheduledTaskScheduler.rescheduleAll(context)
+                JSONObject()
+                    .put("ok", true)
+                    .put("tool", "manage_scheduled_task")
+                    .put("deleted", id)
+                    .toString()
+            }
+
+            else -> failureJson("INVALID_ARGUMENT", "不支持的 action：$action")
+        }
+    }
+
+    /** create / update 共用：update 时保留原任务里没传的字段。 */
+    private fun upsertScheduledTask(args: JSONObject, action: String): String {
+        val existing = if (action == "update") {
+            val id = args.optString("task_id").trim()
+            if (id.isBlank()) return failureJson("INVALID_ARGUMENT", "update 需要 task_id")
+            ScheduledTaskStore.load(context).firstOrNull { it.id == id }
+                ?: return failureJson("TASK_NOT_FOUND", "没有这个任务：$id")
+        } else {
+            null
+        }
+
+        val triggerId = args.optString("trigger").trim().ifBlank { existing?.trigger?.id ?: "daily_time" }
+        val trigger = ScheduledTrigger.fromId(triggerId)
+            ?: return failureJson("INVALID_ARGUMENT", "不支持的 trigger：$triggerId（可用：daily_time / power_connected / power_disconnected / battery_low / battery_ok / screen_unlocked / wifi_connected / wifi_disconnected / notification_match）")
+
+        val keywordForCheck = if (hasValue(args, "keyword")) args.optString("keyword") else existing?.keyword.orEmpty()
+
+        val actionId = args.optString("task_action").trim()
+            .ifBlank { existing?.action?.id ?: ScheduledActionKind.CUSTOM_PROMPT.id }
+        val taskAction = ScheduledActionKind.fromId(actionId)
+            ?: return failureJson("INVALID_ARGUMENT", "不支持的 task_action：$actionId")
+
+        val hour = if (hasValue(args, "hour")) args.optInt("hour") else existing?.hour ?: 8
+        val minute = if (hasValue(args, "minute")) args.optInt("minute") else existing?.minute ?: 0
+        if (hour !in 0..23) return failureJson("INVALID_ARGUMENT", "hour 必须是 0-23")
+        if (minute !in 0..59) return failureJson("INVALID_ARGUMENT", "minute 必须是 0-59")
+
+        val repeatId = args.optString("repeat").trim().ifBlank { existing?.repeat?.id ?: "daily" }
+        val repeat = ScheduledRepeat.fromId(repeatId)
+            ?: return failureJson("INVALID_ARGUMENT", "不支持的 repeat：$repeatId")
+
+        val prompt = if (hasValue(args, "prompt")) args.optString("prompt") else existing?.prompt.orEmpty()
+        val pluginId = if (hasValue(args, "plugin_id")) args.optString("plugin_id") else existing?.pluginId.orEmpty()
+        val pluginArguments =
+            if (hasValue(args, "plugin_arguments")) args.optString("plugin_arguments") else existing?.pluginArguments.orEmpty()
+        val name = if (hasValue(args, "name")) args.optString("name") else existing?.name.orEmpty()
+
+        // 动作与参数的自洽性检查：与其建出个永远跑不起来的任务，不如当场说清。
+        when (taskAction) {
+            ScheduledActionKind.CUSTOM_PROMPT -> if (prompt.isBlank()) {
+                return failureJson("INVALID_ARGUMENT", "action=custom_prompt 需要 prompt")
+            }
+
+            ScheduledActionKind.PLUGIN -> {
+                if (pluginId.isBlank()) return failureJson("INVALID_ARGUMENT", "action=plugin 需要 plugin_id")
+                if (pluginArguments.isNotBlank()) {
+                    runCatching { JSONObject(pluginArguments) }.getOrNull()
+                        ?: return failureJson("INVALID_ARGUMENT", "plugin_arguments 必须是 JSON 对象文本")
+                }
+            }
+
+            else -> Unit
+        }
+        if (trigger == ScheduledTrigger.NOTIFICATION_MATCH && keywordForCheck.isBlank()) {
+            return failureJson(
+                "INVALID_ARGUMENT",
+                "trigger=notification_match 必须给 keyword，否则这条任务永远不会触发",
+            )
+        }
+
+        val task = ScheduledTask(
+            id = existing?.id ?: ScheduledTaskStore.newId(),
+            trigger = trigger,
+            action = taskAction,
+            enabled = if (hasValue(args, "enabled")) args.optBoolean("enabled") else existing?.enabled ?: true,
+            hour = hour,
+            minute = minute,
+            threshold = if (hasValue(args, "threshold")) args.optInt("threshold") else existing?.threshold ?: 20,
+            keyword = keywordForCheck,
+            name = name,
+            readOnly = existing?.readOnly,
+            lastRunAtMillis = existing?.lastRunAtMillis,
+            prompt = if (taskAction == ScheduledActionKind.CUSTOM_PROMPT) prompt else "",
+            pluginId = if (taskAction == ScheduledActionKind.PLUGIN) pluginId else "",
+            pluginArguments = if (taskAction == ScheduledActionKind.PLUGIN) pluginArguments else "",
+            conversationId = existing?.conversationId.orEmpty(),
+            repeat = repeat,
+            // 1=周一 … 7=周日 转成 Calendar 常量（MONDAY=2 … SUNDAY=1）。
+            dayOfWeek = if (hasValue(args, "day_of_week")) {
+                val d = args.optInt("day_of_week").coerceIn(1, 7)
+                if (d == 7) java.util.Calendar.SUNDAY else d + 1
+            } else {
+                existing?.dayOfWeek ?: java.util.Calendar.MONDAY
+            },
+            dayOfMonth = if (hasValue(args, "day_of_month")) {
+                args.optInt("day_of_month").coerceIn(1, 31)
+            } else {
+                existing?.dayOfMonth ?: 1
+            },
+            interval = if (hasValue(args, "interval")) {
+                args.optInt("interval").coerceIn(1, 30)
+            } else {
+                existing?.interval ?: 1
+            },
+        )
+
+        ScheduledTaskStore.upsert(context, task)
+        // 立即注册闹钟：否则要等下次 App 启动或用户进页面才生效，
+        // 用户会以为「设了没反应」。
+        ScheduledTaskScheduler.rescheduleAll(context)
+
+        val note = if (taskAction == ScheduledActionKind.PLUGIN) {
+            "注意：无人值守执行时无法弹确认卡；需要确认的插件会被跳过并写明原因。"
+        } else if (taskAction == ScheduledActionKind.CUSTOM_PROMPT) {
+            "注意：到点会调用模型，消耗额度。"
+        } else {
+            ""
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "manage_scheduled_task")
+            .put("action", action)
+            .put("task_id", task.id)
+            .put("enabled", task.enabled)
+            .put("trigger", task.trigger.id)
+            .put("task_action", task.action.id)
+            .put("hour", task.hour)
+            .put("minute", task.minute)
+            .put("note", note)
+            .toString()
+    }
+
+    /** `args.has(k)` 对 JSON null 也返回 true；判断"真的传了值"要用这个。 */
+    private fun hasValue(args: JSONObject, key: String): Boolean = args.has(key) && !args.isNull(key)
+
+    private fun failureJson(code: String, message: String): String =
+        JSONObject().put("ok", false).put("code", code).put("message", message).toString()
+
+    /**
+     * 模型服务商与模型的增删改查（2026-11-08 加）。
+     *
+     * 为什么加：用户的原话是「你们对 eta 明显一窍不通，还没实际操控权」。
+     * 以前只能看不能改，加模型必须去界面点。底层 ProviderRepository 一直有
+     * addProvider/updateProvider/deleteProvider，只是没暴露给模型。
+     *
+     * 安全设计（用户 2026-11-08 定的口径：**只在真正危险时弹卡，别频繁打扰**）：
+     *  · apiKey 永远打码回显，绝不返回原文；
+     *  · 删除 provider 走危险确认卡（不可逆）；
+     *  · 改 baseUrl / 换 key 这类"会让当前会话突然不可用"的改动，先执行、事后如实报告；
+     *  · 每次写入后读回校验，不一致就报错，不假装成功。
+     */
+    private fun manageProvider(args: JSONObject): String {
+        val action = args.optString("action").trim().lowercase()
+        if (action.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 action")
+
+        return runBlocking(Dispatchers.IO) {
+            // when 各分支都是 String，这里直接返回它（Kotlin 需要显式 return 才认）。
+            when (action) {
+                "list" -> {
+                    val providers = ProviderRepository.allProviders()
+                    val settings = ProviderRepository.settings()
+                    val array = JSONArray()
+                    providers.forEach { provider ->
+                        val models = JSONArray()
+                        provider.models.forEach { model ->
+                            models.put(
+                                JSONObject()
+                                    .put("model_id", model.modelId)
+                                    .put("display_name", model.displayName)
+                                    .put("enabled", model.isEnabled)
+                                    .put("context_window", model.contextWindow ?: JSONObject.NULL),
+                            )
+                        }
+                        array.put(
+                            JSONObject()
+                                .put("provider_id", provider.id)
+                                .put("name", provider.name)
+                                .put("type", provider.sourceType)
+                                .put("base_url", provider.baseUrl)
+                                .put("api_key", maskSecret(provider.apiKey))
+                                .put("enabled", provider.isEnabled)
+                                .put("built_in", provider.isBuiltIn)
+                                .put("models", models),
+                        )
+                    }
+                    JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_provider")
+                        .put("count", array.length())
+                        .put("active_provider", settings.selectedProviderId ?: JSONObject.NULL)
+                        .put("active_model", settings.selectedModelId ?: JSONObject.NULL)
+                        .put("providers", array)
+                        .toString()
+                }
+
+                "create" -> createProvider(args)
+                "update" -> updateProviderConfig(args)
+                "delete" -> deleteProviderConfig(args)
+                "set_active" -> setActiveModel(args)
+                else -> failureJson("INVALID_ARGUMENT", "不支持的 action：$action")
+            }
+        }
+    }
+
+    private suspend fun createProvider(args: JSONObject): String {
+        val name = args.optString("name").trim()
+        if (name.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 name")
+        val baseUrl = args.optString("base_url").trim()
+        if (baseUrl.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 base_url")
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            return failureJson("INVALID_ARGUMENT", "base_url 必须以 http(s):// 开头")
+        }
+        val type = args.optString("type").trim().ifBlank { ProviderTypes.OPENAI_COMPATIBLE }
+        val apiKey = args.optString("api_key")
+        val models = parseModelList(args.optJSONArray("models"))
+            ?: return failureJson("INVALID_ARGUMENT", "models 格式不对（需要 model_id 数组或对象数组）")
+
+        val provider = when (type) {
+            ProviderTypes.ANTHROPIC -> AnthropicProviderSetting(
+                id = ProviderRepository.newId(),
+                name = name,
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                models = models,
+            )
+
+            ProviderTypes.GEMINI -> GeminiProviderSetting(
+                id = ProviderRepository.newId(),
+                name = name,
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                models = models,
+            )
+
+            else -> OpenAiCompatibleProviderSetting(
+                id = ProviderRepository.newId(),
+                name = name,
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                models = models,
+            )
+        }
+
+        val saved = ProviderRepository.addProvider(provider)
+        // 读回校验：写完必须能查回来，否则报错而不是假装成功。
+        val reread = ProviderRepository.providerById(saved.id)
+            ?: return failureJson("WRITE_NOT_CONFIRMED", "写入后查不到这个 provider，可能没保存成功")
+
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "manage_provider")
+            .put("action", "create")
+            .put("provider_id", reread.id)
+            .put("name", reread.name)
+            .put("base_url", reread.baseUrl)
+            .put("api_key", maskSecret(reread.apiKey))
+            .put("models", reread.models.size)
+            .put("note", "已保存并读回确认。要切到它请用 action=set_active。")
+            .toString()
+    }
+
+    private suspend fun updateProviderConfig(args: JSONObject): String {
+        val id = args.optString("provider_id").trim()
+        if (id.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 provider_id")
+        val existing = ProviderRepository.providerById(id)
+            ?: return failureJson("PROVIDER_NOT_FOUND", "没有这个 provider：$id")
+
+        // 只改传了的字段，其余保留。key 传空串表示「不改」，避免手滑清空。
+        val newBaseUrl = args.optString("base_url").trim()
+        if (newBaseUrl.isNotBlank() &&
+            !newBaseUrl.startsWith("http://") && !newBaseUrl.startsWith("https://")
+        ) {
+            return failureJson("INVALID_ARGUMENT", "base_url 必须以 http(s):// 开头")
+        }
+        val newKey = args.optString("api_key")
+        val newModels = if (args.has("models")) {
+            parseModelList(args.optJSONArray("models"))
+                ?: return failureJson("INVALID_ARGUMENT", "models 格式不对")
+        } else {
+            existing.models
+        }
+        val updated = when (existing) {
+            is OpenAiCompatibleProviderSetting -> existing.copy(
+                name = args.optString("name").trim().ifBlank { existing.name },
+                baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
+                apiKey = newKey.ifBlank { existing.apiKey },
+                models = newModels,
+                isEnabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.isEnabled,
+            )
+
+            is AnthropicProviderSetting -> existing.copy(
+                name = args.optString("name").trim().ifBlank { existing.name },
+                baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
+                apiKey = newKey.ifBlank { existing.apiKey },
+                models = newModels,
+                isEnabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.isEnabled,
+            )
+
+            is GeminiProviderSetting -> existing.copy(
+                name = args.optString("name").trim().ifBlank { existing.name },
+                baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
+                apiKey = newKey.ifBlank { existing.apiKey },
+                models = newModels,
+                isEnabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.isEnabled,
+            )
+
+            is CustomProviderSetting -> existing.copy(
+                name = args.optString("name").trim().ifBlank { existing.name },
+                baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
+                apiKey = newKey.ifBlank { existing.apiKey },
+                models = newModels,
+                isEnabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.isEnabled,
+            )
+        }
+        ProviderRepository.updateProvider(updated)
+        // 关键（2026-11-08 审查发现）：updateProvider 只更新 provider 行，
+        // **不碰 provider_models 表**。以前这里传了 models 也白传，还返回 ok:true ——
+        // 假的成功。改模型列表必须走 replaceModels。
+        if (args.has("models")) {
+            ProviderRepository.replaceModels(id, newModels)
+        }
+        val reread = ProviderRepository.providerById(id)
+            ?: return failureJson("WRITE_NOT_CONFIRMED", "更新后查不到这个 provider")
+        if (args.has("models") && reread.models.size != newModels.size) {
+            return failureJson(
+                "WRITE_NOT_CONFIRMED",
+                "模型列表没写进去：期望 ${newModels.size} 个，实际 ${reread.models.size} 个",
+            )
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "manage_provider")
+            .put("action", "update")
+            .put("provider_id", reread.id)
+            .put("name", reread.name)
+            .put("base_url", reread.baseUrl)
+            .put("api_key", maskSecret(reread.apiKey))
+            .toString()
+    }
+
+    private suspend fun deleteProviderConfig(args: JSONObject): String {
+        val id = args.optString("provider_id").trim()
+        if (id.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 provider_id")
+        val existing = ProviderRepository.providerById(id)
+            ?: return failureJson("PROVIDER_NOT_FOUND", "没有这个 provider：$id")
+        ProviderRepository.deleteProvider(id)
+        val stillThere = ProviderRepository.providerById(id) != null
+        if (stillThere) return failureJson("WRITE_NOT_CONFIRMED", "删除后还能查到，没删成功")
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "manage_provider")
+            .put("action", "delete")
+            .put("deleted", id)
+            .put("name", existing.name)
+            .toString()
+    }
+
+    private suspend fun setActiveModel(args: JSONObject): String {
+        // 注意：切换用的是 Model.id（行 id），不是 modelId 字符串（如 "deepseek-chat"）。
+        // 两者容易混，所以这里两种都收：先按行 id 找，找不到再按 modelId 字符串找。
+        val wanted = args.optString("model_id").trim().ifBlank { args.optString("model").trim() }
+        if (wanted.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 model_id")
+        // 只找**启用中**的 provider 与模型：以前不过滤，切到已停用的会触发
+        // repairSelection 把当前选择清空再随便挑一个 —— 副作用比报错更糟。
+        val providers = ProviderRepository.allProviders().filter { it.isEnabled }
+        val hit = providers.firstNotNullOfOrNull { provider ->
+            provider.models.firstOrNull { it.isEnabled && (it.id == wanted || it.modelId == wanted) }
+                ?.let { model -> provider to model }
+        } ?: return failureJson(
+            "MODEL_NOT_FOUND",
+            "没有模型：$wanted（先用 action=list 看有哪些）",
+        )
+        RuntimeConfigRepository.setSelectedModelId(hit.second.id)
+        val settings = ProviderRepository.settings()
+        if (settings.selectedModelId != hit.second.id) {
+            return failureJson(
+                "WRITE_NOT_CONFIRMED",
+                "切换后读回不一致：现在是 ${settings.selectedModelId ?: "空"}（模型可能被禁用了）",
+            )
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("tool", "manage_provider")
+            .put("action", "set_active")
+            .put("provider", hit.first.name)
+            .put("model", hit.second.displayName)
+            .put("model_id", hit.second.modelId)
+            .toString()
+    }
+
+    /** `["m1","m2"]` 或 `[{"model_id":"m1","display_name":"M1"}]` 两种写法都认。 */
+    private fun parseModelList(array: JSONArray?): List<Model>? {
+        if (array == null) return emptyList()
+        val models = mutableListOf<Model>()
+        val seen = mutableSetOf<String>()
+        for (index in 0 until array.length()) {
+            val parsed: Model? = when (val item = array.opt(index)) {
+                is String -> if (item.isNotBlank()) {
+                    val mid = item.trim()
+                    Model(
+                        id = UUID.randomUUID().toString(),
+                        modelId = mid,
+                        displayName = mid,
+                        // sortOrder 必须给，否则全是 0，界面里顺序由 SQLite 决定（会乱）。
+                        sortOrder = index,
+                    )
+                } else {
+                    null
+                }
+
+                is JSONObject -> {
+                    val modelId = item.optString("model_id").trim()
+                    if (modelId.isBlank()) return null
+                    val window = if (item.has("context_window")) item.optInt("context_window") else null
+                    Model(
+                        id = UUID.randomUUID().toString(),
+                        modelId = modelId,
+                        displayName = item.optString("display_name").trim().ifBlank { modelId },
+                        sortOrder = index,
+                        // effectiveContextWindow 只读 override，只给 contextWindow 等于没给。
+                        contextWindow = window,
+                        contextWindowOverride = window,
+                    )
+                }
+
+                else -> return null
+            }
+            if (parsed != null) {
+                // 查重：两个同名 modelId 会让 set_active 的"按 modelId 找"产生歧义。
+                if (!seen.add(parsed.modelId.lowercase())) return null
+                models += parsed
+            }
+        }
+        return models
+    }
+
+    /** 凭据一律打码：只留前 4 位与后 4 位，中间用 *** 代替。 */
+    private fun maskSecret(secret: String): String {
+        // 空串要能和"配了但很短"区分开：否则模型会以为没配 key，又去覆盖一遍。
+        if (secret.isBlank()) return "(未设置)"
+        // 阈值 12：11-12 位的 key 若按首4尾4处理会露出 8 个字符，
+        // 对自定义网关发的短 token 几乎等于全泄（2026-11-08 审查指出）。
+        if (secret.length <= 12) return "***"
+        return secret.take(4) + "***" + secret.takeLast(4)
+    }
+
+    /**
+     * MCP 服务器的增删改查（2026-11-08 加）。
+     *
+     * 之前 MCP 也是只能在界面点：`McpServerRepository` 有 add/update/delete/setToolEnabled，
+     * 但一个都没暴露给模型。
+     *
+     * 安全设计（同 manage_provider 的口径：只在真正危险时弹卡）：
+     *  · bearer token 永远打码回显；
+     *  · 删除走危险确认卡（不可逆）；
+     *  · 新增/修改后读回校验。
+     */
+    private fun manageMcp(args: JSONObject): String {
+        val action = args.optString("action").trim().lowercase()
+        if (action.isBlank()) return failureJson("INVALID_ARGUMENT", "缺少 action")
+
+        return runBlocking(Dispatchers.IO) {
+            when (action) {
+                "list" -> {
+                    val servers = McpServerRepository.servers()
+                    val array = JSONArray()
+                    servers.forEach { server ->
+                        val tools = JSONArray()
+                        server.tools.forEach { tool ->
+                            tools.put(
+                                JSONObject()
+                                    .put("name", tool.name)
+                                    .put("description", tool.description.take(120))
+                                    .put("enabled", tool.name in server.enabledToolNames),
+                            )
+                        }
+                        array.put(
+                            JSONObject()
+                                .put("server_id", server.id)
+                                .put("name", server.name)
+                                .put("url", server.url)
+                                .put("enabled", server.enabled)
+                                .put("authorization", server.authorizationType)
+                                .put("bearer_token", maskSecret(McpServerRepository.bearerToken(server.id).orEmpty()))
+                                .put("tool_count", server.tools.size)
+                                .put("enabled_tools", server.enabledToolNames.size)
+                                .put("tools", tools),
+                        )
+                    }
+                    return@runBlocking JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_mcp")
+                        .put("count", array.length())
+                        .put("servers", array)
+                        .toString()
+                }
+
+                "create" -> {
+                    val name = args.optString("name").trim()
+                    if (name.isBlank()) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 name")
+                    val url = args.optString("url").trim()
+                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                        return@runBlocking failureJson("INVALID_ARGUMENT", "url 必须以 http(s):// 开头")
+                    }
+                    val token = args.optString("bearer_token")
+                    val server = McpServerSetting(
+                        id = java.util.UUID.randomUUID().toString(),
+                        name = name,
+                        url = url,
+                        enabled = if (args.has("enabled")) args.optBoolean("enabled") else true,
+                        authorizationType = if (token.isBlank()) McpAuthorizationType.NONE else McpAuthorizationType.BEARER,
+                    )
+                    val added = McpServerRepository.add(server, token)
+                    val reread = McpServerRepository.serverById(added.id)
+                        ?: return@runBlocking failureJson("WRITE_NOT_CONFIRMED", "写入后查不到这个 MCP 服务器")
+                    JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_mcp")
+                        .put("action", "create")
+                        .put("server_id", reread.id)
+                        .put("name", reread.name)
+                        .put("url", reread.url)
+                        .put("bearer_token", maskSecret(token))
+                        .put(
+                            "note",
+                            "已保存。工具列表要等下一次连接时才会刷新（首次为空是正常的）。",
+                        )
+                        .toString()
+                }
+
+                "update" -> {
+                    val id = args.optString("server_id").trim()
+                    if (id.isBlank()) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 server_id")
+                    val existing = McpServerRepository.serverById(id)
+                        ?: return@runBlocking failureJson("SERVER_NOT_FOUND", "没有这个 MCP 服务器：$id")
+                    val newUrl = args.optString("url").trim()
+                    if (newUrl.isNotBlank() &&
+                        !newUrl.startsWith("http://") && !newUrl.startsWith("https://")
+                    ) {
+                        return@runBlocking failureJson("INVALID_ARGUMENT", "url 必须以 http(s):// 开头")
+                    }
+                    // token 传空表示不改（与 manage_provider 的 api_key 一致）。
+                    val token = args.optString("bearer_token").ifBlank { null }
+                    val updated = existing.copy(
+                        name = args.optString("name").trim().ifBlank { existing.name },
+                        url = newUrl.ifBlank { existing.url },
+                        enabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.enabled,
+                        // 关键修复（2026-11-08 审查发现）：给原本无鉴权的服务器补 token 时，
+                        // 若 authorizationType 仍是 NONE，McpServerRepository.update 会走
+                        // secretStore.clear() —— token 被静默丢掉，服务端收到的是无鉴权请求。
+                        authorizationType = if (token != null) McpAuthorizationType.BEARER else existing.authorizationType,
+                    )
+                    McpServerRepository.update(updated, token)
+                    val reread = McpServerRepository.serverById(id)
+                        ?: return@runBlocking failureJson("WRITE_NOT_CONFIRMED", "更新后查不到这个服务器")
+                    JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_mcp")
+                        .put("action", "update")
+                        .put("server_id", reread.id)
+                        .put("name", reread.name)
+                        .put("url", reread.url)
+                        .put("enabled", reread.enabled)
+                        .toString()
+                }
+
+                "delete" -> {
+                    val id = args.optString("server_id").trim()
+                    if (id.isBlank()) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 server_id")
+                    val existing = McpServerRepository.serverById(id)
+                        ?: return@runBlocking failureJson("SERVER_NOT_FOUND", "没有这个 MCP 服务器：$id")
+                    McpServerRepository.delete(id)
+                    if (McpServerRepository.serverById(id) != null) {
+                        return@runBlocking failureJson("WRITE_NOT_CONFIRMED", "删除后还能查到，没删成功")
+                    }
+                    JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_mcp")
+                        .put("action", "delete")
+                        .put("deleted", id)
+                        .put("name", existing.name)
+                        .toString()
+                }
+
+                "set_tool" -> {
+                    val id = args.optString("server_id").trim()
+                    val toolName = args.optString("tool_name").trim()
+                    if (id.isBlank()) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 server_id")
+                    if (toolName.isBlank()) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 tool_name")
+                    if (McpServerRepository.serverById(id) == null) {
+                        return@runBlocking failureJson("SERVER_NOT_FOUND", "没有这个 MCP 服务器：$id")
+                    }
+                    if (!args.has("enabled")) return@runBlocking failureJson("INVALID_ARGUMENT", "缺少 enabled")
+                    val enabled = args.optBoolean("enabled")
+                    McpServerRepository.setToolEnabled(id, toolName, enabled)
+                    val reread = McpServerRepository.serverById(id)
+                    val nowEnabled = reread?.enabledToolNames?.contains(toolName) == true
+                    if (nowEnabled != enabled) {
+                        return@runBlocking failureJson(
+                            "WRITE_NOT_CONFIRMED",
+                            "设置后读回不一致（工具名可能不在服务器的工具列表里）",
+                        )
+                    }
+                    JSONObject()
+                        .put("ok", true)
+                        .put("tool", "manage_mcp")
+                        .put("action", "set_tool")
+                        .put("server_id", id)
+                        .put("tool_name", toolName)
+                        .put("enabled", enabled)
+                        .toString()
+                }
+
+                else -> failureJson("INVALID_ARGUMENT", "不支持的 action：$action")
+            }
+        }
+    }
+
+    private fun shareFolder(args: JSONObject): String {        // 配置存在 localAgent 里；没初始化时 current() 会返回空列表，直接当成「没有挂载」会误导。
         if (Prefs.localAgentPreferences() == null) {
             return errorResult("CONFIG_UNAVAILABLE", "配置存储尚未就绪，请在 App 内重试")
         }
@@ -2429,6 +3139,12 @@ internal class AgentLocalTools(
             "set_setting",
             "set_device_state",
             "app_state_control",
+            // 三个管理工具会改 Eta 自己的配置（删服务商 / 删 MCP / 改任务表），
+            // 属于"会动手"，只读模式必须挡住（2026-11-08 审查发现：以前它们挂在
+            // 敏感读取组里，只读任务照样能改配置）。
+            "manage_provider",
+            "manage_mcp",
+            "manage_scheduled_task",
         )
         val DEVICE_TOOL_NAMES =
             DEVICE_DIRECT_TOOL_NAMES + DEVICE_SENSITIVE_READ_TOOL_NAMES +

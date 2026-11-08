@@ -6,6 +6,10 @@ internal object AgentSensitiveToolPolicy {
         toolName.startsWith("mcp_") || toolName in sensitiveTools || toolName in io.github.mangi.eta.agent.context.PersonalSearchTools.names || toolName in AgentPhoneToolCatalog.names
 
     private val sensitiveTools = setOf(
+        // 这两个工具的参数里会带 api_key / bearer_token 原文。
+        // 不标成敏感的话，参数会被原样写进会话 transcript 与对话库（2026-11-08 审查指出）。
+        "manage_provider",
+        "manage_mcp",
         "get_setting",
         "wifi_credentials",
         "recent_notifications",

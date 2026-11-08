@@ -105,6 +105,19 @@ internal object DangerousOperationPolicy {
 
     private val WRITE_TOOLS = setOf("write_file", "edit_file")
 
+    /**
+     * 管理类工具：**删除动作**必须弹卡（2026-11-08 加）。
+     *
+     * 为什么单独列：这些工具的 `delete` 是不可逆的 ——
+     * 删 provider 会把 Keystore 里的凭据一起清掉，删 MCP 会带走它的 token，
+     * 删定时任务会丢掉配置。以前 `evaluate()` 只认 terminal 与写文件，
+     * 这些删除是**静默执行**的，而工具描述里却写着「会弹确认卡」——文案与实现不符。
+     *
+     * 只拦 `action=delete`，其余（list/create/update/set_active/set_tool）放行：
+     * 用户明确要求「不希望频繁被打扰，只在危险时弹卡」。
+     */
+    private val MANAGE_TOOLS = setOf("manage_provider", "manage_mcp", "manage_scheduled_task")
+
     fun evaluate(toolName: String, args: JSONObject?): Verdict {
         if (toolName in WRITE_TOOLS) {
             val path = args?.optString("path").orEmpty()
@@ -114,6 +127,31 @@ internal object DangerousOperationPolicy {
             } else {
                 Verdict.Safe
             }
+        }
+
+        val manageArgs = if (toolName in MANAGE_TOOLS) args else null
+        if (manageArgs != null && manageArgs.optString("action").trim().lowercase() == "delete") {
+            val target = when (toolName) {
+                "manage_provider" -> "模型服务商"
+                "manage_mcp" -> "MCP 服务器"
+                else -> "定时任务"
+            }
+            val name = manageArgs.optString("name").ifBlank {
+                manageArgs.optString("provider_id").ifBlank {
+                    manageArgs.optString("server_id").ifBlank { manageArgs.optString("task_id") }
+                }
+            }
+            return Verdict.danger(
+                rule = "删除$target",
+                reason = "要删掉${if (name.isBlank()) "一个$target" else "「$name」"}",
+                impact = if (toolName == "manage_provider") {
+                    "会连它的 API Key 一起删掉，配好的模型列表也没了"
+                } else {
+                    "会连它的凭据一起删掉，删完要重新配置"
+                },
+                recovery = "撤不了，只能重新加一遍",
+                severity = Severity.WARNING,
+            )
         }
 
         if (toolName == "terminal" || toolName == "terminal_job" || toolName == "terminal_daemon") {

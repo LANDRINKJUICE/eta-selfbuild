@@ -235,7 +235,10 @@ internal object SkillErrorJournal {
         argumentsJson: String,
     ): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(java.util.Date())
-        val shortArgs = argumentsJson
+        // 参数里的凭据必须脱敏（2026-11-08 审查发现）：manage_provider / manage_mcp 的
+        // 参数里会带 api_key / bearer_token 原文，而 ERRORS.md 是可被 skills_read_resource
+        // 读回、也会进备份的 markdown 文件。宁可少记信息，不能落明文。
+        val shortArgs = redactSecrets(argumentsJson)
             .replace('\n', ' ')
             .take(80)
         return buildString {
@@ -249,6 +252,21 @@ internal object SkillErrorJournal {
             }
         }
     }
+
+    /** 把 JSON 里形如 "key":"value" 的凭据值换成 <redacted>。 */
+    private fun redactSecrets(raw: String): String {
+        if (raw.isBlank()) return raw
+        return SECRET_FIELD.replace(raw) { match ->
+            val name = match.groupValues[1]
+            "\"$name\":\"<redacted>\""
+        }
+    }
+
+    /** 匹配 "api_key":"..." / "bearer_token":"..." 这类键值对（值里允许转义引号）。 */
+    private val SECRET_FIELD = Regex(
+        "\"(api_key|bearer_token|token|secret|password|apiKey)\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"",
+        RegexOption.IGNORE_CASE,
+    )
 
     private fun rotateIfNeeded(file: File) {
         if (!file.exists() || file.length() < MAX_BYTES) return
