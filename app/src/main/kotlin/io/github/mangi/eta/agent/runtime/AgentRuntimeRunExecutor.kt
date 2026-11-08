@@ -171,11 +171,17 @@ internal class AgentRuntimeRunExecutor(
                     McpRunSnapshot.EMPTY
                 }
             }
-            val pluginSnapshot = runCatching { PluginRunSnapshot.load(appContext) }.getOrElse { throwable ->
-                AndroidAgentLogger.warnThrottled("agent_plugin_snapshot_failed") {
-                    "Plugin tool snapshot unavailable: type=${throwable.safeLogType()}"
-                }
+            val pluginSnapshot = if (!request.config.pluginTools) {
+                // 无人值守的 run（唤醒、定时任务）：插件工具不注册，避免模型调用后
+                // 白等确认超时（linux 插件每次都要确认，而没有人能点）。
                 PluginRunSnapshot.EMPTY
+            } else {
+                runCatching { PluginRunSnapshot.load(appContext) }.getOrElse { throwable ->
+                    AndroidAgentLogger.warnThrottled("agent_plugin_snapshot_failed") {
+                        "Plugin tool snapshot unavailable: type=${throwable.safeLogType()}"
+                    }
+                    PluginRunSnapshot.EMPTY
+                }
             }
             val mcpTools = JSONArray().also { tools ->
                 mcpSnapshot.appendModelTools(tools)

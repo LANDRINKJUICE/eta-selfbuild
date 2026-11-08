@@ -577,6 +577,9 @@ private fun ScheduleEditorDialog(
     var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.DEVICE_STATUS) }
     var prompt by remember(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
     var pluginId by remember(task?.id) { mutableStateOf(task?.pluginId.orEmpty()) }
+    // 2026-11-08：插件参数（JSON）。以前界面没有这个输入框，而 PluginInvoker 永远传 {}，
+    // 于是声明了必填参数的插件在定时任务里永远失败。
+    var pluginArguments by remember(task?.id) { mutableStateOf(task?.pluginArguments.orEmpty()) }
     var repeat by remember(task?.id) { mutableStateOf(task?.repeat ?: ScheduledRepeat.DAILY) }
     var dayOfWeek by remember(task?.id) { mutableStateOf(task?.dayOfWeek ?: java.util.Calendar.MONDAY) }
     var dayOfMonth by remember(task?.id) { mutableStateOf(task?.dayOfMonth ?: 1) }
@@ -910,6 +913,25 @@ private fun ScheduleEditorDialog(
                         top = 4.dp,
                     ),
                 )
+                // 插件参数：留空表示不带参数；填了就必须是 JSON 对象。
+                TextField(
+                    value = pluginArguments,
+                    onValueChange = { pluginArguments = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = EtaPreferenceDefaults.SidePadding)
+                        .padding(top = 8.dp),
+                )
+                Text(
+                    text = stringResource(R.string.scheduled_tasks_plugin_args_placeholder),
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(
+                        start = EtaPreferenceDefaults.SidePadding,
+                        end = EtaPreferenceDefaults.SidePadding,
+                        top = 4.dp,
+                    ),
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -944,6 +966,7 @@ private fun ScheduleEditorDialog(
                                 readOnly = readOnly,
                                 prompt = if (action == ScheduledActionKind.CUSTOM_PROMPT) prompt.trim() else "",
                                 pluginId = if (action == ScheduledActionKind.PLUGIN) pluginId.trim() else "",
+                                pluginArguments = if (action == ScheduledActionKind.PLUGIN) pluginArguments.trim() else "",
                                 repeat = repeat,
                                 dayOfWeek = dayOfWeek,
                                 dayOfMonth = dayOfMonth,

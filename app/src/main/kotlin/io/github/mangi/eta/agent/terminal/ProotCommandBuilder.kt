@@ -16,6 +16,13 @@ internal object ProotCommandBuilder {
         workspace: String = TerminalRuntime.userWorkspacePath,
         tempDirectory: File = TerminalRuntime.temporaryDirectory,
         publicStorageGranted: Boolean = TerminalRuntime.publicStorageGranted,
+        /**
+         * 额外绑定：宿主绝对路径 → chroot 内绝对路径。
+         *
+         * 2026-11-08 为插件加（插件自带脚本要在 linux 环境里可执行）。
+         * proot 的 `-b` 只能读写绑定，做不到只读；调用方需自行保证不去写。
+         */
+        extraBinds: List<Pair<String, String>> = emptyList(),
     ): String {
         val native = nativeDirectory ?: return "echo ETA_PROOT_UNAVAILABLE >&2; exit 127"
         val proot = File(native, "libproot_exec.so").absolutePath
@@ -37,6 +44,13 @@ internal object ProotCommandBuilder {
                 File(it.sourcePath).isDirectory && File(it.sourcePath).canRead()
         }.forEach {
             bind(it.sourcePath, "${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${it.name}")
+        }
+        // 插件目录等额外绑定。路径由调用方给出（插件目录来自 pluginsDir 子目录），
+        // 这里只做「必须绝对路径 + 必须存在」的兜底校验，避免把奇怪的东西塞进 proot。
+        extraBinds.forEach { (source, target) ->
+            if (!source.startsWith("/") || !target.startsWith("/")) return@forEach
+            if (!File(source).isDirectory) return@forEach
+            bind(source, target)
         }
         args += listOf("/usr/bin/env", "-i", "HOME=/root", "USER=root", "LOGNAME=root", "SHELL=/bin/sh", "TERM=$termType",
             "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TMPDIR=/tmp", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")

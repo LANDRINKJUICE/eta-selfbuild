@@ -8,6 +8,7 @@ import android.os.Looper
 import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.agent.browser.BrowserSessionRegistry
 import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.agent.terminal.JobWakeUpController
 import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.agent.schedule.ScheduledTaskScheduler
@@ -70,6 +71,13 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
             ProviderRepository.init(this)
             // 定时任务也要知道「自己是哪个版本的 Eta」：注入系统提示的身份段来自这里。
             io.github.mangi.eta.agent.model.AgentRuntimeIdentity.init(this)
+            // 2026-11-08 补：插件类定时任务要按当前选的分发版/后端起 Linux 环境，
+            // 而读写这两个值依赖 LinuxEnvironmentSettingsRepository 的进程内缓存。
+            // 这个进程以前不 initialize，于是只能退回 defaultSelection() 的猜测，
+            // 可能和用户在设置页选的不一致。这里补上（只读 DataStore，不碰 rootfs）。
+            applicationScope.launch {
+                runCatching { LinuxEnvironmentSettingsRepository.initialize(this@EtaApp) }
+            }
             return
         }
         if (!AppProcessPolicy.shouldInitializeFullRuntime(processName, packageName)) {
@@ -78,6 +86,9 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         TerminalRuntime.initialize(this)
         RootAccess.initialize(this)
         applicationScope.launch { TerminalRuntime.backgroundJobs(this@EtaApp).resume() }
+        // 2026-11-08：后台命令失败唤醒改成持久队列。进程被冻/杀时那一轮唤醒会留在队列里，
+        // 这里补跑一遍，否则「构建失败了但没人处理」会一直发生（11-08 06:36 实测丢过一次）。
+        applicationScope.launch { JobWakeUpController.resumePending(this@EtaApp, AndroidAgentLogger) }
         SettingsDataStore.init(this)
         val predictiveBackEnabled = runBlocking(Dispatchers.IO) {
             AppearanceSettingsRepository.settings().predictiveBackEnabled

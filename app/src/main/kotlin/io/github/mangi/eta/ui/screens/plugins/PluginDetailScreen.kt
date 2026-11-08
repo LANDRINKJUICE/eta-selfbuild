@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.screens.plugins
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -11,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +23,7 @@ import io.github.mangi.eta.agent.plugin.PluginCallRecord
 import io.github.mangi.eta.agent.plugin.PluginEntry
 import io.github.mangi.eta.agent.plugin.PluginKind
 import io.github.mangi.eta.agent.plugin.PluginManifest
+import io.github.mangi.eta.agent.plugin.PluginInvoker
 import io.github.mangi.eta.agent.plugin.PluginPermission
 import io.github.mangi.eta.agent.plugin.PluginRepository
 import io.github.mangi.eta.ui.components.EtaArrowPreference
@@ -38,6 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -59,9 +63,11 @@ internal fun PluginDetailScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var reloadToken by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<PluginDetailState?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var trying by remember { mutableStateOf(false) }
     val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(reloadToken) {
@@ -186,6 +192,44 @@ internal fun PluginDetailScreen(
             }
         }
 
+        // 2026-11-08 补「试跑一次」：导入后到被模型调用之间，用户没法自证插件可用。
+        // 不新增页面，就在详情页放一行；只对**无参数**的插件显示（有参数得先填值，
+        // 那要一个输入弹窗，这次先不做，避免界面变复杂）。
+        if (manifest.params.none { it.required }) {
+            item(key = "try") {
+                EtaPreferenceGroup {
+                    EtaArrowPreference(
+                        title = stringResource(R.string.plugin_try_title),
+                        summary = stringResource(
+                            if (detail.missing.isEmpty()) {
+                                R.string.plugin_try_summary
+                            } else {
+                                R.string.plugin_try_summary_blocked
+                            },
+                        ),
+                        enabled = detail.missing.isEmpty() && !trying,
+                        onClick = {
+                            if (trying) return@EtaArrowPreference
+                            trying = true
+                            scope.launch {
+                                val text = withContext(Dispatchers.IO) {
+                                    PluginInvoker.invokeUnattended(context, manifest.id).let { outcome ->
+                                        when (outcome) {
+                                            is PluginInvoker.Outcome.Ok -> outcome.output.ifBlank { "ok" }
+                                            is PluginInvoker.Outcome.Failure -> outcome.message
+                                        }
+                                    }
+                                }
+                                trying = false
+                                Toast.makeText(context, text.take(300), Toast.LENGTH_LONG).show()
+                                reloadToken += 1
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
         item(key = "calls") {
             EtaPreferenceGroupTitle(stringResource(R.string.plugin_recent_calls))
             EtaPreferenceGroup {
@@ -236,13 +280,20 @@ internal fun PluginDetailScreen(
             onCancel = { confirmDelete = false },
             onConfirm = {
                 confirmDelete = false
-                runCatching {
-                    if (manifest != null && manifest.directory.isNotBlank()) {
-                        File(manifest.directory).deleteRecursively()
+                // 2026-11-08 修：deleteRecursively 以前直接跑在 Composable 回调（主线程）上，
+                // 插件目录里文件多时会卡界面。挪到 IO，删完再返回。
+                val target = manifest
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            if (target != null && target.directory.isNotBlank()) {
+                                File(target.directory).deleteRecursively()
+                            }
+                            PluginRepository.forget(context, pluginId)
+                        }
                     }
-                    PluginRepository.forget(context, pluginId)
+                    onBack()
                 }
-                onBack()
             },
         )
     }

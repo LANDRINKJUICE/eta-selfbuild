@@ -1611,11 +1611,17 @@
   <string name="plugins_state_enabled">已启用</string>
   <string name="plugins_state_need_grant">需要授权</string>
   <string name="plugins_load_failed">无法加载</string>
+  <string name="plugins_broken_delete">删除这个目录</string>
+  <string name="plugins_broken_delete_title">删除无法加载的插件</string>
+  <string name="plugins_broken_delete_summary">会删掉目录「%1$s」和它的权限记录。用于 plugin.json 写坏了、详情页进不去的情况。</string>
   <string name="plugin_enable_title">启用</string>
   <string name="plugin_enable_summary">关掉后模型看不到它</string>
   <string name="plugin_permissions_title">权限</string>
   <string name="plugin_missing_grant">还缺 %1$s，插件暂不可用</string>
   <string name="plugin_no_permission">这个插件不需要额外权限</string>
+  <string name="plugin_try_title">试跑一次</string>
+  <string name="plugin_try_summary">不带参数调一次，直接把结果给你看。</string>
+  <string name="plugin_try_summary_blocked">先把缺的权限勾上。</string>
   <string name="plugin_params_title">参数</string>
   <string name="plugin_param_required">必填</string>
   <string name="plugin_param_optional">可选</string>
@@ -1638,7 +1644,7 @@
   <string name="plugins_import_ok">已导入「%1$s」，勾好权限就能用</string>
   <string name="plugin_identity_app">命令以 Eta 的身份运行，只能读写它自己的目录和相册</string>
   <string name="plugin_identity_root">命令以 root 运行，每次调用都会先问你</string>
-  <string name="plugin_identity_linux">命令在 Debian 环境里跑（chroot，需要 root）</string>
+  <string name="plugin_identity_linux">命令在 Debian 环境里以 root 身份跑；只有危险命令会再问你一次</string>
   <string name="plugin_identity_http">只通过 HTTP 请求工作，不在本机执行命令</string>
   <string name="plugin_recent_calls">最近调用</string>
   <string name="plugin_no_calls">还没调用过</string>
@@ -1648,5 +1654,6 @@
   <!-- 定时任务调用插件 -->
   <string name="scheduled_tasks_action_plugin">调用插件</string>
   <string name="scheduled_tasks_plugin_label">插件 ID</string>
+  <string name="scheduled_tasks_plugin_args_placeholder">参数（JSON），例如 {&quot;path&quot;:&quot;/sdcard/a&quot;}。留空表示不带参数。</string>
   <string name="scheduled_tasks_plugin_placeholder">填插件 id（如 gateway_status）。无人值守运行，需要确认的插件会被跳过</string>
 </resources>

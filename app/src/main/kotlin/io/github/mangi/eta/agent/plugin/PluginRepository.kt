@@ -93,7 +93,6 @@ internal object PluginRepository {
         scan(context).filterIsInstance<PluginEntry.Loaded>()
             .map(PluginEntry.Loaded::manifest)
             .filter { isEnabled(context, it.id) }
-
     fun isEnabled(context: Context, id: String): Boolean = prefs(context).getBoolean(KEY_ENABLED + id, false)
 
     fun setEnabled(context: Context, id: String, enabled: Boolean) {
@@ -124,20 +123,26 @@ internal object PluginRepository {
 
     /** 记一次调用（最新的排最前，最多留 [MAX_CALLS] 条）。 */
     fun appendCall(context: Context, id: String, ok: Boolean, millis: Long, note: String) {
-        val next = listOf(PluginCallRecord(System.currentTimeMillis(), ok, millis, note.take(160))) +
-            recentCalls(context, id, MAX_CALLS)
-        val array = JSONArray()
-        next.take(MAX_CALLS).forEach { record ->
-            array.put(
-                JSONObject()
-                    .put("at", record.at)
-                    .put("ok", record.ok)
-                    .put("ms", record.millis)
-                    .put("note", record.note),
-            )
+        // 2026-11-08：读-改-写要串行化。并行工具调用或定时任务与前台同时触发时，
+        // 两个线程各自读到同一份旧列表再写回，后写的会覆盖先写的，记录就丢了。
+        synchronized(CALL_LOCK) {
+            val next = listOf(PluginCallRecord(System.currentTimeMillis(), ok, millis, note.take(160))) +
+                recentCalls(context, id, MAX_CALLS)
+            val array = JSONArray()
+            next.take(MAX_CALLS).forEach { record ->
+                array.put(
+                    JSONObject()
+                        .put("at", record.at)
+                        .put("ok", record.ok)
+                        .put("ms", record.millis)
+                        .put("note", record.note),
+                )
+            }
+            prefs(context).edit().putString(KEY_CALLS + id, array.toString()).apply()
         }
-        prefs(context).edit().putString(KEY_CALLS + id, array.toString()).apply()
     }
+
+    private val CALL_LOCK = Any()
 
     fun recentCalls(context: Context, id: String, limit: Int = 5): List<PluginCallRecord> {
         val raw = prefs(context).getString(KEY_CALLS + id, null) ?: return emptyList()

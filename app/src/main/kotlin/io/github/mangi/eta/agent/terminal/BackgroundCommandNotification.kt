@@ -43,7 +43,30 @@ internal object BackgroundCommandNotification {
      * 自动唤醒跑完后的结果回执：复用同一条通知（同一 task.id 与 NOTIFICATION_ID），
      * 把「失败了」升级成「已自动处理」，用户不必回会话才知道发生了什么。
      */
-    fun showWakeUpResult(context: Context, task: DetachedTask, summary: String, ok: Boolean) {
+    fun showWakeUpResult(context: Context, task: DetachedTask, summary: String, ok: Boolean) =
+        showWakeUpResult(
+            context = context,
+            taskId = task.id,
+            description = task.description,
+            exitCode = task.exitCode,
+            summary = summary,
+            ok = ok,
+        )
+
+    /**
+     * 与上面同一个通知，但只需要最基本的字段。
+     *
+     * 2026-11-08 加：唤醒改走持久队列后，进程重启补发时手上没有 `DetachedTask`
+     * （任务记录可能已经清理），只能凭队列里存的 task id / 描述 / 退出码发通知。
+     */
+    fun showWakeUpResult(
+        context: Context,
+        taskId: String,
+        description: String,
+        exitCode: Int?,
+        summary: String,
+        ok: Boolean,
+    ) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "后台命令结果", NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(context, 0,
@@ -60,8 +83,8 @@ internal object BackgroundCommandNotification {
             .setStyle(Notification.BigTextStyle().bigText(long))
             .setSubText(
                 buildString {
-                    append(task.description.ifBlank { "后台命令" })
-                    task.exitCode?.let { append(" · 退出码 ").append(it) }
+                    append(description.ifBlank { "后台命令" })
+                    exitCode?.let { append(" · 退出码 ").append(it) }
                 }
             )
             .setVisibility(Notification.VISIBILITY_PRIVATE)
@@ -69,7 +92,7 @@ internal object BackgroundCommandNotification {
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
             .build()
-        if (manager.areNotificationsEnabled()) manager.notify(task.id, NOTIFICATION_ID, notification)
+        if (manager.areNotificationsEnabled()) manager.notify(taskId, NOTIFICATION_ID, notification)
     }
 
     /** 展开态没内容时的兜底文案。 */

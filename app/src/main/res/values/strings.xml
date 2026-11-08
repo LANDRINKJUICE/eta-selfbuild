@@ -1630,11 +1630,17 @@
   <string name="plugins_state_enabled">Enabled</string>
   <string name="plugins_state_need_grant">Needs permission</string>
   <string name="plugins_load_failed">Cannot load</string>
+  <string name="plugins_broken_delete">Delete this folder</string>
+  <string name="plugins_broken_delete_title">Delete unreadable plugin</string>
+  <string name="plugins_broken_delete_summary">Removes the folder “%1$s” and its permission records. Use this when a plugin.json is broken and you cannot open its detail page.</string>
   <string name="plugin_enable_title">Enabled</string>
   <string name="plugin_enable_summary">Turn off and the model cannot see it</string>
   <string name="plugin_permissions_title">Permissions</string>
   <string name="plugin_missing_grant">Missing %1$s — plugin unusable for now</string>
   <string name="plugin_no_permission">This plugin needs no extra permission</string>
+  <string name="plugin_try_title">Run once</string>
+  <string name="plugin_try_summary">Calls the plugin with no arguments and shows the raw result.</string>
+  <string name="plugin_try_summary_blocked">Grant the missing permissions first.</string>
   <string name="plugin_params_title">Parameters</string>
   <string name="plugin_param_required">required</string>
   <string name="plugin_param_optional">optional</string>
@@ -1657,7 +1663,7 @@
   <string name="plugins_import_ok">Imported “%1$s” — grant permissions to use it</string>
   <string name="plugin_identity_app">Commands run as Eta and can only touch its own folders and the gallery</string>
   <string name="plugin_identity_root">Commands run as root and ask you every time</string>
-  <string name="plugin_identity_linux">Commands run inside the Debian environment (chroot, needs root)</string>
+  <string name="plugin_identity_linux">Commands run inside the Debian environment as root. Only dangerous commands ask for confirmation.</string>
   <string name="plugin_identity_http">Works over HTTP only — nothing runs on this device</string>
   <string name="plugin_recent_calls">Recent calls</string>
   <string name="plugin_no_calls">No calls yet</string>
@@ -1667,5 +1673,6 @@
   <!-- Scheduled task: run a plugin -->
   <string name="scheduled_tasks_action_plugin">Run a plugin</string>
   <string name="scheduled_tasks_plugin_label">Plugin ID</string>
+  <string name="scheduled_tasks_plugin_args_placeholder">Arguments as JSON, e.g. {&quot;path&quot;:&quot;/sdcard/a&quot;}. Leave empty for none.</string>
   <string name="scheduled_tasks_plugin_placeholder">Plugin id (e.g. gateway_status). Runs unattended — plugins that need confirmation are skipped</string>
 </resources>

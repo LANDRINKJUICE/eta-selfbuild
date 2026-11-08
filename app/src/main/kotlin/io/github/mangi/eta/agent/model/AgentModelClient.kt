@@ -334,6 +334,15 @@ internal object AgentModelClient {
          * 只读场景必须把它关掉，否则 Agent 照样能打开应用并点按（2026-11-04 真机事故）。
          */
         val interactionTools: Boolean = true,
+        /**
+         * 是否把已启用的插件注册成工具（2026-11-08 加）。
+         *
+         * 为什么需要单独一个开关：linux 环境插件要 root 执行、每次调用都必须确认，
+         * 而**无人值守的 run**（后台命令失败唤醒、定时任务）没有人能点那张卡 ——
+         * 模型一旦调用，就会白等确认超时（120 秒）再被拒，既浪费时间又吃掉唤醒额度。
+         * 那些场景统一传 false，插件工具根本不出现在工具表里。
+         */
+        val pluginTools: Boolean = true,
         val thinkingEnabled: Boolean = false,
         val reasoningEffort: ReasoningEffort? = null,
         val reasoningCapabilities: ModelReasoningCapabilities? = null,

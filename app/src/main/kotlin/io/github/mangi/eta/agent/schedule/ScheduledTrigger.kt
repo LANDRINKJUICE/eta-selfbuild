@@ -92,6 +92,14 @@ internal data class ScheduledTask(
      * 后加字段，老任务读出来是空串（执行时按「没指定插件」处理），不破坏既有数据。
      */
     val pluginId: String = "",
+    /**
+     * 仅 [ScheduledActionKind.PLUGIN] 使用：传给插件的参数（JSON object 文本）。
+     *
+     * 2026-11-08 补：以前 PluginInvoker 硬编码 `argumentsJson = "{}"`，
+     * 于是声明了必填参数的插件在定时任务里**永远失败**，且失败原因（缺参数）不明显。
+     * 后加字段，老任务读出来是空串，按「不带参数」处理。
+     */
+    val pluginArguments: String = "",
     /** 发起该任务的会话；通知栏「回复」会回到这个会话。本地动作无会话，保持空串。 */
     val conversationId: String = "",
     /** 重复周期：每天 / 每周 / 每月 / 每 N 天 / 每 N 小时。 */
@@ -117,6 +125,7 @@ internal data class ScheduledTask(
         .put("last_run_at", lastRunAtMillis ?: JSONObject.NULL)
         .put("prompt", prompt)
         .put("pluginId", pluginId)
+        .put("plugin_arguments", pluginArguments)
         .put("conversation_id", conversationId)
         .put("repeat", repeat.id)
         .put("day_of_week", dayOfWeek)
@@ -183,6 +192,7 @@ internal data class ScheduledTask(
                 lastRunAtMillis = lastRun,
                 prompt = json.optString("prompt", ""),
                 pluginId = json.optString("pluginId", ""),
+                pluginArguments = json.optString("plugin_arguments", ""),
                 conversationId = json.optString("conversation_id", ""),
                 repeat = ScheduledRepeat.fromId(json.optString("repeat")) ?: ScheduledRepeat.DAILY,
                 dayOfWeek = json.optInt("day_of_week", java.util.Calendar.MONDAY),

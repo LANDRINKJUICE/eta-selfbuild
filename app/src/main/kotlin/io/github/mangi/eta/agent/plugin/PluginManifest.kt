@@ -1,5 +1,8 @@
 package io.github.mangi.eta.agent.plugin
 
+import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import org.json.JSONObject
 
 /**
@@ -91,6 +94,14 @@ internal data class PluginHttpTarget(
     val bodyTemplate: String,
     /** 从响应 JSON 里取哪个字段当结果；空表示整段返回。 */
     val responsePath: String,
+    /**
+     * 附加请求头（2026-11-08 加）。
+     *
+     * 本机服务（new-api、gateway 那类）基本都要 `Authorization: Bearer xxx`，
+     * 以前只能把 token 塞进 body 或 query，既别扭又容易进日志。
+     * 值同样走模板渲染，所以可以引用参数，**不要把长期密钥写死在 manifest 里**。
+     */
+    val headers: Map<String, String>,
     val timeoutMs: Long,
 )
 
@@ -126,10 +137,11 @@ internal data class PluginManifest(
 
         PluginKind.HTTP -> {
             val endpoint = http?.endpoint.orEmpty()
-            val localOnly = endpoint.startsWith("http://127.0.0.1") ||
-                endpoint.startsWith("http://localhost") ||
-                endpoint.startsWith("http://[::1]")
-            setOf(if (localOnly) PluginPermission.NETWORK_LOCALHOST else PluginPermission.NETWORK_ANY)
+            // 与运行期共用同一个判断，避免「按提示授权了却永远被拒」（2026-11-08）。
+            setOf(
+                if (pluginEndpointIsLocal(endpoint)) PluginPermission.NETWORK_LOCALHOST
+                else PluginPermission.NETWORK_ANY,
+            )
         }
     }
 }
@@ -148,6 +160,12 @@ internal sealed interface PluginParseOutcome {
 internal object PluginManifestParser {
     private val ID_PATTERN = Regex("[a-z0-9][a-z0-9_-]{1,31}")
     private val PARAM_NAME_PATTERN = Regex("[A-Za-z_][A-Za-z0-9_]{0,31}")
+    /** 只接受 `a` 或 `a.b.c` 形式的对象字段路径。 */
+    private val RESPONSE_PATH_PATTERN = Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*")
+    /** HTTP 头名（RFC 7230 token 的简化子集）。 */
+    private val HEADER_NAME_PATTERN = Regex("[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}")
+    /** 头值不允许控制字符（含换行）：那是 header 注入的经典入口。 */
+    private val HEADER_VALUE_PATTERN = Regex("[^\\x00-\\x1F\\x7F]*")
 
     private const val DEFAULT_SHELL_TIMEOUT_MS = 30_000L
     private const val DEFAULT_HTTP_TIMEOUT_MS = 30_000L
@@ -238,12 +256,37 @@ internal object PluginManifestParser {
             if (contentType !in setOf("json", "form")) {
                 return PluginParseOutcome.Failure("http.contentType 只能是 json 或 form")
             }
+            // 2026-11-08 修：以前 responsePath 完全不校验，写成 `items[0].url` 这种
+            // 取不到的形式会在运行时静默退化成「返回整段原文」，模型拿到一坨 JSON 干瞪眼。
+            // 现在装载时就拒，把问题暴露在设置页而不是让模型猜。
+            val responsePath = node.optString("responsePath").trim()
+            if (responsePath.isNotBlank() && !RESPONSE_PATH_PATTERN.matches(responsePath)) {
+                return PluginParseOutcome.Failure(
+                    "http.responsePath 只支持 a.b.c 这种对象字段路径（不支持数组下标）：$responsePath",
+                )
+            }
+            // 附加请求头：值同样允许模板，但**不参与** shell 转义（走原样字符串）。
+            val headers = linkedMapOf<String, String>()
+            node.optJSONObject("headers")?.let { object_ ->
+                object_.keys().forEach { name ->
+                    val key = name.trim()
+                    if (!HEADER_NAME_PATTERN.matches(key)) {
+                        return PluginParseOutcome.Failure("http.headers 里的名字不合法：$key")
+                    }
+                    val value = object_.optString(name).trim()
+                    if (!HEADER_VALUE_PATTERN.matches(value)) {
+                        return PluginParseOutcome.Failure("http.headers 里的值不能包含换行或控制字符：$key")
+                    }
+                    headers[key] = value
+                }
+            }
             PluginHttpTarget(
                 endpoint = endpoint,
                 method = method,
                 contentType = contentType,
                 bodyTemplate = node.optString("bodyTemplate"),
-                responsePath = node.optString("responsePath").trim(),
+                responsePath = responsePath,
+                headers = headers,
                 timeoutMs = timeoutOf(node.opt("timeoutMs"), DEFAULT_HTTP_TIMEOUT_MS),
             )
         } else {
@@ -253,6 +296,12 @@ internal object PluginManifestParser {
         val template = exec?.command ?: http?.bodyTemplate.orEmpty()
         PluginTemplate.validate(template, params)?.let { problem ->
             return PluginParseOutcome.Failure(problem)
+        }
+        // 请求头里的模板也要校验，否则写了 {{token}} 却没声明参数，运行时才炸。
+        http?.headers?.forEach { (name, value) ->
+            PluginTemplate.validate(value, params)?.let { problem ->
+                return PluginParseOutcome.Failure("http.headers.$name：$problem")
+            }
         }
 
         val manifest = PluginManifest(
@@ -290,12 +339,40 @@ internal object PluginManifestParser {
 }
 
 /**
+ * 端点是不是「只连本机」。
+ *
+ * 2026-11-08：装载期（决定要哪个权限）和运行期（决定放不放行）**必须共用这一个判断**。
+ * 以前两边各写一份 `startsWith("http://127.0.0.1")`，`http://127.0.0.1@evil.com/x`
+ * 在装载期被判成本机（只要 network:localhost）、运行期被判成外部（要 network:any），
+ * 用户按提示授了权却永远 PERMISSION_DENIED。
+ *
+ * 按 URI 取 host 精确比对；解析不出 host 的一律当外部地址（保守优先）。
+ */
+internal fun pluginEndpointIsLocal(endpoint: String): Boolean {
+    val uri = runCatching { URI(endpoint.trim()) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase() ?: return false
+    if (scheme != "http" && scheme != "https") return false
+    // URI.host 为 null 说明写法可疑（例如 userinfo 里塞了主机名），直接从严处理。
+    val host = uri.host?.lowercase()?.trim('[', ']') ?: return false
+    return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+/**
  * 参数模板：`{{name}}` 取值、`{{#flag}}…{{/flag}}` 条件块。
  *
- * **只做替换，不求值** —— 模板里的内容永远进不了 shell 语法，
- * 参数值一律按单引号转义（[shellQuote]），避免注入。
+ * **只做替换，不求值**。参数值的转义方式取决于**输出到哪里**（[PluginTemplate.Context]）：
+ * - [Context.SHELL]：单引号转义，模板永远进不了 shell 语法（防注入）
+ * - [Context.JSON]：按 JSON 字符串转义（2026-11-08 修：以前一律当 shell 用，
+ *   导致 http 插件的 body 变成 `{"q": 'foo'}` —— 不是合法 JSON，服务端必挂）
+ * - [Context.FORM]：URL 编码
+ *
+ * 空格、`$`、反引号在三种上下文里表现不同，所以 context 必须由调用方显式给出；
+ * 默认 SHELL 只是为了兼容旧调用点，新增调用点请显式传。
  */
 internal object PluginTemplate {
+    /** 参数值最终要拼进哪种语法。 */
+    internal enum class Context { SHELL, JSON, FORM }
+
     /** 校验模板只引用了已声明的参数；返回 null 表示没问题。 */
     fun validate(template: String, params: List<PluginParam>): String? {
         val declared = params.mapTo(mutableSetOf()) { it.name }
@@ -318,8 +395,16 @@ internal object PluginTemplate {
 
     /**
      * 渲染模板。返回 null 表示参数不合法（缺必填、类型不符、引用了未声明参数）。
+     *
+     * 可选参数没传时：条件块按假处理；普通占位符渲染成**空字符串**（SHELL 下是 `''`，
+     * 保证参数位不留空导致后一个参数错位）。
      */
-    fun render(template: String, args: JSONObject, params: List<PluginParam>): String? {
+    fun render(
+        template: String,
+        args: JSONObject,
+        params: List<PluginParam>,
+        context: Context = Context.SHELL,
+    ): String? {
         for (param in params) {
             if (!args.has(param.name)) {
                 if (param.required) return null
@@ -340,22 +425,36 @@ internal object PluginTemplate {
         }
         result = PLACEHOLDER.replace(result) { match ->
             val name = match.groupValues[1]
-            renderValue(args.opt(name))
+            renderValue(args.opt(name), context)
         }
         return result
     }
 
-    private fun renderValue(value: Any?): String = when (value) {
-        null, JSONObject.NULL -> ""
-        is Boolean -> if (value) "true" else "false"
-        is Number -> value.toString()
-        else -> shellQuote(value.toString())
+    private fun renderValue(value: Any?, context: Context): String = when {
+        // 缺省值：SHELL 下给空串字面量，避免 `cmd --arg {{x}}` 变成 `cmd --arg ` 让后一个参数错位。
+        value == null || value === JSONObject.NULL -> if (context == Context.SHELL) "''" else ""
+        // 数字/布尔不经过转义：它们的字面量本身不含任何能改变语法结构的字符，
+        // 而且 typeMatches 已经保证只有真正的 Number/Boolean 会走到这里。
+        value is Boolean -> if (value) "true" else "false"
+        value is Number -> value.toString()
+        else -> escape(value.toString(), context)
+    }
+
+    private fun escape(text: String, context: Context): String = when (context) {
+        Context.SHELL -> shellQuote(text)
+        Context.JSON -> JSONObject.quote(text)
+        Context.FORM -> URLEncoder.encode(text, StandardCharsets.UTF_8.name())
     }
 
     private fun truthy(value: Any?): Boolean = when (value) {
         null, JSONObject.NULL -> false
         is Boolean -> value
         is Number -> value.toDouble() != 0.0
+        // 2026-11-08 修：以前 "false" 这种字符串会被判成真，`{{#flag}}` 反而展开了。
+        is String -> when (value.trim().lowercase()) {
+            "false", "0", "no", "" -> false
+            else -> true
+        }
         else -> value.toString().isNotBlank()
     }
 

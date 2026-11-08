@@ -74,6 +74,15 @@ internal object DangerousOperationGuard {
     private val rememberedRules = mutableSetOf<String>()
 
     /**
+     * 某个规则是否已被「这类别问了」记住。
+     *
+     * 只读暴露给单测与插件执行器：插件那边要把「规则名拼得对不对」测出来 ——
+     * 拼错的话记忆永远命不中，用户会一直被打扰而看不出哪里错了（2026-11-08）。
+     */
+    internal fun isRuleRemembered(rule: String): Boolean =
+        rule.isNotEmpty() && synchronized(lock) { rule in rememberedRules }
+
+    /**
      * 待确认请求的响应式视图。
      *
      * 界面以前用 200ms 轮询读 [pending]，等于主线程每秒唤醒 5 次只为拿一个静态值

@@ -31,9 +31,12 @@ import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.EtaTextButton
+import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.ListEmptyState
+import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.navigation.AppRoute
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,6 +61,8 @@ internal fun PluginsScreen(
     val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<PluginRow>>(emptyList()) }
     var scanToken by remember { mutableIntStateOf(0) }
+    // 待确认删除的「加载失败」目录（null 表示没有）。
+    var brokenPending by remember { mutableStateOf<PluginRow?>(null) }
 
     // 扫描要读磁盘，放 IO 线程；重新扫描（右上角或空状态按钮）通过 scanToken 触发。
     LaunchedEffect(scanToken) {
@@ -115,17 +120,56 @@ internal fun PluginsScreen(
                     rows.forEachIndexed { index, row ->
                         if (index > 0) EtaPreferenceDivider(hasLeading = false)
                         val manifest = row.manifest
-                        EtaArrowPreference(
-                            title = row.title,
-                            summary = row.summary,
-                            onClick = manifest?.let { target ->
-                                { onNavigate(AppRoute.PluginDetail(target.id)) }
-                            },
-                        )
+                        if (manifest != null) {
+                            EtaArrowPreference(
+                                title = row.title,
+                                summary = row.summary,
+                                onClick = { onNavigate(AppRoute.PluginDetail(manifest.id)) },
+                            )
+                        } else {
+                            // 2026-11-08 补：加载失败的目录以前只有一行字，详情页进不去（onClick 为 null），
+                            // 于是它的目录和权限记录**没有任何 UI 路径能清掉** —— 再导入同 id 会永久卡在
+                            // 「已经有一个叫 X 的插件了」。这里给一个直接删除入口。
+                            EtaArrowPreference(
+                                title = row.title,
+                                summary = row.summary + " · " + resources.getString(R.string.plugins_broken_delete),
+                                onClick = { brokenPending = row },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // 删除确认：走的也是普通确认弹窗，不做「静默删除」——删的是磁盘上的目录。
+    val deleting = brokenPending
+    EtaWindowDialog(
+        show = deleting != null,
+        title = stringResource(R.string.plugins_broken_delete_title),
+        summary = stringResource(R.string.plugins_broken_delete_summary, deleting?.title.orEmpty()),
+        onDismissRequest = { brokenPending = null },
+    ) {
+        MiuixDialogActions(
+            confirmText = stringResource(R.string.plugin_delete),
+            cancelText = stringResource(R.string.action_cancel),
+            destructive = true,
+            onCancel = { brokenPending = null },
+            onConfirm = {
+                val target = deleting
+                brokenPending = null
+                if (target != null) {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { File(target.directory).deleteRecursively() }
+                            // 目录名与 id 可能不一致（加载失败时 id 都没解析出来），两个都清一遍。
+                            runCatching { PluginRepository.forget(context, target.directory) }
+                        }
+                        scanToken += 1
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -135,6 +179,8 @@ private data class PluginRow(
     val summary: String,
     /** null 表示这个目录加载失败（只展示目录名与原因，不给进详情）。 */
     val manifest: PluginManifest?,
+    /** 插件目录的绝对路径；加载失败时也要有，删除入口靠它定位。 */
+    val directory: String = "",
 )
 
 private fun loadRows(context: Context): List<PluginRow> = PluginRepository.scan(context).map { entry ->
@@ -143,6 +189,7 @@ private fun loadRows(context: Context): List<PluginRow> = PluginRepository.scan(
             title = entry.directoryName,
             summary = context.getString(R.string.plugins_load_failed) + " · " + entry.reason,
             manifest = null,
+            directory = java.io.File(PluginRepository.pluginsDir(context), entry.directoryName).absolutePath,
         )
 
         is PluginEntry.Loaded -> {

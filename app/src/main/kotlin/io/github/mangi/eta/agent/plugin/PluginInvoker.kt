@@ -21,9 +21,19 @@ internal object PluginInvoker {
         data class Failure(val message: String) : Outcome
     }
 
-    fun invokeUnattended(context: Context, pluginId: String): Outcome {
+    fun invokeUnattended(
+        context: Context,
+        pluginId: String,
+        argumentsJson: String = "",
+    ): Outcome {
         val id = pluginId.trim()
         if (id.isEmpty()) return Outcome.Failure("没指定插件")
+        // 任务里存的参数必须能当对象解析；坏数据直接说清楚，不要静默当空参数跑。
+        val argumentText = argumentsJson.trim()
+        if (argumentText.isNotEmpty()) {
+            runCatching { JSONObject(argumentText) }.getOrNull()
+                ?: return Outcome.Failure("任务里的插件参数不是合法 JSON 对象")
+        }
 
         val entry = PluginRepository.scan(context)
             .filterIsInstance<PluginEntry.Loaded>()
@@ -53,7 +63,7 @@ internal object PluginInvoker {
                 AgentModelClient.ToolCall(
                     id = "scheduled-$id",
                     name = manifest.toolName,
-                    argumentsJson = "{}",
+                    argumentsJson = argumentText.ifBlank { "{}" },
                 ),
             )
             val parsed = runCatching { JSONObject(result.content) }.getOrNull()
@@ -61,9 +71,15 @@ internal object PluginInvoker {
                 Outcome.Ok(parsed.optString("output").take(400))
             } else {
                 Outcome.Failure(
+                    // 2026-11-08 修：shell 通道的结果里只有 ok/output（没有 message/code），
+                    // 以前失败就显示一句无信息的「执行失败」，退出码和 stderr 全丢。
+                    // 现在退回取 output 首行，那里带着 `exit=N` 和错误输出。
                     parsed?.optString("message").orEmpty().ifBlank {
-                        parsed?.optString("code").orEmpty().ifBlank { "执行失败" }
-                    },
+                        parsed?.optString("code").orEmpty()
+                    }.ifBlank {
+                        parsed?.optString("output").orEmpty()
+                            .lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+                    }.ifBlank { "执行失败" },
                 )
             }
         } finally {

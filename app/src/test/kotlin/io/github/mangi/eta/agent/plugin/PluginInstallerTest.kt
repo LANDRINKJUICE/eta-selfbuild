@@ -74,8 +74,7 @@ class PluginInstallerTest {
     }
 
     @Test
-    fun locatePluginRootRejectsAmbiguousLayout() {
-        val staging = tempDir("multi")
+    fun locatePluginRootRejectsAmbiguousLayout() {        val staging = tempDir("multi")
         File(staging, "a").mkdirs()
         File(staging, "b").mkdirs()
         File(File(staging, "a"), PluginRepository.MANIFEST_NAME).writeText("{}")
@@ -86,5 +85,62 @@ class PluginInstallerTest {
         assertTrue(PluginInstaller.locatePluginRoot(empty) == null)
         staging.deleteRecursively()
         empty.deleteRecursively()
+    }
+
+    // ---------------------------------------------------------------- 解压（2026-11-08 回归）
+
+    /**
+     * extract 的契约是「返回 null = 成功」。
+     *
+     * 这条测试盯的是那个阻断级 bug：importZip 里曾经写成
+     * `openInputStream(uri)?.use { extract(...) } ?: return Failure("打不开这个文件")`，
+     * 把「解压成功（返回 null）」也当成打不开，导致任何 zip 都装不进去。
+     * 这里直接锁住 extract 的返回值语义，importZip 才不会又把它用错。
+     */
+    @Test
+    fun extractReturnsNullOnSuccess() {
+        val staging = tempDir("extract-ok")
+        val zip = buildZip(
+            "plugin.json" to """{"id":"demo","type":"shell","permissions":["shell:android"],"exec":{"command":"echo hi"}}""",
+            "run.sh" to "#!/bin/sh\necho ok\n",
+        )
+        val outcome = zip.inputStream().use { PluginInstaller.extract(it, staging) }
+        assertTrue("解压成功必须返回 null，实际是 $outcome", outcome == null)
+        assertTrue(File(staging, "plugin.json").isFile)
+        assertEquals("#!/bin/sh\necho ok\n", File(staging, "run.sh").readText())
+        staging.deleteRecursively()
+    }
+
+    @Test
+    fun extractRejectsTraversalEntry() {
+        val staging = tempDir("extract-evil")
+        val zip = buildZip("../escape.txt" to "x")
+        val outcome = zip.inputStream().use { PluginInstaller.extract(it, staging) }
+        assertTrue("路径穿越必须被拒，实际是 $outcome", outcome is PluginImportResult.Failure)
+        assertFalse(File(staging.parentFile, "escape.txt").exists())
+        staging.deleteRecursively()
+    }
+
+    @Test
+    fun extractRejectsTooManyEntries() {
+        val staging = tempDir("extract-many")
+        val entries = (1..PluginInstaller.MAX_ENTRIES + 1).map { "f$it.txt" to "x" }
+        val zip = buildZip(*entries.toTypedArray())
+        val outcome = zip.inputStream().use { PluginInstaller.extract(it, staging) }
+        assertTrue("条目数超限必须被拒，实际是 $outcome", outcome is PluginImportResult.Failure)
+        staging.deleteRecursively()
+    }
+
+    /** 内存里造一个 zip（不碰 Context，纯 JVM 可跑）。 */
+    private fun buildZip(vararg entries: Pair<String, String>): ByteArray {
+        val buffer = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(buffer).use { zip ->
+            entries.forEach { (name, content) ->
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        return buffer.toByteArray()
     }
 }

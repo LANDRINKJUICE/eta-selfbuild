@@ -43,11 +43,13 @@ internal object PluginInstaller {
         }
         val staging = File(pluginsDir, STAGING_PREFIX + System.currentTimeMillis())
         return try {
-            val extracted = runCatching {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    extract(stream, staging)
-                } ?: return PluginImportResult.Failure("打不开这个文件")
-            }.getOrElse { throwable ->
+            // 2026-11-08 修（阻断级）：以前写成
+            //   openInputStream(uri)?.use { extract(stream, staging) } ?: return Failure("打不开这个文件")
+            // 而 extract() 的契约是「返回 null 表示成功」——于是**任何正常 zip 都被判成打不开**，
+            // 插件永远装不进去。现在把「流打不开」和「解压失败」两种情况分开判。
+            val stream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+                ?: return PluginImportResult.Failure("打不开这个文件")
+            val extracted = runCatching { stream.use { extract(it, staging) } }.getOrElse { throwable ->
                 return PluginImportResult.Failure("解压失败：${throwable.javaClass.simpleName}")
             }
             if (extracted != null) return extracted
@@ -69,11 +71,17 @@ internal object PluginInstaller {
             if (!root.renameTo(destination)) {
                 // 同目录 rename 一般不会失败；失败时退回逐项移动，别让用户的包白解一遍。
                 if (!root.copyRecursively(destination, overwrite = false)) {
+                    // 2026-11-08 修：以前失败后不清理，半成品目录会被 scan() 判成 Broken，
+                    // 而 Broken 条目在 UI 里进不去详情页、删不掉 —— 再导入同 id 就永久卡死。
+                    runCatching { destination.deleteRecursively() }
                     return PluginImportResult.Failure("装不进去（移动文件失败）")
                 }
             }
             // 目录名与 id 不一致时，rename 后的路径仍以 id 为准；这里再确认一次真的是这个插件
             if (!File(destination, PluginRepository.MANIFEST_NAME).isFile) {
+                // 2026-11-08 复查：这个分支以前不清残留，正式目录会留下半成品，
+                // 下次导入同 id 就永久报「已经有一个叫 X 的插件了」。
+                runCatching { destination.deleteRecursively() }
                 return PluginImportResult.Failure("装完之后找不到 plugin.json")
             }
             PluginImportResult.Ok(manifest.id, manifest.name)
@@ -84,8 +92,10 @@ internal object PluginInstaller {
     }
 
     /** 解压到 [target]；返回非 null 表示**已经失败**并给出原因。 */
-    private fun extract(stream: InputStream, target: File): PluginImportResult? {
-        if (!target.mkdirs()) return PluginImportResult.Failure("建不了临时目录")
+    internal fun extract(stream: InputStream, target: File): PluginImportResult? {
+        // 目录可能已存在（重试或调用方预建），mkdirs() 在已存在时返回 false ——
+        // 不能把「已经有了」当成失败（2026-11-08 单测踩出来的）。
+        if (!target.isDirectory && !target.mkdirs()) return PluginImportResult.Failure("建不了临时目录")
         var entries = 0
         var total = 0L
         ZipInputStream(stream.buffered()).use { zip ->
@@ -104,15 +114,48 @@ internal object PluginInstaller {
                     continue
                 }
                 file.parentFile?.mkdirs()
-                val written = file.outputStream().use { out -> zip.copyTo(out) }
+                // 2026-11-08 修：以前先整条 copyTo 落盘再累加判断，单个 1GB 条目会被完整写进
+                // filesDir 之后才报「包太大」。现在按剩余配额限量写，超了立刻停。
+                val remaining = MAX_TOTAL_BYTES - total
+                if (remaining <= 0) {
+                    return PluginImportResult.Failure("包太大（解压后超过 ${MAX_TOTAL_BYTES / 1024 / 1024} MB）")
+                }
+                val written = file.outputStream().use { out -> zip.copyBounded(out, remaining) }
                 total += written
-                if (total > MAX_TOTAL_BYTES) {
+                if (written >= remaining && zip.hasMoreBytes()) {
                     return PluginImportResult.Failure("包太大（解压后超过 ${MAX_TOTAL_BYTES / 1024 / 1024} MB）")
                 }
                 zip.closeEntry()
             }
         }
         return null
+    }
+
+    /** 限量拷贝：最多写 [limit] 字节，返回实际写入量。 */
+    private fun ZipInputStream.copyBounded(out: java.io.OutputStream, limit: Long): Long {
+        val buffer = ByteArray(8 * 1024)
+        var written = 0L
+        while (written < limit) {
+            val read = read(buffer)
+            if (read < 0) break
+            val take = minOf(read.toLong(), limit - written).toInt()
+            out.write(buffer, 0, take)
+            written += take
+        }
+        return written
+    }
+
+    /**
+     * 当前条目是否还有没读的字节。
+     *
+     * 不能用 `available()`：ZipInputStream 继承 InflaterInputStream，`available()` 只返回 0/1
+     * （表示「还能不能读」），读完最后一个字节时 eof 还没置位、它仍然返回 1 ——
+     * 于是「解压总量恰好等于上限」的合法包会被误判成超限（2026-11-08 复查发现）。
+     * 这里实探一个字节：真读到了才算超限，读到 -1 说明正好结束。
+     */
+    private fun ZipInputStream.hasMoreBytes(): Boolean {
+        val probe = ByteArray(1)
+        return read(probe) >= 0
     }
 
     /**

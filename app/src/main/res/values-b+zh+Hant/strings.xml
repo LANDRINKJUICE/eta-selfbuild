@@ -1467,11 +1467,17 @@
   <string name="plugins_state_enabled">已啟用</string>
   <string name="plugins_state_need_grant">需要授權</string>
   <string name="plugins_load_failed">無法載入</string>
+  <string name="plugins_broken_delete">刪除這個目錄</string>
+  <string name="plugins_broken_delete_title">刪除無法載入的插件</string>
+  <string name="plugins_broken_delete_summary">會刪掉目錄「%1$s」和它的權限記錄。用於 plugin.json 寫壞、詳情頁進不去的情況。</string>
   <string name="plugin_enable_title">啟用</string>
   <string name="plugin_enable_summary">關掉後模型看不到它</string>
   <string name="plugin_permissions_title">權限</string>
   <string name="plugin_missing_grant">還缺 %1$s，外掛暫時不能用</string>
   <string name="plugin_no_permission">這個外掛不需要額外權限</string>
+  <string name="plugin_try_title">試跑一次</string>
+  <string name="plugin_try_summary">不帶參數呼叫一次，直接把結果給你看。</string>
+  <string name="plugin_try_summary_blocked">先把缺的權限勾上。</string>
   <string name="plugin_params_title">參數</string>
   <string name="plugin_param_required">必填</string>
   <string name="plugin_param_optional">選填</string>
@@ -1494,7 +1500,7 @@
   <string name="plugins_import_ok">已匯入「%1$s」，勾好權限就能用</string>
   <string name="plugin_identity_app">指令以 Eta 的身分執行，只能讀寫它自己的目錄與相簿</string>
   <string name="plugin_identity_root">指令以 root 執行，每次呼叫都會先問你</string>
-  <string name="plugin_identity_linux">指令在 Debian 環境裡跑（chroot，需要 root）</string>
+  <string name="plugin_identity_linux">指令在 Debian 環境裡以 root 身分跑；只有危險指令會再問你一次</string>
   <string name="plugin_identity_http">只透過 HTTP 請求工作，不在本機執行指令</string>
   <string name="plugin_recent_calls">最近呼叫</string>
   <string name="plugin_no_calls">還沒呼叫過</string>
@@ -1504,5 +1510,6 @@
   <!-- 定時任務呼叫外掛 -->
   <string name="scheduled_tasks_action_plugin">呼叫外掛</string>
   <string name="scheduled_tasks_plugin_label">外掛 ID</string>
+  <string name="scheduled_tasks_plugin_args_placeholder">參數（JSON），例如 {&quot;path&quot;:&quot;/sdcard/a&quot;}。留空表示不帶參數。</string>
   <string name="scheduled_tasks_plugin_placeholder">填外掛 id（例如 gateway_status）。無人值守執行，需要確認的外掛會被跳過</string>
 </resources>

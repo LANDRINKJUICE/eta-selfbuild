@@ -119,7 +119,7 @@ internal object ScheduledActionRunner {
 
     /** 跑一次插件，把结果折成 [ScheduledOutcome]（失败前缀「跳过：」也是失败，别记成成功）。 */
     private fun runPlugin(context: Context, task: ScheduledTask): ScheduledOutcome =
-        when (val outcome = PluginInvoker.invokeUnattended(context, task.pluginId)) {
+        when (val outcome = PluginInvoker.invokeUnattended(context, task.pluginId, task.pluginArguments)) {
             is PluginInvoker.Outcome.Ok ->
                 ScheduledOutcome(ok = true, summary = outcome.output.ifBlank { "插件执行完成" })
 

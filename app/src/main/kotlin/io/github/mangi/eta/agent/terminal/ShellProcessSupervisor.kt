@@ -287,9 +287,26 @@ internal class ShellProcessSupervisor(
         command: String?,
         sharedMounts: List<SharedFolderMount> = emptyList(),
         termType: String = "dumb",
+        /**
+         * 额外的宿主目录 → chroot 内绝对路径（只读 bind）。
+         *
+         * 2026-11-08 为插件加：插件自带的脚本在 `filesDir/plugins/<id>/`，
+         * 而 chroot 里原本没有这个路径，`$PLUGIN_DIR/run.sh` 必然 No such file。
+         */
+        extraReadOnlyBinds: List<Pair<String, String>> = emptyList(),
     ): String {
         if (LinuxEnvironmentPaths.backendOf(rootfsPath) == LinuxExecutionBackend.PROOT) {
-            return ProotCommandBuilder.payload(rootfsPath, command, sharedMounts, termType)
+            // 2026-11-08：proot 分支以前直接丢弃 extraReadOnlyBinds，插件自带脚本在 proot
+            // 后端下必然 No such file（$PLUGIN_DIR 指的 /opt/eta-plugin 根本没被绑进去）。
+            // proot 的 -b 只支持读写绑定、无法 remount 只读，所以这里用 -b 绑进去，
+            // 并在拿到绑定结果后由调用方的命令自己负责不写（插件目录属主是 App 自己）。
+            return ProotCommandBuilder.payload(
+                rootfsPath = rootfsPath,
+                command = command,
+                sharedMounts = sharedMounts,
+                termType = termType,
+                extraBinds = extraReadOnlyBinds,
+            )
         }
         val rootfs = shellQuote(rootfsPath)
         val mode = if (command == null) "session" else "command"
@@ -300,6 +317,18 @@ internal class ShellProcessSupervisor(
             "eta_mount_shared ${shellQuote(mount.sourcePath)} " +
                 "\"\$eta_rootfs${SharedFolderMounts.LINUX_MOUNTS_ROOT}/${mount.name}\" $mode"
         }
+        // 额外只读目录（插件自己的目录）。source/target 在这里再校验一次：
+        // 必须是绝对路径、target 必须在 /opt 下、都不含单引号。
+        // 调用方虽然只传插件目录，但路径最终来自扫描到的目录名，不该只靠上游保证
+        // （2026-11-08 复查指出：注释写了「校验过」，实际没有，还留了个没用的 guard 变量）。
+        val extraBindsBlock = extraReadOnlyBinds
+            .filter { (source, target) ->
+                source.startsWith("/") && target.startsWith("/opt/") &&
+                    !source.contains('\'') && !target.contains('\'')
+            }
+            .joinToString("\n") { (source, target) ->
+                "eta_mount_extra ${shellQuote(source)} \"\$eta_rootfs${target}\""
+            }
         val innerScriptHead = """
             eta_rootfs=${'$'}1
             eta_busybox=${'$'}2
@@ -338,6 +367,20 @@ internal class ShellProcessSupervisor(
                 "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_real" 2>/dev/null ||
                   echo "ETA_MOUNT_NOT_READONLY ${'$'}eta_target" >&2
               fi
+            }
+            eta_mount_extra() {
+              eta_source=${'$'}1
+              eta_target=${'$'}2
+              "${'$'}eta_busybox" mkdir -p "${'$'}eta_target" 2>/dev/null || return 0
+              "${'$'}eta_busybox" mount -o bind "${'$'}eta_source" "${'$'}eta_target" 2>/dev/null || {
+                echo "ETA_MOUNT_FAILED ${'$'}eta_target" >&2
+                return 0
+              }
+              # 插件目录一律只读挂载：插件不该在运行时改自己的脚本，也不该借这条路写系统路径。
+              eta_real=${'$'}("${'$'}eta_busybox" readlink -f "${'$'}eta_target")
+              [ -n "${'$'}eta_real" ] || eta_real=${'$'}eta_target
+              "${'$'}eta_busybox" mount -o remount,bind,ro "${'$'}eta_real" 2>/dev/null ||
+                echo "ETA_MOUNT_NOT_READONLY ${'$'}eta_target" >&2
             }
             "${'$'}eta_busybox" mount -t proc proc "${'$'}eta_rootfs/proc" || exit 125
             eta_mount_required /dev "${'$'}eta_rootfs/dev" rbind
@@ -378,10 +421,11 @@ internal class ShellProcessSupervisor(
               PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               /bin/sh
         """.trimIndent()
-        val innerScript = if (mountsBlock.isEmpty()) {
+        val extraBlock = listOf(mountsBlock, extraBindsBlock).filter { it.isNotEmpty() }.joinToString("\n")
+        val innerScript = if (extraBlock.isEmpty()) {
             "$innerScriptHead\n$innerScriptTail"
         } else {
-            "$innerScriptHead\n$mountsBlock\n$innerScriptTail"
+            "$innerScriptHead\n$extraBlock\n$innerScriptTail"
         }
         val discovery = AndroidBusyBox.discoveryScript()
         // Alpine 的 /bin/sh 是指向 /bin/busybox 的绝对符号链接，Android 侧 -x 会按宿主根目录

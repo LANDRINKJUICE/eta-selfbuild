@@ -98,6 +98,9 @@ internal object ScheduledAgentRunner {
                 terminalTools = false,
                 browserTools = false,
                 subagentTools = false,
+                // 2026-11-08：定时任务无人值守，插件工具不注册（同唤醒那条的理由）。
+                // 想让定时任务跑插件请用 PLUGIN 动作（PluginInvoker，走确认门禁的另一条路）。
+                pluginTools = false,
                 // 关键：GUI 交互那一组（launch_app / open_uri / tap / type_text / press_key）
                 // 以前不受任何开关控制，所以「只读」照样能打开支付宝并点按
                 // （2026-11-04 用户实测：设了只读分析还是被打开支付宝）。
