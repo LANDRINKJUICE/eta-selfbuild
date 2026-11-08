@@ -92,6 +92,8 @@ import io.github.mangi.eta.ui.screens.enhance.SystemEnhanceScreen
 import io.github.mangi.eta.ui.screens.home.AgentHomeScreen
 import io.github.mangi.eta.ui.screens.mcp.McpServerDetailScreen
 import io.github.mangi.eta.ui.screens.mcp.McpServersScreen
+import io.github.mangi.eta.ui.screens.plugins.PluginDetailScreen
+import io.github.mangi.eta.ui.screens.plugins.PluginsScreen
 import io.github.mangi.eta.ui.screens.memory.AgentMemoryScreen
 import io.github.mangi.eta.ui.screens.permissions.PermissionHealthScreen
 import io.github.mangi.eta.agent.files.FileShellRunner
@@ -365,6 +367,7 @@ fun AgentAppRoot(
             },
             onOpenTools = { pushRoute(AppRoute.Tools) },
             onOpenSkills = { pushRoute(AppRoute.Skills) },
+            onOpenPlugins = { pushRoute(AppRoute.Plugins) },
             onOpenCharacters = { pushRoute(AppRoute.Characters) },
             onOpenPermissions = { pushRoute(AppRoute.Permissions) },
             onOpenSettings = { pushRoute(AppRoute.Settings) },
@@ -831,6 +834,18 @@ fun AgentAppRoot(
             entry<AppRoute.McpServers>(swipeDismiss = swipeDismiss) {
                 McpServersScreen(
                     onNavigate = { route -> pushRoute(route) },
+                    onBack = ::popRoute,
+                )
+            }
+            entry<AppRoute.Plugins>(swipeDismiss = swipeDismiss) {
+                PluginsScreen(
+                    onNavigate = { route -> pushRoute(route) },
+                    onBack = ::popRoute,
+                )
+            }
+            entry<AppRoute.PluginDetail>(swipeDismiss = swipeDismiss) { route ->
+                PluginDetailScreen(
+                    pluginId = route.pluginId,
                     onBack = ::popRoute,
                 )
             }

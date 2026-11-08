@@ -20,6 +20,8 @@ import io.github.mangi.eta.agent.subagent.AgentSubagentToolCatalog
 import io.github.mangi.eta.agent.subagent.SubagentExecutor
 import io.github.mangi.eta.agent.mcp.McpRunSnapshot
 import io.github.mangi.eta.agent.mcp.McpToolExecutor
+import io.github.mangi.eta.agent.plugin.PluginRunSnapshot
+import io.github.mangi.eta.agent.plugin.PluginToolExecutor
 import io.github.mangi.eta.agent.mcp.RoutingToolExecutor
 import io.github.mangi.eta.agent.overlay.AgentOverlayVisibilityPolicy
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
@@ -169,7 +171,16 @@ internal class AgentRuntimeRunExecutor(
                     McpRunSnapshot.EMPTY
                 }
             }
-            val mcpTools = JSONArray().also(mcpSnapshot::appendModelTools)
+            val pluginSnapshot = runCatching { PluginRunSnapshot.load(appContext) }.getOrElse { throwable ->
+                AndroidAgentLogger.warnThrottled("agent_plugin_snapshot_failed") {
+                    "Plugin tool snapshot unavailable: type=${throwable.safeLogType()}"
+                }
+                PluginRunSnapshot.EMPTY
+            }
+            val mcpTools = JSONArray().also { tools ->
+                mcpSnapshot.appendModelTools(tools)
+                pluginSnapshot.appendModelTools(tools)
+            }
             val browserKey = AgentConversationIdentity.fromHandoff(request.handoff, request.runId)
             browserBinding = BrowserSessionRegistry.acquireRun(browserKey, request.runId)
             guiRun = guiControl.openRun(request.runId, runController) { status ->
@@ -250,6 +261,7 @@ internal class AgentRuntimeRunExecutor(
             val routingExecutor = RoutingToolExecutor(
                 local = executor,
                 mcp = McpToolExecutor(mcpSnapshot),
+                plugin = PluginToolExecutor(appContext, pluginSnapshot),
             )
             toolExecutor = routingExecutor
             toolsBinding = runController.register(routingExecutor::close)

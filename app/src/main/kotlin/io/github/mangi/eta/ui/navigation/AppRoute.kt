@@ -121,6 +121,14 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object McpServers : AppRoute
 
+    /** 插件列表（设置 → 扩展 → 插件）。 */
+    @Serializable
+    data object Plugins : AppRoute
+
+    /** 插件详情：授权与开关。 */
+    @Serializable
+    data class PluginDetail(val pluginId: String) : AppRoute
+
     @Serializable
     data class McpServerDetail(val serverId: String) : AppRoute
 

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Dashboard
@@ -126,6 +127,7 @@ internal fun ConversationPanePanel(
     onOpenModelProviders: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onOpenCharacters: () -> Unit,
     onOpenPermissions: () -> Unit,
     modifier: Modifier = Modifier,
@@ -211,6 +213,7 @@ internal fun ConversationPanePanel(
                         onOpenModelProviders = onOpenModelProviders,
                         onOpenTools = onOpenTools,
                         onOpenSkills = onOpenSkills,
+                        onOpenPlugins = onOpenPlugins,
                         onOpenCharacters = onOpenCharacters,
                         onOpenPermissions = onOpenPermissions,
                     )
@@ -497,6 +500,7 @@ private fun PaneDock(
     onOpenModelProviders: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onOpenCharacters: () -> Unit,
     onOpenPermissions: () -> Unit,
 ) {
@@ -520,6 +524,12 @@ private fun PaneDock(
             icon = Icons.Rounded.Dashboard,
             label = "工具",
             onClick = onOpenTools,
+            modifier = Modifier.weight(1f),
+        )
+        DockEntry(
+            icon = Icons.Rounded.Extension,
+            label = "插件",
+            onClick = onOpenPlugins,
             modifier = Modifier.weight(1f),
         )
         DockEntry(

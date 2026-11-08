@@ -110,6 +110,7 @@ internal fun AgentAppShell(
     onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onOpenCharacters: () -> Unit,
     onOpenPermissions: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -191,6 +192,7 @@ internal fun AgentAppShell(
                     onOpenModelProviders = onOpenModelProviders,
                     onOpenTools = onOpenTools,
                     onOpenSkills = onOpenSkills,
+                    onOpenPlugins = onOpenPlugins,
                     onOpenCharacters = onOpenCharacters,
                     onOpenPermissions = onOpenPermissions,
                 ) {
@@ -487,6 +489,8 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.CommunityCatalog -> "从目录添加"
     is AppRoute.CommunityCatalogProvider -> "选择模型"
     is AppRoute.McpServers -> stringResource(R.string.route_mcp_servers)
+    is AppRoute.Plugins -> stringResource(R.string.route_plugins)
+    is AppRoute.PluginDetail -> stringResource(R.string.route_plugins)
     is AppRoute.McpServerDetail -> stringResource(R.string.route_mcp_server_detail)
     is AppRoute.ModelProviderDetail -> stringResource(R.string.route_provider_details)
     is AppRoute.ModelProviderNew -> stringResource(R.string.route_new_provider)

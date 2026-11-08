@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.mcp
 
 import android.util.Base64
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.plugin.PluginToolExecutor
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
@@ -283,11 +284,22 @@ internal class McpToolExecutor(
 internal class RoutingToolExecutor(
     private val local: AgentModelClient.ToolExecutor,
     private val mcp: McpToolExecutor,
+    /**
+     * 插件工具（2026-11-08 新增）。null 表示本次运行没有可用插件。
+     *
+     * 路由顺序：插件 → MCP → 本地工具。插件名带 `plugin_` 前缀、MCP 名带 `mcp_` 前缀，
+     * 理论上不会撞；这里仍先查插件，保证插件声明的名字优先。
+     */
+    private val plugin: PluginToolExecutor? = null,
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
-    override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
-        if (mcp.contains(toolCall.name)) mcp.execute(toolCall) else local.execute(toolCall)
+    override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult = when {
+        plugin?.contains(toolCall.name) == true -> plugin.execute(toolCall)
+        mcp.contains(toolCall.name) -> mcp.execute(toolCall)
+        else -> local.execute(toolCall)
+    }
 
     override fun close() {
+        runCatching { plugin?.close() }
         runCatching { mcp.close() }
         (local as? AutoCloseable)?.let { runCatching { it.close() } }
     }

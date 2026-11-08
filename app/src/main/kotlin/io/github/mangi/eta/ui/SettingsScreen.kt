@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccessibilityNew
@@ -405,6 +406,18 @@ private fun SettingsPageContent(
                             )
                         },
                         onClick = { onNavigate(AppRoute.McpServers) },
+                    )
+
+                    EtaPreferenceDivider()
+                    EtaArrowPreference(
+                        title = stringResource(R.string.route_plugins),
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Extension,
+                                tint = EtaPreferenceColors.Yellow,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.Plugins) },
                     )
 
                     EtaPreferenceDivider()
