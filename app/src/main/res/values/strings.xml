@@ -1682,4 +1682,7 @@
   <string name="scheduled_tasks_plugin_label">Plugin ID</string>
   <string name="scheduled_tasks_plugin_args_placeholder">Arguments as JSON, e.g. {&quot;path&quot;:&quot;/sdcard/a&quot;}. Leave empty for none.</string>
   <string name="scheduled_tasks_plugin_placeholder">Plugin id (e.g. gateway_status). Runs unattended — plugins that need confirmation are skipped</string>
+
+    <string name="scheduled_task_running_title">Scheduled task running</string>
+    <string name="scheduled_task_running_summary">Running in the background. A notification will tell you the result.</string>
 </resources>

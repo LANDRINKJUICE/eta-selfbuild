@@ -1,8 +1,13 @@
 package io.github.mangi.eta.agent.schedule
 
+import android.app.Notification
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
+import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.notify.EtaNotificationChannels
 import io.github.mangi.eta.core.AndroidAgentLogger
 import java.util.concurrent.ConcurrentHashMap
 
@@ -14,6 +19,11 @@ import java.util.concurrent.ConcurrentHashMap
  *   用户正在用手机时不会因为一次定时任务而卡顿；主进程只有真正需要 Agent 能力时才被拉起。
  * - `onStartCommand` 天然有约 10 秒的启动窗口，足够完成"取任务 → 执行 → 续排下一次"，
  *   不需要 goAsync 那套广播技巧。
+ *
+ * 为什么要自己 `startForeground`（2026-11-09 修 A3）：
+ * 本地动作（自检、系统快照、大脑备份、清 tmp、漂移检测）原本跑在裸线程上，整个包只有
+ * `ScheduledAgentRunner` 借过主进程的前台服务 —— 那对 `:schedule` 自己一点保护都没有。
+ * ColorOS 回收这个进程就是静默没备份，用户还以为做了。现在整个执行阶段自己就是前台服务。
  *
  * 自身不持有任何 UI 依赖；执行与通知都在 [ScheduledActionRunner]。
  */
@@ -32,6 +42,8 @@ internal class ScheduledTaskReceiver : Service() {
         val appContext = applicationContext
         // 手动「立即执行一次」带 force：用户主动点的就该跑，不再被 2 分钟去重挡掉。
         val force = intent?.getBooleanExtra(ScheduledTaskScheduler.EXTRA_FORCE, false) ?: false
+        // 前台服务要尽早提升：onStartCommand 里同步做，别等线程起来。
+        val foreground = enterForeground()
         Thread {
             try {
                 val task = ScheduledTaskStore.load(appContext).firstOrNull { it.id == taskId }
@@ -78,13 +90,54 @@ internal class ScheduledTaskReceiver : Service() {
                         ?.takeIf { it.enabled && it.trigger.usesAlarm }
                         ?.let { ScheduledTaskScheduler.schedule(appContext, it) }
                 }
+                // 还有别的任务在跑就别撤通知：撤了服务会退回后台态，下一个任务立刻失去保护。
+                if (foreground && inFlight.isEmpty()) {
+                    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                }
                 stopSelf(startId)
             }
         }.start()
         return START_NOT_STICKY
     }
 
+    /**
+     * 把 `:schedule` 提升为前台服务，成功返回 true。
+     *
+     * 失败只**降级**、不中止：通知权限被关、厂商拦截等情况不该让任务完全跑不了，
+     * 但必须留痕（否则又回到"静默失败"的老问题）。
+     */
+    private fun enterForeground(): Boolean = runCatching {
+        EtaNotificationChannels.ensure(this)
+        val notification = Notification.Builder(this, EtaNotificationChannels.EXECUTION)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle(getString(R.string.scheduled_task_running_title))
+            .setContentText(getString(R.string.scheduled_task_running_summary))
+            .setContentIntent(
+                EtaNotificationChannels.openAppIntent(this, requestCode = FOREGROUND_NOTIFICATION_ID)
+            )
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
+        true
+    }.onFailure { failure ->
+        AndroidAgentLogger.warn("Scheduled foreground failed: type=${failure.javaClass.simpleName}")
+    }.getOrDefault(false)
+
     private companion object {
+        /** 与 [EtaNotificationChannels.EXECUTION] 的「任务执行中」共用一条通知位，不额外堆通知。 */
+        const val FOREGROUND_NOTIFICATION_ID = 1190
+
         /**
          * 同进程内正在执行的任务 id。
          *

@@ -109,13 +109,14 @@ internal class AgentLoop(
             }
             publishTranscript()
             if (purpose.allowsTools) context.compact()
-            val requestMessages = AssistantScreenContextProjection.project(
-                roleplayContext?.projectMessages(messages) ?: messages,
-            )
             var roundInputTokens: Int? = null
             val reasoningLengthBeforeRound = accumulatedReasoning.length
-            val completedRound = try {
-                modelRetry.complete(
+            // 每次尝试都重新投影：上下文溢出被压缩后，messages 会被原地替换。
+            fun requestOnce(): AgentModelRetry.Result {
+                val requestMessages = AssistantScreenContextProjection.project(
+                    roleplayContext?.projectMessages(messages) ?: messages,
+                )
+                return modelRetry.complete(
                     initialRound = round,
                     request = ProviderRequest(config, requestMessages, roundTools, sessionId, purpose),
                     provider = provider,
@@ -144,6 +145,24 @@ internal class AgentLoop(
                 ).also { response ->
                     rejectContentFilter(response.response)
                     if (purpose == ProviderRequestPurpose.CHAT) validateChatResponse(response.response)
+                }
+            }
+            var contextOverflowRetried = false
+            val completedRound = try {
+                runCatching { requestOnce() }.getOrElse { failure ->
+                    // 2026-11-09 修（B2）：服务端判定的上下文超限比本地 token 估算更严，
+                    // 以前直接失败整轮（11-07 07:06 一次），其实强制压缩一次通常就能继续。
+                    // 只重试一次：压缩失败或再次溢出就照原样抛出去，不掩盖真实原因。
+                    if ((failure as? AgentModelFailure)?.code == AgentModelFailure.CODE_CONTEXT_OVERFLOW &&
+                        !contextOverflowRetried
+                    ) {
+                        contextOverflowRetried = true
+                        accumulatedReasoning.setLength(reasoningLengthBeforeRound)
+                        runCatching { context.compact(force = true) }.onFailure { throw failure }
+                        requestOnce()
+                    } else {
+                        throw failure
+                    }
                 }
             } finally {
                 // 同一回合的重试仍需原始观察；整个回合结束后才移除截图。

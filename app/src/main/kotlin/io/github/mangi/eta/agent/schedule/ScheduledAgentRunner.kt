@@ -1,7 +1,6 @@
 package io.github.mangi.eta.agent.schedule
 
 import android.content.Context
-import io.github.mangi.eta.agent.runtime.AgentExecutionService
 import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
 import io.github.mangi.eta.agent.style.SpeechStyleStore
@@ -13,8 +12,11 @@ import kotlinx.coroutines.runBlocking
  * 执行「自定义指令」：把用户写的一句话交给 Agent 跑一次，返回能直接放进通知的结果摘要。
  *
  * 三个设计取舍：
- * 1. **先申请前台服务**（[AgentExecutionService]）：一次 Agent run 可能跑几分钟，没有前台服务
- *    随时可能被系统回收。闹钟触发的接收器有约 10 秒的临时豁免，正好够把前台服务拉起来。
+ * 1. **前台保护由两段各自负责**：`:schedule` 进程由 [ScheduledTaskReceiver] 自己
+ *    `startForeground`（护住本地动作与这里的等待期）；主进程那边一次 Agent run 由
+ *    `AgentRuntimeService.admitRun` 自己 `AgentExecutionService.acquire`（护住真正跑模型的时间）。
+ *    以前这里跨进程 acquire 主进程的服务：`:schedule` 侧 lease 记在自己进程的 map 里、
+ *    主进程 map 是空的，服务被拉起后立刻 `stopSelf`，既没护住任何东西，还白抖一次（2026-11-09 修）。
  * 2. **结果只截断摘要进通知**：完整回答仍留在会话里（这次 run 会自己建一个会话），
  *    通知只负责告诉你"干了、结果大概是什么"。
  * 3. **失败不抛异常**：定时任务不该因为一次失败就断链，错误信息也会进通知。
@@ -112,47 +114,60 @@ internal object ScheduledAgentRunner {
 
         // 诊断：这条日志能区分「配置没拿到」和「拿到配置但 run 没返回」两种情况。
         AndroidAgentLogger.warn("Scheduled run start: task=${task.id}")
-        val leaseId = "scheduled:${task.id}"
-        val acquired = runCatching {
-            AgentExecutionService.acquire(appContext, leaseId, allowBoundFallback = false) { }
-        }.getOrDefault(false)
-        // 前台服务没拿到就别硬跑：一次 run 最长 300 秒，没有前台服务保护，
-        // 进程被 ColorOS 回收后既不成功也不失败，通知永远不来（2026-11-04 审查发现）。
-        if (!acquired) {
-            AndroidAgentLogger.warn("Scheduled run aborted: foreground service unavailable")
-            return ScheduledOutcome(false, "执行失败（无法启动前台服务，可能被系统限制）")
-        }
+        val runId = "scheduled-${task.id}-${System.currentTimeMillis()}"
+        val client = AgentRuntimeClient(appContext, AndroidAgentLogger)
+        // 2026-11-09 修（A1）：必须带 handoff。
+        // persistCompletedRun 第一行就是 `request.handoff ?: return` —— 不带时终态根本不进 outbox，
+        // 一旦客户端超时或进程被杀，这次干了什么就彻底查不到（11-07 12:30 那次只剩「执行超时」）。
+        // source 用独立值 "scheduled"：恢复逻辑（AgentRunRecoveryCoordinator / AgentAppState）
+        // 只认 agent_ui，定时任务的结果不会被 UI 当自己的 run 接管重建会话。
+        // payload 留空：定时任务不归档、不落会话，persistArchivedRun 遇到空 payload 会直接 return。
+        val handoff = AgentRuntimeWire.EntryHandoff(
+            id = runId,
+            source = AgentRuntimeWire.SCHEDULED_HANDOFF_SOURCE,
+            payload = "",
+            dismissEntrySurfaceOnForegroundOperation = false,
+        )
 
         val outcome = try {
-            val client = AgentRuntimeClient(appContext, AndroidAgentLogger)
             val result = client.run(
                 request = AgentRuntimeWire.RunRequest(
-                    runId = "scheduled-${task.id}-${System.currentTimeMillis()}",
+                    runId = runId,
                     prompt = prompt,
                     config = backgroundConfig,
                     images = emptyList(),
+                    handoff = handoff,
                 ),
                 onEvent = { },
                 // 后台入口必须带超时：主进程忙或被 ColorOS 杀掉时，没超时就会永久挂在
                 // CountDownLatch 上，任务既不成功也不失败、通知永远不来（2026-11-04 实测）。
                 timeoutSeconds = SCHEDULED_RUN_TIMEOUT_SECONDS,
             )
+            // 超时/失败先回捞一次 outbox：终态可能已经在超时边界之前写完，
+            // 这时把真实结果捞回来，比直接报「执行超时」有用得多。
+            val settled = if (result.ok) result else recoverCompletedRun(client, runId) ?: result
             AndroidAgentLogger.warn(
-                "Scheduled run done: ok=${result.ok} chars=${result.content.length} " +
-                    "err=${result.error?.take(60).orEmpty()}"
+                "Scheduled run done: ok=${settled.ok} chars=${settled.content.length} " +
+                    "recovered=${settled !== result} err=${settled.error?.take(60).orEmpty()}"
             )
-            if (result.ok) {
-                ScheduledOutcome(true, result.content.trim().ifEmpty { "已完成（无文字输出）" })
+            if (settled.ok) {
+                ScheduledOutcome(true, settled.content.trim().ifEmpty { "已完成（无文字输出）" })
             } else {
                 // 模型的错误原文（`HTTP 401`、`模型返回为空`、`上下文超长`…）直接当失败摘要。
                 // 以前这里返回纯文本，外层再靠前缀猜成败 —— 这些文案都不在表里，于是记成成功。
-                ScheduledOutcome(false, result.error?.takeIf { it.isNotBlank() } ?: "执行失败")
+                ScheduledOutcome(false, settled.error?.takeIf { it.isNotBlank() } ?: "执行失败")
             }
         } catch (failure: Exception) {
             AndroidAgentLogger.warn("Scheduled prompt failed: type=${failure.javaClass.simpleName}")
             ScheduledOutcome(false, "执行失败（${failure.javaClass.simpleName}）")
         } finally {
-            if (acquired) runCatching { AgentExecutionService.release(leaseId) }
+            // 无论成败都确认一次：未确认的终态会一直留在 outbox，
+            // 而 UI 侧 drain 是 `ORDER BY created_at ASC LIMIT 8`，堆多了会把 UI 自己的结果挤出窗口
+            // （那样会话就恢复不出来）。确认失败只记日志，不影响这次任务的结果。
+            runCatching { client.ackResult(runId) }
+                .onFailure { failure ->
+                    AndroidAgentLogger.warn("Scheduled result ack failed: type=${failure.javaClass.simpleName}")
+                }
         }
 
         return if (outcome.summary.length <= MAX_NOTIFICATION_CHARS) {
@@ -161,4 +176,20 @@ internal object ScheduledAgentRunner {
             outcome.copy(summary = outcome.summary.take(MAX_NOTIFICATION_CHARS) + "…")
         }
     }
+
+    /**
+     * 回捞已经落进 outbox 的终态。
+     *
+     * owner 传空串是**刻意**的：定时任务的 handoff.payload 就是空串，服务端
+     * `ownedResult(runId, owner)` 按 `handoff_payload = :owner` 精确匹配，
+     * 空 payload 正好只命中它自己这条，不会读到别的入口的结果。
+     */
+    private fun recoverCompletedRun(
+        client: AgentRuntimeClient,
+        runId: String,
+    ): AgentRuntimeWire.RunResult? = runCatching {
+        client.readCompletedRun(runId, owner = "")
+    }.onFailure { failure ->
+        AndroidAgentLogger.warn("Scheduled result recovery failed: type=${failure.javaClass.simpleName}")
+    }.getOrNull()
 }

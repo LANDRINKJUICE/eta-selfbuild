@@ -3,7 +3,6 @@ package io.github.mangi.eta.agent.schedule
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
@@ -91,16 +90,5 @@ internal class DeviceEventReceiver : BroadcastReceiver() {
         /** 只在 :schedule 进程内有效，进程重启后从 -1 重新开始（首次一定放行）。 */
         @Volatile
         private var lastBatteryStep: Int = -1
-
-        /** 需要在清单里静态注册的 action 列表，供 BootReceiver 复用与文档核对。 */
-        val ACTIONS: List<String> = listOf(
-            Intent.ACTION_POWER_CONNECTED,
-            Intent.ACTION_POWER_DISCONNECTED,
-            Intent.ACTION_BATTERY_CHANGED,
-            Intent.ACTION_USER_PRESENT,
-            "android.net.wifi.WIFI_STATE_CHANGED",
-        )
-
-        fun filter(): IntentFilter = IntentFilter().apply { ACTIONS.forEach(::addAction) }
     }
 }

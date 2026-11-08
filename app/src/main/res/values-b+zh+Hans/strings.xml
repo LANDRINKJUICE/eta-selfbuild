@@ -1663,4 +1663,7 @@
   <string name="scheduled_tasks_plugin_label">插件 ID</string>
   <string name="scheduled_tasks_plugin_args_placeholder">参数（JSON），例如 {&quot;path&quot;:&quot;/sdcard/a&quot;}。留空表示不带参数。</string>
   <string name="scheduled_tasks_plugin_placeholder">填插件 id（如 gateway_status）。无人值守运行，需要确认的插件会被跳过</string>
+
+    <string name="scheduled_task_running_title">定时任务执行中</string>
+    <string name="scheduled_task_running_summary">正在后台执行，完成后会通知结果。</string>
 </resources>

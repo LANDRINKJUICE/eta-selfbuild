@@ -226,6 +226,19 @@ internal class AgentRuntimeClient(
     private fun readCompletedResult(
         service: Messenger,
         completed: AgentRuntimeWire.CompletedRun,
+    ): AgentRuntimeWire.RunResult? =
+        readResultByOwner(service, completed.result.runId, completed.handoff.payload)
+
+    /**
+     * 按 runId + handoff payload 精确取回一条完整终态。
+     *
+     * 服务端找不到时返回的是占位结果（`error = 完整运行结果不可用`、`contextSnapshotRef = runId`），
+     * 这里用 `contextSnapshotRef` 区分真结果与占位，不靠错误文案匹配。
+     */
+    private fun readResultByOwner(
+        service: Messenger,
+        runId: String,
+        owner: String,
     ): AgentRuntimeWire.RunResult? = AgentResultMailbox().use { mailbox ->
         val received = CountDownLatch(1)
         val receiver = Messenger(ClientHandler(onEvent = {}, onResult = {
@@ -234,14 +247,28 @@ internal class AgentRuntimeClient(
         }, onRequestIngested = {}))
         service.send(Message.obtain(null, AgentRuntimeWire.MSG_READ_CONTEXT_RESULT).apply {
             replyTo = receiver
-            data = AgentRuntimeWire.ackBundle(completed.result.runId).apply {
-                putString("context_owner", completed.handoff.payload)
+            data = AgentRuntimeWire.ackBundle(runId).apply {
+                putString("context_owner", owner)
             }
         })
         if (!received.await(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return@use null
         val bundle = mailbox.get() ?: return@use null
         AgentRuntimeWire.runResultFromBundle(bundle).takeIf {
-            it.runId == completed.result.runId && it.contextSnapshotRef.isBlank()
+            it.runId == runId && it.contextSnapshotRef.isBlank()
+        }
+    }
+
+    /**
+     * 后台入口用：`run()` 超时或失败后回捞已经落进 outbox 的终态。
+     *
+     * 为什么需要它：`run()` 等不到结果时会发 MSG_CANCEL 并返回「执行超时」，
+     * 但终态可能已经在超时边界之前写进 outbox。直接报超时等于把真实结果丢掉
+     * （2026-11-07 12:30 那次定时任务就是这样，只剩一行「执行超时」）。
+     */
+    fun readCompletedRun(runId: String, owner: String): AgentRuntimeWire.RunResult? {
+        if (runId.isBlank()) return null
+        return withRuntimeMessenger<AgentRuntimeWire.RunResult?>(null) { serviceMessenger ->
+            readResultByOwner(serviceMessenger, runId, owner)
         }
     }
 

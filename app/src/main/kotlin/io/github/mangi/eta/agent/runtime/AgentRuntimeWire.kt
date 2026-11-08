@@ -40,6 +40,15 @@ internal object AgentRuntimeWire {
     const val AGENT_UI_HANDOFF_SOURCE = "agent_ui"
     const val ETA_VOICE_HANDOFF_SOURCE = "eta_voice"
 
+    /**
+     * 定时任务（`:schedule` 进程）的入口来源。
+     *
+     * 独立取值的原因：`AgentRunRecoveryCoordinator` 与 `AgentAppState` 恢复逻辑都只认
+     * [AGENT_UI_HANDOFF_SOURCE]，定时任务的结果不该被 UI 当成自己的 run 接管重建会话。
+     * 同时 `persistCompletedRun` 只看 handoff 是否为空，所以带上它结果才会进 outbox。
+     */
+    const val SCHEDULED_HANDOFF_SOURCE = "scheduled"
+
     internal class PayloadTooLargeException(sizeBytes: Int) : IllegalArgumentException(
         "Agent Runtime 请求元数据过大（$sizeBytes bytes）；请缩短输入或会话历史后重试"
     )

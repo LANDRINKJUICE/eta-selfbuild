@@ -1519,4 +1519,7 @@
   <string name="scheduled_tasks_plugin_label">外掛 ID</string>
   <string name="scheduled_tasks_plugin_args_placeholder">參數（JSON），例如 {&quot;path&quot;:&quot;/sdcard/a&quot;}。留空表示不帶參數。</string>
   <string name="scheduled_tasks_plugin_placeholder">填外掛 id（例如 gateway_status）。無人值守執行，需要確認的外掛會被跳過</string>
+
+    <string name="scheduled_task_running_title">定時任務執行中</string>
+    <string name="scheduled_task_running_summary">正在背景執行，完成後會通知結果。</string>
 </resources>

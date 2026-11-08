@@ -195,7 +195,12 @@
         <service
             android:name=".agent.schedule.ScheduledTaskReceiver"
             android:exported="false"
-            android:process=":schedule" />
+            android:foregroundServiceType="specialUse"
+            android:process=":schedule">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-scheduled background tasks: local device checks, workspace backup and one-off agent runs" />
+        </service>
 
         <!-- 设备事件入口：纯广播接收，不联网、不读界面。 -->
         <receiver
