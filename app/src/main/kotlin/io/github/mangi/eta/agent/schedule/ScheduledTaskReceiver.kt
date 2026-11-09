@@ -42,9 +42,10 @@ internal class ScheduledTaskReceiver : Service() {
         val appContext = applicationContext
         // 手动「立即执行一次」带 force：用户主动点的就该跑，不再被 2 分钟去重挡掉。
         val force = intent?.getBooleanExtra(ScheduledTaskScheduler.EXTRA_FORCE, false) ?: false
-        // 前台服务要尽早提升：onStartCommand 里同步做，别等线程起来。
-        val foreground = enterForeground()
         Thread {
+            // 只有真的要执行才提升为前台：任务已被删（孤儿闹钟）、已停用、刚跑过时
+            // 提前台只会白闪一条「定时任务执行中」通知（2026-11-09 修）。
+            var foreground = false
             try {
                 val task = ScheduledTaskStore.load(appContext).firstOrNull { it.id == taskId }
                 if (task == null) {
@@ -61,6 +62,7 @@ internal class ScheduledTaskReceiver : Service() {
                     // 同一任务上一次还没跑完：跳过，别再并发跑一遍（2026-11-04 代码体检 #4）
                     AndroidAgentLogger.warn("Scheduled task already running, skip: ${task.id}")
                 } else {
+                    foreground = enterForeground()
                     try {
                         // 先把「已开始」写进磁盘再执行：任务跑的那几分钟里磁盘上必须是新时间，
                         // 否则第二个触发（闹钟补发 / 事件同刻 / 手动执行）会通过 2 分钟闸门并发跑两遍。

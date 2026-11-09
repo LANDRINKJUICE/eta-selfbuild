@@ -328,8 +328,10 @@ internal object AgentDeviceToolCatalog {
                             "wifi_connected", "wifi_disconnected", "notification_match",
                         ),
                         "task_action" to enumString(
-                            "任务动作，默认 custom_prompt",
-                            "custom_prompt", "plugin", "device_status", "clean_tmp", "snapshot", "drift_check",
+                            "任务动作，默认 custom_prompt。内置动作已全部删除（2026-11-09）：" +
+                                "原来的 device_status / permissions_check / self_check / snapshot / " +
+                                "brain_backup / clean_tmp / drift_check 都不再存在，需要这类能力请用 plugin 挂插件。",
+                            "custom_prompt", "plugin",
                         ),
                         "hour" to integer("小时 0-23", 0, 23),
                         "minute" to integer("分钟 0-59", 0, 59),

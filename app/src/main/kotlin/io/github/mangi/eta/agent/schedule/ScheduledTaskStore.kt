@@ -42,12 +42,6 @@ internal object ScheduledTaskStore {
 
     fun load(context: Context): List<ScheduledTask> = readState(context).tasks
 
-    internal fun hasSeeded(context: Context): Boolean = readState(context).seeded
-
-    internal fun markSeeded(context: Context) {
-        update(context) { state -> state.copy(seeded = true) }
-    }
-
     /**
      * 整表保存（用户编辑任务后回写）。
      *

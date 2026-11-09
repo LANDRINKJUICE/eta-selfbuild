@@ -574,7 +574,7 @@ private fun ScheduleEditorDialog(
 ) {
     var hour by remember(task?.id) { mutableStateOf(task?.hour ?: DefaultHour) }
     var minute by remember(task?.id) { mutableStateOf(task?.minute ?: DefaultMinute) }
-    var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.DEVICE_STATUS) }
+    var action by remember(task?.id) { mutableStateOf(task?.action ?: ScheduledActionKind.CUSTOM_PROMPT) }
     var prompt by remember(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
     var pluginId by remember(task?.id) { mutableStateOf(task?.pluginId.orEmpty()) }
     // 2026-11-08：插件参数（JSON）。以前界面没有这个输入框，而 PluginInvoker 永远传 {}，
@@ -1101,14 +1101,6 @@ private fun repeatLabel(repeat: ScheduledRepeat): String = when (repeat) {
 
 @StringRes
 private fun actionLabelRes(kind: ScheduledActionKind): Int = when (kind) {
-    ScheduledActionKind.DEVICE_STATUS -> R.string.scheduled_tasks_action_device_status
-    ScheduledActionKind.MEMORY_STATUS -> R.string.scheduled_tasks_action_memory_status
-    ScheduledActionKind.PERMISSIONS_CHECK -> R.string.scheduled_tasks_action_permissions_check
-    ScheduledActionKind.SELF_CHECK -> R.string.scheduled_tasks_action_self_check
-    ScheduledActionKind.SNAPSHOT -> R.string.scheduled_tasks_action_snapshot
-    ScheduledActionKind.BRAIN_BACKUP -> R.string.scheduled_tasks_action_brain_backup
-    ScheduledActionKind.CLEAN_TMP -> R.string.scheduled_tasks_action_clean_tmp
-    ScheduledActionKind.DRIFT_CHECK -> R.string.scheduled_tasks_action_drift_check
     ScheduledActionKind.CUSTOM_PROMPT -> R.string.scheduled_tasks_kind_custom
     ScheduledActionKind.PLUGIN -> R.string.scheduled_tasks_action_plugin
 }

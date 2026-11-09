@@ -53,8 +53,6 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         // （logcat 环形缓冲真机上只保留一分钟左右，出了问题回头就看不到。）
         io.github.mangi.eta.core.DiagnosticLogFiles.init(this)
         io.github.mangi.eta.core.DiagnosticLogFiles.installCrashHandler()
-        // 说话风格：系统提示每轮都要拼，初始化时读一次进内存缓存。
-        io.github.mangi.eta.agent.style.SpeechStyleStore.init(this)
         val processName = Application.getProcessName()
         // 定时任务的 :schedule 进程只需要最基础的 SharedPreferences（读任务表）；
         // 完整运行时（终端、Root、仓库）在主进程初始化，两者互不干扰。

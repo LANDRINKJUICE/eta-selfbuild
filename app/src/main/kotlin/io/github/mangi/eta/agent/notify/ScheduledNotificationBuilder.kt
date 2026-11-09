@@ -1,9 +1,7 @@
 package io.github.mangi.eta.agent.notify
 
 import android.app.Notification
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import io.github.mangi.eta.agent.schedule.ScheduledRunLog
 import io.github.mangi.eta.agent.schedule.ScheduledTask
 import io.github.mangi.eta.agent.schedule.ScheduledTaskNaming
@@ -84,14 +82,6 @@ internal object ScheduledNotificationBuilder {
     private fun actionTitle(task: ScheduledTask): String {
         ScheduledTaskNaming.nameCandidate(task).takeIf { it.isNotEmpty() }?.let { return it }
         return when (task.action) {
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.DEVICE_STATUS -> "设备状态"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.MEMORY_STATUS -> "记忆状态"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.PERMISSIONS_CHECK -> "权限体检"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.SELF_CHECK -> "自我体检"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.SNAPSHOT -> "系统快照"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.BRAIN_BACKUP -> "大脑备份"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.CLEAN_TMP -> "清理临时文件"
-            io.github.mangi.eta.agent.schedule.ScheduledActionKind.DRIFT_CHECK -> "系统漂移检测"
             io.github.mangi.eta.agent.schedule.ScheduledActionKind.CUSTOM_PROMPT -> "定时提醒"
             io.github.mangi.eta.agent.schedule.ScheduledActionKind.PLUGIN -> "插件任务"
         }

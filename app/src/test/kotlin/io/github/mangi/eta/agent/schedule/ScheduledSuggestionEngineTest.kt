@@ -191,7 +191,7 @@ class ScheduledSuggestionEngineTest {
             ScheduledTask(
                 id = "eta-perm-mon0900",
                 trigger = ScheduledTrigger.DAILY_TIME,
-                action = ScheduledActionKind.PERMISSIONS_CHECK,
+                action = ScheduledActionKind.CUSTOM_PROMPT,
                 enabled = true,
                 hour = 9,
                 minute = 0,

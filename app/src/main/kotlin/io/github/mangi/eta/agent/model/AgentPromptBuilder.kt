@@ -53,13 +53,7 @@ internal object AgentPromptBuilder {
                     // 模型不能靠「记住」自己是 Eta、装的是哪一版 —— 被问到时它会去历史消息里翻旧值。
                     AgentRuntimeIdentity.describe().takeIf { it.isNotBlank() }
                         ?.plus("\n\n")
-                        .orEmpty() +
-                        // 说话风格：只影响语气，不改变事实与安全规则（见 SpeechStyleStore）。
-                        // 扮演模式不注入，语气由角色卡决定，避免两个风格打架。
-                        io.github.mangi.eta.agent.style.SpeechStyleStore.instruction()
-                            .takeIf { it.isNotBlank() }
-                            ?.plus("\n\n")
-                            .orEmpty()
+                        .orEmpty()
                 } else {
                     "按后续人物设定交流，执行现实任务时也保持角色的身份和语气；现实操作通过当前可用工具执行。" +
                         "${AgentConversationToolCatalog.READ_HISTORY} 返回不可变的原始执行历史；用户修订后的正文以当前上下文中的修订投影为准，不能用原档案撤销正文修订。" +

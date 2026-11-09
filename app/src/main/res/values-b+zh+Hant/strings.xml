@@ -1371,14 +1371,6 @@
   <string name="scheduled_tasks_delete_confirm">刪除 %1$s 的任務？此操作無法復原。</string>
   <string name="scheduled_tasks_brief_never">從未執行</string>
   <string name="scheduled_tasks_enabled">啟用</string>
-  <string name="scheduled_tasks_action_device_status">裝置狀態</string>
-  <string name="scheduled_tasks_action_memory_status">記憶狀態</string>
-  <string name="scheduled_tasks_action_permissions_check">權限檢查</string>
-  <string name="scheduled_tasks_action_self_check">自我檢查</string>
-  <string name="scheduled_tasks_action_snapshot">系統快照</string>
-  <string name="scheduled_tasks_action_brain_backup">大腦備份</string>
-  <string name="scheduled_tasks_action_clean_tmp">清理暫存檔</string>
-  <string name="scheduled_tasks_action_drift_check">漂移檢測</string>
   <string name="scheduled_tasks_time_title">時間</string>
   <string name="scheduled_tasks_action_title">動作</string>
   <string name="scheduled_tasks_save">儲存</string>

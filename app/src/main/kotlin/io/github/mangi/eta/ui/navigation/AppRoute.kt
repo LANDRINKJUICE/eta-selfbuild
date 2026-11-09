@@ -27,10 +27,6 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object Subagents : AppRoute
 
-    /** 说话风格：预设 + 自定义，只影响语气。 */
-    @Serializable
-    data object SpeechStyle : AppRoute
-
     /** GitHub 账号：连 token / 看限速 / 断开。以后加其他服务时再抽一级「账号」列表。 */
     @Serializable
     data object GitHubAccount : AppRoute

@@ -41,7 +41,7 @@ class ScheduledTaskScheduleTest {
     ) = ScheduledTask(
         id = "test",
         trigger = ScheduledTrigger.DAILY_TIME,
-        action = ScheduledActionKind.DEVICE_STATUS,
+        action = ScheduledActionKind.CUSTOM_PROMPT,
         enabled = true,
         hour = hour,
         minute = minute,

@@ -1585,8 +1585,6 @@ internal class AgentLocalTools(
                         ?: return failureJson("INVALID_ARGUMENT", "plugin_arguments 必须是 JSON 对象文本")
                 }
             }
-
-            else -> Unit
         }
         if (trigger == ScheduledTrigger.NOTIFICATION_MATCH && keywordForCheck.isBlank()) {
             return failureJson(
