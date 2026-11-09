@@ -8,6 +8,7 @@ internal object ProviderTypes {
     const val ANTHROPIC = "anthropic"
     const val GEMINI = "gemini"
     const val CUSTOM = "custom"
+    const val OPENCODE = "opencode"
 }
 
 internal object OpenAiEndpointMode {
@@ -150,12 +151,40 @@ data class CustomProviderSetting(
     override val authMode: String = ProviderAuthModes.API_KEY,
 ) : ProviderSetting
 
+/** 本地 OpenCode Server（chroot 内 http://127.0.0.1:4098/api）的接入配置；apiKey 存 Basic 密码，可为空。 */
+@Serializable
+@SerialName(ProviderTypes.OPENCODE)
+data class OpenCodeProviderSetting(
+    override val id: String,
+    override val name: String,
+    override val baseUrl: String = DEFAULT_BASE_URL,
+    override val sourceType: String = ProviderSourceTypes.CUSTOM,
+    override val apiKey: String = "",
+    override val isEnabled: Boolean = true,
+    override val isBuiltIn: Boolean = false,
+    override val sortOrder: Int = 0,
+    override val systemPrompt: String? = null,
+    override val models: List<Model> = emptyList(),
+    override val customHeaders: List<CustomHeader> = emptyList(),
+    override val customBody: List<CustomBody> = emptyList(),
+    override val createdAt: Long = System.currentTimeMillis(),
+    override val hostedWebSearchEnabled: Boolean = false,
+) : ProviderSetting {
+    override val authMode: String get() = ProviderAuthModes.API_KEY
+
+    companion object {
+        const val DEFAULT_BASE_URL = "http://127.0.0.1:4098/api"
+        const val DEFAULT_USERNAME = "opencode"
+    }
+}
+
 internal val ProviderSetting.runtimeProviderType: String
     get() = when (this) {
         is AnthropicProviderSetting -> ProviderTypes.ANTHROPIC
         is GeminiProviderSetting -> ProviderTypes.GEMINI
         is OpenAiCompatibleProviderSetting,
         is CustomProviderSetting -> ProviderTypes.OPENAI_COMPATIBLE
+        is OpenCodeProviderSetting -> ProviderTypes.OPENCODE
     }
 
 internal val ProviderSetting.typeLabel: String
@@ -164,6 +193,7 @@ internal val ProviderSetting.typeLabel: String
         is GeminiProviderSetting -> "Gemini Interactions"
         is OpenAiCompatibleProviderSetting -> "OpenAI-compatible"
         is CustomProviderSetting -> "Custom OpenAI-compatible"
+        is OpenCodeProviderSetting -> "OpenCode Server"
     }
 
 internal val ProviderSetting.displayApiKeySummary: String
@@ -179,6 +209,7 @@ internal fun ProviderSetting.withModels(models: List<Model>): ProviderSetting =
         is AnthropicProviderSetting -> copy(models = models)
         is GeminiProviderSetting -> copy(models = models)
         is CustomProviderSetting -> copy(models = models)
+        is OpenCodeProviderSetting -> copy(models = models)
     }
 
 internal fun ProviderSetting.withSortOrder(sortOrder: Int): ProviderSetting =
@@ -187,6 +218,7 @@ internal fun ProviderSetting.withSortOrder(sortOrder: Int): ProviderSetting =
         is AnthropicProviderSetting -> copy(sortOrder = sortOrder)
         is GeminiProviderSetting -> copy(sortOrder = sortOrder)
         is CustomProviderSetting -> copy(sortOrder = sortOrder)
+        is OpenCodeProviderSetting -> copy(sortOrder = sortOrder)
     }
 
 internal fun ProviderSetting.withId(id: String): ProviderSetting =
@@ -195,6 +227,7 @@ internal fun ProviderSetting.withId(id: String): ProviderSetting =
         is AnthropicProviderSetting -> copy(id = id)
         is GeminiProviderSetting -> copy(id = id)
         is CustomProviderSetting -> copy(id = id)
+        is OpenCodeProviderSetting -> copy(id = id)
     }
 
 internal fun ProviderSetting.withApiKey(apiKey: String): ProviderSetting =
@@ -203,6 +236,7 @@ internal fun ProviderSetting.withApiKey(apiKey: String): ProviderSetting =
         is AnthropicProviderSetting -> copy(apiKey = apiKey)
         is GeminiProviderSetting -> copy(apiKey = apiKey)
         is CustomProviderSetting -> copy(apiKey = apiKey)
+        is OpenCodeProviderSetting -> copy(apiKey = apiKey)
     }
 
 internal data class ProviderModel(val provider: ProviderSetting, val model: Model)

@@ -107,6 +107,15 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         io.github.mangi.eta.agent.schedule.BatteryMonitor.start(this)
         // 通知渠道：跑完要弹窗提示的渠道必须是 HIGH + 声音，这里统一建好并做版本升级。
         io.github.mangi.eta.agent.notify.EtaNotificationChannels.ensure(this)
+        // Eta 作为 MCP Server：把 Android 能力暴露给本机 OpenCode（chroot，127.0.0.1）。
+        // P0：只读工具（phone_status / screenshot / ui_tree），进程内 HTTP，权限单源。
+        // 详见 agent/mcp/EtaMcpServer.kt
+        applicationScope.launch {
+            runCatching { io.github.mangi.eta.agent.mcp.EtaMcpServer().start() }
+                .onFailure { throwable ->
+                    AndroidAgentLogger.warn("Eta MCP server start failed: type=${throwable.safeLogType()}")
+                }
+        }
         XposedServiceHelper.registerListener(this)
         applicationScope.launch {
             try {

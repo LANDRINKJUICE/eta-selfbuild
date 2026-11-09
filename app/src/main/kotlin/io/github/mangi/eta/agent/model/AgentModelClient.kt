@@ -270,6 +270,9 @@ internal object AgentModelClient {
     private fun ModelConfig.validate() {
         require(baseUrl.isNotBlank()) { "请先配置 API 地址" }
         when {
+            providerType == ProviderTypes.OPENCODE -> {
+                // OpenCode 本机 server 允许无密码部署，apiKey 存 Basic 密码，允许为空。
+            }
             authMode == ProviderAuthModes.API_KEY -> require(apiKey.isNotBlank()) { "请先配置 API Key" }
             ProviderAuthModes.isOAuth(authMode) -> {
                 require(providerId.isNotBlank()) { "账号登录缺少服务商标识，请重新选择服务商" }

@@ -39,6 +39,7 @@ import io.github.mangi.eta.data.model.GeminiProviderSetting
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.withId
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -101,6 +102,10 @@ internal fun ModelProviderDetailScreen(
             NewProviderType.Gemini -> GeminiProviderSetting(
                 id = "",
                 name = "",
+            )
+            NewProviderType.OpenCode -> OpenCodeProviderSetting(
+                id = "",
+                name = "OpenCode",
             )
             null -> null
         }

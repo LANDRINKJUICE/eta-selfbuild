@@ -14,6 +14,7 @@ import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -358,6 +359,14 @@ internal object ProviderRepository {
             )
 
             is CustomProviderSetting -> copy(
+                id = id,
+                name = name,
+                sortOrder = sortOrder,
+                isBuiltIn = builtIn,
+                models = copiedModels,
+            )
+
+            is OpenCodeProviderSetting -> copy(
                 id = id,
                 name = name,
                 sortOrder = sortOrder,

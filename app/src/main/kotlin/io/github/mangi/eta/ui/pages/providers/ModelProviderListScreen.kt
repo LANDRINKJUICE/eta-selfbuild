@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.runtime.Composable
@@ -122,6 +123,15 @@ internal fun ModelProviderListScreen(
                     summary = "使用 API Key 连接原生 Interactions API",
                     startAction = { ProviderBrandIcon(ProviderSourceTypes.GEMINI) },
                     onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.Gemini)) },
+                )
+                EtaPreferenceDivider()
+                EtaArrowPreference(
+                    title = "接入本机 OpenCode",
+                    summary = "手机 chroot 内 OpenCode Server 的会话桥接",
+                    startAction = {
+                        EtaPreferenceIcon(Icons.Rounded.Memory, tint = EtaPreferenceColors.Blue)
+                    },
+                    onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.OpenCode)) },
                 )
             }
         }

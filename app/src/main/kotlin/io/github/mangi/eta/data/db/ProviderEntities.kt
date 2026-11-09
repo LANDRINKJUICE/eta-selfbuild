@@ -17,6 +17,7 @@ import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderTypes
@@ -124,6 +125,7 @@ internal fun ProviderSetting.toEntity(): ProviderEntity =
             is CustomProviderSetting -> endpointMode
             is AnthropicProviderSetting -> OpenAiEndpointMode.CHAT_COMPLETIONS
             is GeminiProviderSetting -> ""
+            is OpenCodeProviderSetting -> ""
         },
         hostedWebSearchEnabled = hostedWebSearchEnabled,
         anthropicVersion = when (this) {
@@ -163,6 +165,23 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             anthropicVersion = provider.anthropicVersion.ifBlank {
                 AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION
             },
+        )
+
+        ProviderTypes.OPENCODE -> OpenCodeProviderSetting(
+            id = provider.id,
+            name = provider.name,
+            baseUrl = provider.baseUrl,
+            sourceType = sourceType,
+            apiKey = provider.apiKey,
+            isEnabled = provider.isEnabled,
+            isBuiltIn = provider.isBuiltIn,
+            sortOrder = provider.sortOrder,
+            systemPrompt = provider.systemPrompt,
+            models = domainModels,
+            customHeaders = ProviderJson.decodeHeaders(provider.customHeadersJson),
+            customBody = ProviderJson.decodeBody(provider.customBodyJson),
+            createdAt = provider.createdAt,
+            hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
         )
 
         ProviderTypes.GEMINI -> GeminiProviderSetting(
@@ -228,6 +247,7 @@ private val ProviderSetting.storageType: String
         is AnthropicProviderSetting -> ProviderTypes.ANTHROPIC
         is GeminiProviderSetting -> ProviderTypes.GEMINI
         is CustomProviderSetting -> ProviderTypes.CUSTOM
+        is OpenCodeProviderSetting -> ProviderTypes.OPENCODE
     }
 
 private fun Model.toEntity(providerId: String): ProviderModelEntity =

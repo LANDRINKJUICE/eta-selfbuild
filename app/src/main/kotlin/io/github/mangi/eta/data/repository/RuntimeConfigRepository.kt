@@ -10,6 +10,7 @@ import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ProviderAuthModes
@@ -222,7 +223,7 @@ internal object RuntimeConfigRepository {
     private fun ProviderSetting.endpointMode(): String = when (this) {
         is OpenAiCompatibleProviderSetting -> endpointMode
         is CustomProviderSetting -> endpointMode
-        is AnthropicProviderSetting, is GeminiProviderSetting -> ""
+        is AnthropicProviderSetting, is GeminiProviderSetting, is OpenCodeProviderSetting -> ""
     }
 
     private fun writeRuntimeConfig(

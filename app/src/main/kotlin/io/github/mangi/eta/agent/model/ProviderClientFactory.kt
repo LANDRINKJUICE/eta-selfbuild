@@ -18,6 +18,7 @@ internal object ProviderClientFactory {
                 OpenAiEndpointMode.RESPONSES -> OpenAiResponsesProvider
                 else -> OpenAiChatCompletionsProvider
             }
+            ProviderTypes.OPENCODE -> OpenCodeAgentProvider
             ProviderTypes.ANTHROPIC -> AnthropicMessagesProvider
             ProviderTypes.GEMINI -> GeminiInteractionsProvider
             else -> error("不支持的 Provider 协议类型：${config.providerType}")

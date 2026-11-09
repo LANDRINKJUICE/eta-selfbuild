@@ -7,6 +7,7 @@ import io.github.mangi.eta.data.model.GeminiProviderSetting
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.CustomProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthModes
@@ -46,7 +47,7 @@ internal data class ProviderConfigDraft(
             endpointMode = when (provider) {
                 is OpenAiCompatibleProviderSetting -> provider.endpointMode
                 is CustomProviderSetting -> provider.endpointMode
-                is AnthropicProviderSetting, is GeminiProviderSetting -> ""
+                is AnthropicProviderSetting, is GeminiProviderSetting, is OpenCodeProviderSetting -> ""
             },
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
@@ -143,6 +144,15 @@ internal fun buildUpdatedProvider(
             systemPrompt = prompt,
             isEnabled = isEnabled,
             anthropicVersion = anthropicVersion.trim().ifBlank { AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
+        )
+        is OpenCodeProviderSetting -> source.copy(
+            customHeaders = customHeaders.map { it.copy(name = it.name.trim()) },
+            name = name.trim(),
+            baseUrl = baseUrl.trim(),
+            apiKey = apiKey.trim(),
+            systemPrompt = prompt,
+            isEnabled = isEnabled,
+            hostedWebSearchEnabled = hostedWebSearchEnabled,
         )
     }
 }

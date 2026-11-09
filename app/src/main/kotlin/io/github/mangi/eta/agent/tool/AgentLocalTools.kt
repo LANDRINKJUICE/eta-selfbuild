@@ -84,6 +84,7 @@ import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.GeminiProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.OpenCodeProviderSetting
 import io.github.mangi.eta.data.model.ProviderTypes
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -1832,6 +1833,14 @@ internal class AgentLocalTools(
             )
 
             is CustomProviderSetting -> existing.copy(
+                name = args.optString("name").trim().ifBlank { existing.name },
+                baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
+                apiKey = newKey.ifBlank { existing.apiKey },
+                models = newModels,
+                isEnabled = if (args.has("enabled")) args.optBoolean("enabled") else existing.isEnabled,
+            )
+
+            is OpenCodeProviderSetting -> existing.copy(
                 name = args.optString("name").trim().ifBlank { existing.name },
                 baseUrl = newBaseUrl.ifBlank { existing.baseUrl },
                 apiKey = newKey.ifBlank { existing.apiKey },
